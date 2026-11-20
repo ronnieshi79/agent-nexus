@@ -62,7 +62,11 @@ export interface CreateWorkCardInput {
 export function useAgentNexusStore() {
   const [zones] = useState(INITIAL_ZONES);
   const [activeZoneId, setActiveZoneId] = useState<string>('zone_public');
-  const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>(['zone_hz_dnx', 'zone_zj_opc']);
+  const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>([
+    'zone_hz_dnx',
+    'zone_zj_opc',
+    'zone_ai_robotics',
+  ]);
 
   const [activeView, setActiveView] = useState<NavViewId>('chat');
   const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);

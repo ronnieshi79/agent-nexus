@@ -11,6 +11,7 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
+import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import { fetchMarketMatches, type MarketMatchResult } from '../../services/api';
 import type {
   AgentCategory,
@@ -216,75 +217,31 @@ export function AgentMarketView({
       {/* Main Market Directory */}
       <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5">
-          {/* Open Space & Community Zones Directory (Open Space First) */}
-          <div className="mb-4 space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-              {zones.map((z) => {
-                const isSelectedZone = z.id === activeZone.id;
-                const count = allAgents.filter((a) => a.listedZoneIds.includes(z.id)).length;
-                return (
-                  <button
-                    key={z.id}
-                    type="button"
-                    onClick={() => onSelectZone(z.id)}
-                    className={`text-left rounded-xl p-3.5 border transition-colors cursor-pointer ${
-                      isSelectedZone
-                        ? 'bg-slate-900 border-slate-900 text-white'
-                        : 'bg-white border-slate-200 text-slate-900 hover:border-slate-300 hover:bg-slate-50/50'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span
-                          className="w-6 h-6 rounded-md text-[11px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                          style={{ backgroundColor: z.accentColor }}
-                        >
-                          {z.shortCode}
-                        </span>
-                        <span className="text-sm font-bold truncate">{z.name}</span>
-                        <span
-                          className={`text-[11px] whitespace-nowrap shrink-0 ${
-                            isSelectedZone ? 'text-slate-300' : 'text-slate-400'
-                          }`}
-                        >
-                          · {z.typeLabel}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-mono tabular-nums font-semibold shrink-0 ${
-                          isSelectedZone ? 'text-sky-300' : 'text-slate-600'
-                        }`}
-                      >
-                        {count} 位专家
-                      </span>
-                    </div>
-                    <div
-                      className={`mt-1.5 text-[11px] truncate ${
-                        isSelectedZone ? 'text-slate-300' : 'text-slate-500'
-                      }`}
-                    >
-                      {z.focusDomains.join(' · ')}
-                    </div>
-                  </button>
-                );
-              })}
+          {/* Compact Space / Community Selector Bar */}
+          <div className="mb-4 pb-3.5 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-3 flex-wrap min-w-0">
+              <ZoneSelectorDropdown
+                zones={zones}
+                activeZoneId={activeZone.id}
+                onSelectZone={onSelectZone}
+                getZoneStat={(z) => {
+                  const count = allAgents.filter((a) => a.listedZoneIds.includes(z.id)).length;
+                  return `${count} 位专家 · ${z.focusDomains.slice(0, 2).join(' / ')}`;
+                }}
+              />
+              <span className="text-xs text-slate-500 truncate min-w-0">
+                {activeZone.tagline}
+              </span>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 text-xs text-slate-500">
-              <p className="truncate">
-                <span className="font-semibold text-slate-800">{activeZone.name}</span>
-                <span className="mx-1.5 text-slate-300">·</span>
-                <span>{activeZone.tagline}</span>
-              </p>
-              <button
-                type="button"
-                onClick={() => onJumpToZoneProjects(activeZone.id)}
-                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 whitespace-nowrap shrink-0 cursor-pointer self-start sm:self-auto"
-              >
-                <Briefcase className="w-3.5 h-3.5" />
-                <span>查看「{activeZone.name}」专区项目 / 发项目</span>
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => onJumpToZoneProjects(activeZone.id)}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 whitespace-nowrap shrink-0 cursor-pointer self-start md:self-auto"
+            >
+              <Briefcase className="w-3.5 h-3.5" />
+              <span>进入「{activeZone.name}」社区动态与项目</span>
+            </button>
           </div>
 
           {/* AI Talent Advisor Bar + Mount Entry */}

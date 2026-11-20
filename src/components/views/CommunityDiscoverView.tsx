@@ -4,7 +4,6 @@ import {
   Check,
   CheckCircle2,
   Clock,
-  Globe,
   Heart,
   Lock,
   MessageCircle,
@@ -15,7 +14,9 @@ import {
   Store,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
+import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import type {
   CommunityPost,
   CommunityPostType,
@@ -89,7 +90,8 @@ export function CommunityDiscoverView({
   const [activeCommunityId, setActiveCommunityId] = useState<string>(zones[0]?.id || 'zone_public');
   const [postFilter, setPostFilter] = useState<'all' | CommunityPostType>('all');
 
-  // Inline Composer State
+  // Publish Modal State
+  const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [composerMode, setComposerMode] = useState<CommunityPostType>('discussion');
   const [postTitle, setPostTitle] = useState('');
   const [postBody, setPostBody] = useState('');
@@ -97,12 +99,28 @@ export function CommunityDiscoverView({
   const [projDays, setProjDays] = useState(7);
   const [projRoles, setProjRoles] = useState('架构审查, 全栈研发');
 
+  const openComposer = (mode: CommunityPostType = 'discussion') => {
+    setComposerMode(mode);
+    setIsComposerOpen(true);
+  };
+
+  useEffect(() => {
+    if (!isComposerOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsComposerOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isComposerOpen]);
+
   // Comments Expand & Draft Map
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({
     post_pub_1: true,
     post_pub_2: true,
     post_dnx_1: true,
     post_zj_1: true,
+    post_robo_1: true,
+    post_robo_2: true,
   });
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
 
@@ -182,6 +200,7 @@ export function CommunityDiscoverView({
     setPostTitle('');
     setPostBody('');
     setPostFilter('all');
+    setIsComposerOpen(false);
   };
 
   const handleCommentSubmit = (postId: string, e: FormEvent) => {
@@ -195,108 +214,71 @@ export function CommunityDiscoverView({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-white">
-      {/* Top Community Switcher Strip: Public Community First, Private Communities Alongside */}
-      <div className="shrink-0 px-5 sm:px-8 pt-4 pb-3.5 border-b border-slate-200">
-        <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-2.5">
-          {zones.map((z) => {
-            const isPub = z.kind === 'public';
-            const isJoined = isPub || joinedZoneIds.includes(z.id);
-            const isSelected = z.id === activeCommunity.id;
-            const postCnt = communityPosts.filter((p) => p.zoneId === z.id).length;
-            const openProjCnt = zoneProjects.filter(
-              (p) => p.zoneId === z.id && p.status === 'open',
-            ).length;
+      {/* Compact Single-Row Community Selector & Publish Toolbar */}
+      <div className="shrink-0 px-5 sm:px-8 py-2.5 border-b border-slate-200 bg-white">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+            <ZoneSelectorDropdown
+              zones={zones}
+              activeZoneId={activeCommunity.id}
+              onSelectZone={(zId) => {
+                setActiveCommunityId(zId);
+                setPostFilter('all');
+              }}
+              joinedZoneIds={joinedZoneIds}
+              onToggleJoinZone={onToggleJoinZone}
+              getZoneStat={(z) => {
+                const postCnt = communityPosts.filter((p) => p.zoneId === z.id).length;
+                const openProjCnt = zoneProjects.filter(
+                  (p) => p.zoneId === z.id && p.status === 'open',
+                ).length;
+                return `${postCnt} 动态 · ${openProjCnt} 撮合项目 · ${z.memberCount} 成员`;
+              }}
+            />
 
-            return (
-              <div
-                key={z.id}
-                onClick={() => {
-                  setActiveCommunityId(z.id);
-                  setPostFilter('all');
-                }}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setActiveCommunityId(z.id);
-                    setPostFilter('all');
-                  }
-                }}
-                className={`rounded-xl p-3.5 border transition-colors cursor-pointer flex flex-col justify-between gap-2 ${
-                  isSelected
-                    ? 'bg-slate-900 border-slate-900 text-white'
-                    : 'bg-white border-slate-200 text-slate-900 hover:border-slate-300 hover:bg-slate-50/50'
+            {!isPublicCommunity && (
+              <button
+                type="button"
+                onClick={() => onToggleJoinZone(activeCommunity.id)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                  hasAccess
+                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                    : 'bg-blue-600 text-white hover:bg-blue-700'
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className="w-6 h-6 rounded-md text-[11px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: z.accentColor }}
-                    >
-                      {z.shortCode}
-                    </span>
-                    <span className="text-sm font-bold truncate">{z.name}</span>
-                    <span
-                      className={`inline-flex items-center gap-0.5 text-[11px] whitespace-nowrap shrink-0 ${
-                        isSelected ? 'text-slate-300' : 'text-slate-500'
-                      }`}
-                    >
-                      {isPub ? (
-                        <Globe className="w-3 h-3 shrink-0" />
-                      ) : (
-                        <Lock className="w-3 h-3 shrink-0" />
-                      )}
-                      <span>{z.typeLabel}</span>
-                    </span>
-                  </div>
+                {hasAccess ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>已加入</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>加入社区</span>
+                  </>
+                )}
+              </button>
+            )}
 
-                  {!isPub && (
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onToggleJoinZone(z.id);
-                      }}
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        isJoined
-                          ? isSelected
-                            ? 'bg-white/15 text-emerald-300 hover:bg-white/25'
-                            : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                          : isSelected
-                            ? 'bg-blue-500 text-white hover:bg-blue-400'
-                            : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                      }`}
-                    >
-                      {isJoined ? (
-                        <>
-                          <Check className="w-3 h-3" />
-                          <span>已加入</span>
-                        </>
-                      ) : (
-                        <>
-                          <Plus className="w-3 h-3" />
-                          <span>加入</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
+            <span className="hidden md:inline text-xs text-slate-500 font-mono tabular-nums truncate">
+              {communityPosts.filter((p) => p.zoneId === activeCommunity.id).length} 条动态 ·{' '}
+              {communityOpenProjects.filter((p) => p.status === 'open').length} 个撮合项目 ·{' '}
+              {activeCommunity.memberCount} 成员
+            </span>
+          </div>
 
-                <div
-                  className={`flex items-center justify-between gap-2 text-[11px] font-mono tabular-nums ${
-                    isSelected ? 'text-slate-300' : 'text-slate-500'
-                  }`}
-                >
-                  <span>
-                    {postCnt} 条动态 · {openProjCnt} 个撮合项目
-                  </span>
-                  <span>{z.memberCount} 成员</span>
-                </div>
-              </div>
-            );
-          })}
+          {hasAccess && (
+            <button
+              type="button"
+              onClick={() =>
+                openComposer(postFilter === 'all' ? 'discussion' : postFilter)
+              }
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>发布动态 / 项目</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -337,130 +319,8 @@ export function CommunityDiscoverView({
               </div>
             ) : (
               <>
-                {/* Inline Community Composer */}
-                <form
-                  onSubmit={handleComposerSubmit}
-                  className="bg-white rounded-xl border border-slate-200 p-4 space-y-3"
-                >
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg">
-                      {(
-                        [
-                          { id: 'discussion', label: '交流发言' },
-                          { id: 'project', label: '发布项目撮合' },
-                          { id: 'showcase', label: '自荐能力' },
-                        ] as const
-                      ).map((tab) => (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => setComposerMode(tab.id)}
-                          className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                            composerMode === tab.id
-                              ? 'bg-white text-slate-900 shadow-2xs'
-                              : 'text-slate-600 hover:text-slate-900'
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      ))}
-                    </div>
-                    <span className="text-[11px] text-slate-500">
-                      发布至{' '}
-                      <strong style={{ color: activeCommunity.accentColor }}>
-                        {activeCommunity.name}
-                      </strong>
-                      （{activeCommunity.typeLabel}）
-                    </span>
-                  </div>
-
-                  <input
-                    type="text"
-                    value={postTitle}
-                    onChange={(e) => setPostTitle(e.target.value)}
-                    placeholder={
-                      composerMode === 'project'
-                        ? '一句话标题：如「寻东南亚支付网关架构与全栈协同交付，7 天上线」...'
-                        : composerMode === 'showcase'
-                          ? '能力标题：如「开放本月 1 个高并发风控审查档期，支持人+Agent 协同」...'
-                          : `在「${activeCommunity.name}」发起讨论、复盘或求助...`
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-
-                  <textarea
-                    rows={2}
-                    value={postBody}
-                    onChange={(e) => setPostBody(e.target.value)}
-                    placeholder={
-                      composerMode === 'project'
-                        ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作看板 → 我主管」）...'
-                        : '写下你的实战经验、踩坑复盘或具体问题...'
-                    }
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
-                  />
-
-                  {composerMode === 'project' && (
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                      <div>
-                        <label className="block text-[11px] text-slate-500 mb-1">
-                          项目预算（USD）
-                        </label>
-                        <input
-                          type="number"
-                          min={500}
-                          step={100}
-                          value={projBudget}
-                          onChange={(e) => setProjBudget(Number(e.target.value) || 1000)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-500 mb-1">
-                          期望周期（天）
-                        </label>
-                        <input
-                          type="number"
-                          min={1}
-                          max={60}
-                          value={projDays}
-                          onChange={(e) => setProjDays(Number(e.target.value) || 7)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] text-slate-500 mb-1">
-                          需求角色（逗号分隔）
-                        </label>
-                        <input
-                          type="text"
-                          value={projRoles}
-                          onChange={(e) => setProjRoles(e.target.value)}
-                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                        />
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-between gap-2 pt-1">
-                    <span className="text-[11px] text-slate-400">
-                      {composerMode === 'project'
-                        ? '发布项目撮合将同时进入社区信息流与你的工作看板'
-                        : '支持与社区成员及认证 Agent 专家在评论区实时交流'}
-                    </span>
-                    <button
-                      type="submit"
-                      disabled={!postBody.trim() && !postTitle.trim()}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>{composerMode === 'project' ? '发布项目撮合' : '发布动态'}</span>
-                    </button>
-                  </div>
-                </form>
-
                 {/* Feed Filter Strip */}
-                <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="inline-flex items-center gap-1 p-1 bg-slate-200/60 rounded-lg">
                     {(
                       [
@@ -484,16 +344,29 @@ export function CommunityDiscoverView({
                       </button>
                     ))}
                   </div>
+
                   <span className="text-xs text-slate-500 font-mono tabular-nums">
-                    共 {communityFeedPosts.length} 条信息流
+                    共 {communityFeedPosts.length} 条动态
                   </span>
                 </div>
 
                 {/* Information Flow Stream */}
                 <div className="space-y-3.5">
                   {communityFeedPosts.length === 0 ? (
-                    <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center text-xs text-slate-500">
-                      该分类下暂无动态，欢迎发布第一条社区交流或项目撮合。
+                    <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center space-y-2.5">
+                      <p className="text-xs text-slate-500">
+                        该分类下暂无动态，欢迎发布第一条社区交流或项目撮合。
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openComposer(postFilter === 'all' ? 'discussion' : postFilter)
+                        }
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>立即发布</span>
+                      </button>
                     </div>
                   ) : (
                     communityFeedPosts.map((post) => {
@@ -817,7 +690,7 @@ export function CommunityDiscoverView({
                 {hasAccess && (
                   <button
                     type="button"
-                    onClick={() => setComposerMode('project')}
+                    onClick={() => openComposer('project')}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                   >
                     + 发项目
@@ -917,6 +790,181 @@ export function CommunityDiscoverView({
           </aside>
         </div>
       </div>
+
+      {/* Publish Post / Project Matchmaking Modal */}
+      {isComposerOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/45 flex items-center justify-center p-4"
+          onClick={() => setIsComposerOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="community-publish-modal-title"
+        >
+          <form
+            onSubmit={handleComposerSubmit}
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
+          >
+            {/* Modal Header */}
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2
+                  id="community-publish-modal-title"
+                  className="text-sm font-bold text-slate-900"
+                >
+                  发布社区内容
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  目标社区：
+                  <strong style={{ color: activeCommunity.accentColor }}>
+                    {activeCommunity.name}
+                  </strong>
+                  （{activeCommunity.typeLabel}）
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsComposerOpen(false)}
+                aria-label="关闭发布弹框"
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center justify-center cursor-pointer transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 space-y-3.5">
+              <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+                {(
+                  [
+                    { id: 'discussion', label: '交流发言' },
+                    { id: 'project', label: '发布项目撮合' },
+                    { id: 'showcase', label: '自荐能力' },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setComposerMode(tab.id)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                      composerMode === tab.id
+                        ? 'bg-white text-slate-900 shadow-2xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  标题
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={postTitle}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  placeholder={
+                    composerMode === 'project'
+                      ? '一句话标题：如「寻东南亚支付网关架构与全栈协同交付，7 天上线」'
+                      : composerMode === 'showcase'
+                        ? '能力标题：如「开放本月 1 个高并发风控审查档期，支持人+Agent 协同」'
+                        : `在「${activeCommunity.name}」发起讨论、复盘或求助`
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                  {composerMode === 'project' ? '项目说明与验收标准' : '内容详情'}
+                </label>
+                <textarea
+                  rows={4}
+                  value={postBody}
+                  onChange={(e) => setPostBody(e.target.value)}
+                  placeholder={
+                    composerMode === 'project'
+                      ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作看板 → 我主管」）...'
+                      : '写下你的实战经验、踩坑复盘或具体问题...'
+                  }
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+                />
+              </div>
+
+              {composerMode === 'project' && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-0.5">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      项目预算（USD）
+                    </label>
+                    <input
+                      type="number"
+                      min={500}
+                      step={100}
+                      value={projBudget}
+                      onChange={(e) => setProjBudget(Number(e.target.value) || 1000)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      期望周期（天）
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={projDays}
+                      onChange={(e) => setProjDays(Number(e.target.value) || 7)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      需求角色（逗号分隔）
+                    </label>
+                    <input
+                      type="text"
+                      value={projRoles}
+                      onChange={(e) => setProjRoles(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+              <span className="text-[11px] text-slate-500">
+                {composerMode === 'project'
+                  ? '发布后将同时进入社区信息流与工作看板'
+                  : '发布后支持社区成员与专家节点评论交流'}
+              </span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsComposerOpen(false)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={!postBody.trim() && !postTitle.trim()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{composerMode === 'project' ? '发布项目撮合' : '发布动态'}</span>
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }
