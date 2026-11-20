@@ -1,7 +1,6 @@
-import { Bot, LogIn, Menu, MessageSquareText, ShieldCheck } from 'lucide-react';
+import { Bot, Menu, MessageSquareText, ShieldCheck } from 'lucide-react';
 import type {
   ActiveChatChannel,
-  AgentNexusAccount,
   ExpertAgent,
   NavViewId,
   ProjectWorkspace,
@@ -12,12 +11,10 @@ interface TopHeaderProps {
   activeChatChannel: ActiveChatChannel;
   workspace: ProjectWorkspace;
   agents: ExpertAgent[];
-  account: AgentNexusAccount | null;
   unsettledCount: number;
   onOpenMobileMenu: () => void;
   onOpenAssistant: () => void;
   onBackToChat: () => void;
-  onOpenLogin: () => void;
 }
 
 const VIEW_LABELS: Record<NavViewId, string> = {
@@ -32,12 +29,10 @@ export function TopHeader({
   activeChatChannel,
   workspace,
   agents,
-  account,
   unsettledCount,
   onOpenMobileMenu,
   onOpenAssistant,
   onBackToChat,
-  onOpenLogin,
 }: TopHeaderProps) {
   let subLabel = workspace.name;
   if (activeView === 'chat') {
@@ -79,7 +74,8 @@ export function TopHeader({
         <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-600 font-mono tabular-nums whitespace-nowrap">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
           <span>
-            当前项目 ${workspace.spentUsd.toFixed(2)} / ${workspace.budgetCapUsd.toFixed(2)}
+            项目签约 ${workspace.spentUsd.toLocaleString('en-US')} / 预算 $
+            {workspace.budgetCapUsd.toLocaleString('en-US')}
           </span>
         </div>
 
@@ -97,26 +93,14 @@ export function TopHeader({
             </button>
           )
         ) : (
-          <div className="flex items-center gap-2">
-            {!account && (
-              <button
-                type="button"
-                onClick={onOpenLogin}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-slate-300 bg-white hover:bg-slate-50 text-slate-800 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>登录账号</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onBackToChat}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <MessageSquareText className="w-3.5 h-3.5" />
-              <span>返回聊天</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onBackToChat}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          >
+            <MessageSquareText className="w-3.5 h-3.5" />
+            <span>返回聊天</span>
+          </button>
         )}
       </div>
     </header>

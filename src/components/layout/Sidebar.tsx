@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type {
   ActiveChatChannel,
+  AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
   ExpertAgent,
@@ -20,6 +21,7 @@ import type {
   ProjectWorkspace,
   WorkflowTask,
 } from '../../types/agentnexus';
+import { AccountFooter } from '../account/AccountPanel';
 
 interface SidebarProps {
   activeView: NavViewId;
@@ -35,6 +37,7 @@ interface SidebarProps {
   hiredCount: number;
   privateCount: number;
   marketCount: number;
+  account: AgentNexusAccount | null;
   mobileOpen: boolean;
   onCloseMobile: () => void;
   onSelectView: (v: NavViewId) => void;
@@ -43,6 +46,8 @@ interface SidebarProps {
   onSelectDmChat: (agentId: string) => void;
   onCreateProject: (name: string, goal: string) => void;
   onStartNegotiation: (agentId: string) => void;
+  onOpenLogin: () => void;
+  onLogout: () => void;
 }
 
 type ChannelFilter = 'all' | 'group' | 'dm' | 'assistant';
@@ -67,6 +72,7 @@ export function Sidebar({
   hiredCount,
   privateCount,
   marketCount,
+  account,
   mobileOpen,
   onCloseMobile,
   onSelectView,
@@ -75,6 +81,8 @@ export function Sidebar({
   onSelectDmChat,
   onCreateProject,
   onStartNegotiation,
+  onOpenLogin,
+  onLogout,
 }: SidebarProps) {
   const [filter, setFilter] = useState<ChannelFilter>('all');
   const [createMode, setCreateMode] = useState<'none' | 'project' | 'dm'>('none');
@@ -109,7 +117,7 @@ export function Sidebar({
       id: 'kanban',
       label: '工作看板',
       icon: KanbanSquare,
-      count: reviewTaskCount > 0 ? `${reviewTaskCount} 待审` : `${workspaces.length} 项目`,
+      count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验收` : `${workspaces.length} 项目`,
       highlight: reviewTaskCount > 0,
     },
     {
@@ -328,7 +336,7 @@ export function Sidebar({
                         {a.handle}
                       </span>
                       <span className="text-[11px] font-mono tabular-nums text-slate-500 shrink-0">
-                        ${a.pricePerTaskUsd.toFixed(2)}
+                        ${a.projectPriceUsd.toLocaleString('en-US')}/项目
                       </span>
                     </button>
                   ))}
@@ -338,54 +346,9 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Scrollable Unified Chat Threads List */}
+        {/* Scrollable Unified Chat Threads List (Project Groups First -> Direct Negotiations -> Platform Assistant) */}
         <div className="flex-1 overflow-y-auto clean-scroll px-2.5 pb-3 space-y-1">
-          {/* 1. Platform Assistant Thread (Nexa) */}
-          {(filter === 'all' || filter === 'assistant') && (
-            <button
-              type="button"
-              onClick={() => {
-                onOpenAssistant();
-                onCloseMobile();
-              }}
-              className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
-                isChatView && activeChatChannel.type === 'assistant'
-                  ? 'bg-white border-slate-300 shadow-2xs'
-                  : 'border-transparent hover:bg-white/80'
-              }`}
-            >
-              <div className="flex items-start gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-slate-900 text-sky-300 flex items-center justify-center shrink-0 mt-0.5">
-                  <Bot className="w-4 h-4" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span className="text-xs font-bold text-slate-900 truncate">
-                      Nexa 平台助理
-                    </span>
-                    <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
-                      {lastAssistantMsg?.timestamp || '刚刚'}
-                    </span>
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
-                    <span className="font-semibold text-blue-700 truncate">
-                      平台助理 · 结算/审计
-                    </span>
-                    {assistantPendingCount > 0 && (
-                      <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
-                        {assistantPendingCount} 提醒
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-[11px] text-slate-500 truncate">
-                    {lastAssistantMsg?.content || '结算对账、接单与审计提醒'}
-                  </p>
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* 2. Project Group Chat Threads */}
+          {/* 1. Project Group Chat Threads (Core Multi-Agent Collaboration) */}
           {(filter === 'all' || filter === 'group') &&
             workspaces.map((ws) => {
               const isSelected =
@@ -430,7 +393,7 @@ export function Sidebar({
                         </span>
                         {reviewCount > 0 && (
                           <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
-                            {reviewCount} 待审
+                            {reviewCount} 待验收
                           </span>
                         )}
                       </div>
@@ -443,7 +406,7 @@ export function Sidebar({
               );
             })}
 
-          {/* 3. External Expert Private Negotiation Threads */}
+          {/* 2. External Expert Private Negotiation Threads */}
           {(filter === 'all' || filter === 'dm') &&
             negotiations.map((thread) => {
               const agent = agents.find((a) => a.id === thread.agentId);
@@ -490,8 +453,8 @@ export function Sidebar({
                           <Handshake className="w-3 h-3" />
                           <span>私聊</span>
                         </span>
-                        <span className={`font-semibold truncate ${st.cls}`}>
-                          {st.label} · ${thread.negotiatedPriceUsd.toFixed(2)}
+                        <span className={`font-semibold font-mono tabular-nums truncate ${st.cls}`}>
+                          {st.label} · ${Math.round(thread.negotiatedPriceUsd).toLocaleString('en-US')}
                         </span>
                       </div>
                       <p className="mt-1 text-[11px] text-slate-500 truncate">
@@ -502,8 +465,56 @@ export function Sidebar({
                 </button>
               );
             })}
+
+          {/* 3. Platform Assistant Thread (Nexa) placed below core project & DM chats */}
+          {(filter === 'all' || filter === 'assistant') && (
+            <button
+              type="button"
+              onClick={() => {
+                onOpenAssistant();
+                onCloseMobile();
+              }}
+              className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                isChatView && activeChatChannel.type === 'assistant'
+                  ? 'bg-white border-slate-300 shadow-2xs'
+                  : 'border-transparent hover:bg-white/80'
+              }`}
+            >
+              <div className="flex items-start gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-900 text-sky-300 flex items-center justify-center shrink-0 mt-0.5">
+                  <Bot className="w-4 h-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1.5">
+                    <span className="text-xs font-bold text-slate-900 truncate">
+                      Nexa 平台助理
+                    </span>
+                    <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
+                      {lastAssistantMsg?.timestamp || '刚刚'}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
+                    <span className="font-semibold text-blue-700 truncate">
+                      平台助理 · 结算/审计
+                    </span>
+                    {assistantPendingCount > 0 && (
+                      <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
+                        {assistantPendingCount} 提醒
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500 truncate">
+                    {lastAssistantMsg?.content || '结算对账、接单与审计提醒'}
+                  </p>
+                </div>
+              </div>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Bottom-Left Pinned AgentNexus Account Login Footer */}
+      <AccountFooter account={account} onOpenLogin={onOpenLogin} onLogout={onLogout} />
     </div>
   );
 

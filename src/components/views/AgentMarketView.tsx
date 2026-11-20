@@ -14,11 +14,18 @@ import {
 import { fetchMarketMatches, type MarketMatchResult } from '../../services/api';
 import type {
   AgentCategory,
+  DemandStatus,
   DirectMessage,
   ExpertAgent,
   ProjectWorkspace,
   ServiceMode,
 } from '../../types/agentnexus';
+
+const DEMAND_COLOR: Record<DemandStatus, string> = {
+  供不应求: 'text-amber-700',
+  需求旺盛: 'text-blue-700',
+  档期充裕: 'text-emerald-700',
+};
 
 interface AgentMarketViewProps {
   workspace: ProjectWorkspace;
@@ -170,11 +177,11 @@ export function AgentMarketView({
 
   const quickInterviewQuestions = drawerAgent
     ? [
-        `针对「${workspace.name}」，如果你接手第一步会重点排查什么？`,
-        '单次任务大约包含哪些交付物，预算上限建议设多少？',
+        `针对「${workspace.name}」，如果你承接本项目第一步会重点把控什么？`,
+        `我们项目范围比较聚焦，你挂牌价 $${drawerAgent.projectPriceUsd.toLocaleString('en-US')}/项目，具体包含哪些里程碑交付？`,
         drawerAgent.serviceMode === 'human-agent'
-          ? '人+Agent 协同模式下，人类专家会在什么环节把关？'
-          : '纯 Agent 租用模式下，如何保证交付质量不返工？',
+          ? '人+Agent 协同模式下，人类专家会在什么关键节点把关签发？'
+          : '纯 Agent 租用模式下，全周期交付质量如何保障？',
       ]
     : [];
 
@@ -187,7 +194,7 @@ export function AgentMarketView({
             <div>
               <h1 className="text-xl font-bold text-slate-900">专家 Agent 市场</h1>
               <p className="text-sm text-slate-600 mt-1">
-                支持筛选纯 Agent 租用或人+Agent 协同专家，先在右侧抽屉 1v1 私聊确认思路，满意后一键拉入项目群。
+                按项目签约定价（基于专家能力等级、历史信誉、稀缺度与市场供需），支持先在右侧 1v1 私聊协商再一键拉入项目群。
               </p>
             </div>
             <button
@@ -245,7 +252,7 @@ export function AgentMarketView({
                   <span>AI 组队推荐</span>
                   <span aria-hidden="true">·</span>
                   <span className="font-mono tabular-nums">
-                    预估单轮预算 ${Number(matchResult.estimatedBudgetUsd || 0).toFixed(2)}
+                    预估项目组合签约 ${Math.round(Number(matchResult.estimatedBudgetUsd || 0)).toLocaleString('en-US')}
                   </span>
                 </div>
                 <p className="text-sm text-slate-800 mt-1">{matchResult.summary}</p>
@@ -382,10 +389,15 @@ export function AgentMarketView({
                         </div>
 
                         <div className="text-right shrink-0">
-                          <div className="text-sm font-bold font-mono tabular-nums text-slate-900">
-                            ${agent.pricePerTaskUsd.toFixed(2)}
+                          <div className="text-base font-bold font-mono tabular-nums text-slate-900">
+                            ${agent.projectPriceUsd.toLocaleString('en-US')}
                           </div>
-                          <div className="text-[11px] text-slate-500">每次任务</div>
+                          <div className="text-[11px] whitespace-nowrap">
+                            <span className="text-slate-500">每项目 · </span>
+                            <span className={`font-semibold ${DEMAND_COLOR[agent.performance.demandStatus]}`}>
+                              {agent.performance.demandStatus}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -395,7 +407,7 @@ export function AgentMarketView({
                         </p>
                       )}
 
-                      {/* Unboxed Service Mode + Role + Performance Metadata */}
+                      {/* Unboxed Capability Tier, Reputation & Supply-Demand Data */}
                       <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 font-mono tabular-nums">
                         <span
                           className={`font-sans font-semibold ${
@@ -405,13 +417,13 @@ export function AgentMarketView({
                           {SERVICE_MODE_LABELS[agent.serviceMode]}
                         </span>
                         <span aria-hidden="true">·</span>
-                        <span className="font-sans text-slate-600">
-                          {CATEGORY_LABELS[agent.category]}
+                        <span className="font-sans font-semibold text-slate-800">
+                          {agent.performance.capabilityTier}
                         </span>
                         <span aria-hidden="true">·</span>
-                        <span>评分 {agent.performance.rating.toFixed(2)}</span>
+                        <span>信誉 {agent.performance.reputationScore}</span>
                         <span aria-hidden="true">·</span>
-                        <span>{agent.performance.successRate}%</span>
+                        <span>复购 {agent.performance.repeatHireRate}%</span>
                       </div>
 
                       <p className="mt-2.5 text-xs text-slate-700 leading-relaxed">
@@ -420,9 +432,9 @@ export function AgentMarketView({
                       </p>
 
                       <div className="mt-2 text-[11px] text-slate-500 flex items-center justify-between gap-2">
-                        <span className="truncate">{agent.region}</span>
+                        <span className="truncate">{agent.performance.demandNote}</span>
                         <span className="font-mono tabular-nums shrink-0">
-                          {agent.performance.completedTasks} 单 · 均耗 {agent.performance.avgDurationMin}m
+                          {agent.performance.completedProjects} 项目 · 评分 {agent.performance.rating.toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -561,7 +573,7 @@ export function AgentMarketView({
                     {drawerAgent.handle} · 雇前私聊沟通
                   </span>
                   <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">
-                    你好！我是 {drawerAgent.name}，当前提供「{SERVICE_MODE_LABELS[drawerAgent.serviceMode]}」服务（单任务参考价 ${drawerAgent.pricePerTaskUsd.toFixed(2)}）。关于「{workspace.name}」的任何技术或需求疑问都可以先在这里私聊试探，认可后再一键拉我入群。
+                    你好！我是 {drawerAgent.name}（{drawerAgent.performance.capabilityTier} · 信誉 {drawerAgent.performance.reputationScore}），提供「{SERVICE_MODE_LABELS[drawerAgent.serviceMode]}」服务，项目挂牌价 ${drawerAgent.projectPriceUsd.toLocaleString('en-US')}/项目（{drawerAgent.performance.demandStatus}）。关于「{workspace.name}」的交付范围与项目报价，都可以先在这里私聊敲定。
                   </div>
                 </div>
 
@@ -651,33 +663,40 @@ export function AgentMarketView({
 
               <div className="grid grid-cols-2 gap-3.5 py-4 border-y border-slate-200">
                 <div>
-                  <div className="text-[11px] text-slate-500">历史完成任务</div>
-                  <div className="text-base font-bold font-mono tabular-nums text-slate-900">
-                    {drawerAgent.performance.completedTasks} 次
+                  <div className="text-[11px] text-slate-500">能力等级 · 综合信誉</div>
+                  <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono tabular-nums">
+                    {drawerAgent.performance.capabilityTier} · {drawerAgent.performance.reputationScore}/100
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] text-slate-500">历史交付项目 / 复购率</div>
+                  <div className="text-sm font-bold font-mono tabular-nums text-slate-900 mt-0.5">
+                    {drawerAgent.performance.completedProjects} 个 · {drawerAgent.performance.repeatHireRate}%
                   </div>
                 </div>
                 <div>
                   <div className="text-[11px] text-slate-500">一次验收通过率</div>
-                  <div className="text-base font-bold font-mono tabular-nums text-emerald-700">
-                    {drawerAgent.performance.successRate}%
+                  <div className="text-sm font-bold font-mono tabular-nums text-emerald-700 mt-0.5">
+                    {drawerAgent.performance.successRate}%（均期 {drawerAgent.performance.avgDeliveryDays} 天）
                   </div>
                 </div>
                 <div>
-                  <div className="text-[11px] text-slate-500">平均交付耗时</div>
-                  <div className="text-base font-bold font-mono tabular-nums text-slate-900">
-                    {drawerAgent.performance.avgDurationMin} 分钟
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-500">成本效率</div>
-                  <div className="text-xs font-semibold text-slate-800 mt-1">
-                    {drawerAgent.performance.costEfficiency}
+                  <div className="text-[11px] text-slate-500">当前供需与档期</div>
+                  <div className={`text-xs font-semibold mt-1 ${DEMAND_COLOR[drawerAgent.performance.demandStatus]}`}>
+                    {drawerAgent.performance.demandStatus} · {drawerAgent.performance.demandNote}
                   </div>
                 </div>
               </div>
 
               <div>
-                <div className="text-xs font-semibold text-slate-800 mb-1">运行架构与模式</div>
+                <div className="text-xs font-semibold text-slate-800 mb-1">项目定价依据（能力 × 稀缺性 × 供需）</div>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  {drawerAgent.performance.pricingBasis}
+                </p>
+              </div>
+
+              <div>
+                <div className="text-xs font-semibold text-slate-800 mb-1">履约架构与服务模式</div>
                 <div className="text-xs text-slate-600">
                   {SERVICE_MODE_LABELS[drawerAgent.serviceMode]} · {drawerAgent.engineModel}
                 </div>
@@ -713,11 +732,11 @@ export function AgentMarketView({
           {/* Sticky Bottom Hire Confirmation Bar */}
           <div className="p-4 border-t border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
             <div className="min-w-0">
-              <div className="text-xs font-bold font-mono tabular-nums text-slate-900">
-                ${drawerAgent.pricePerTaskUsd.toFixed(2)} / 任务 · ${drawerAgent.pricePerHourUsd.toFixed(2)} / 时
+              <div className="text-sm font-bold font-mono tabular-nums text-slate-900">
+                ${drawerAgent.projectPriceUsd.toLocaleString('en-US')} / 项目
               </div>
               <div className="text-[11px] text-slate-500 truncate">
-                {SERVICE_MODE_LABELS[drawerAgent.serviceMode]}
+                {drawerAgent.performance.capabilityTier} · {drawerAgent.performance.demandStatus}
               </div>
             </div>
 

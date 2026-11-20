@@ -17,7 +17,6 @@ import type {
   PlatformServiceCategory,
   SettlementRecord,
 } from '../../types/agentnexus';
-import { AccountFooter } from '../account/AccountPanel';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface PlatformAssistantPaneProps {
@@ -33,8 +32,6 @@ interface PlatformAssistantPaneProps {
   onOpenDm: (agentId: string) => void;
   onOpenKanban: (projectId?: string) => void;
   onOpenTeam: () => void;
-  onOpenLogin: () => void;
-  onLogout: () => void;
 }
 
 const CATEGORY_LABELS: Record<PlatformServiceCategory, { label: string; cls: string }> = {
@@ -45,9 +42,9 @@ const CATEGORY_LABELS: Record<PlatformServiceCategory, { label: string; cls: str
 };
 
 const QUICK_COMMANDS = [
-  '帮我核对当前所有项目的待结算账单明细',
-  '巡检有没有待审批交付物或预算超支风险',
-  '汇总外部专家报价协商与我私有节点的接单状态',
+  '帮我核对当前所有项目的待结算项目款明细',
+  '巡检有没有待验收交付物或项目预算超支风险',
+  '汇总外部专家项目报价协商与我私有节点的接单状态',
 ];
 
 export function PlatformAssistantPane({
@@ -63,8 +60,6 @@ export function PlatformAssistantPane({
   onOpenDm,
   onOpenKanban,
   onOpenTeam,
-  onOpenLogin,
-  onLogout,
 }: PlatformAssistantPaneProps) {
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
@@ -135,7 +130,7 @@ export function PlatformAssistantPane({
           title="Nexa 平台助理"
           tag="官方助理 Agent"
           tagClassName="text-blue-700"
-          subtitle="提供全平台结算对账、接单与协商提醒、交付审计与预算风控护栏服务"
+          subtitle="提供全平台项目签约结算、接单与协商提醒、交付审计与预算风控护栏服务"
           panelOpen={panelOpen}
           panelToggleLabel={`平台服务台 (${unsettledRecords.length})`}
           onTogglePanel={() => setPanelOpen((v) => !v)}
@@ -283,14 +278,14 @@ export function PlatformAssistantPane({
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 shrink-0"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>发送</span>
+                <span>{isBusy ? '发送中...' : '发送'}</span>
               </button>
             </form>
           </div>
         </div>
       </div>
 
-      {/* Right Docked Platform Concierge Service Desk + Bottom AgentNexus Account Footer */}
+      {/* Right Docked Platform Concierge Service Desk */}
       {panelOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="p-3.5 border-b border-slate-200 bg-white shrink-0">
@@ -326,15 +321,15 @@ export function PlatformAssistantPane({
               <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-3">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-[11px] text-slate-500">待核销结算</div>
+                    <div className="text-[11px] text-slate-500">待核销项目款</div>
                     <div className="text-lg font-bold font-mono tabular-nums text-amber-700 mt-0.5">
-                      ${unsettledTotal.toFixed(2)}
+                      ${Math.round(unsettledTotal).toLocaleString('en-US')}
                     </div>
                   </div>
                   <div>
                     <div className="text-[11px] text-slate-500">累计已结算</div>
                     <div className="text-lg font-bold font-mono tabular-nums text-emerald-700 mt-0.5">
-                      ${settledTotal.toFixed(2)}
+                      ${Math.round(settledTotal).toLocaleString('en-US')}
                     </div>
                   </div>
                 </div>
@@ -344,7 +339,7 @@ export function PlatformAssistantPane({
                     onClick={onSettleAll}
                     className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                   >
-                    一键核销全部 {unsettledRecords.length} 笔待结账单
+                    一键核销全部 {unsettledRecords.length} 笔待结项目款
                   </button>
                 )}
               </div>
@@ -360,11 +355,11 @@ export function PlatformAssistantPane({
                         {s.agentHandle}
                       </span>
                       <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
-                        ${s.amountUsd.toFixed(2)}
+                        ${Math.round(s.amountUsd).toLocaleString('en-US')}
                       </span>
                     </div>
                     <div className="text-[11px] text-slate-500 truncate">{s.projectName}</div>
-                    <div className="text-xs text-slate-700 line-clamp-2">{s.taskTitle}</div>
+                    <div className="text-xs text-slate-700 line-clamp-2">{s.milestoneLabel}</div>
                     <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
                       <span className="font-mono tabular-nums text-slate-400">
                         {s.id} · {s.createdAt}
@@ -437,9 +432,6 @@ export function PlatformAssistantPane({
               </div>
             </div>
           )}
-
-          {/* Right Bottom: AgentNexus Account Login Footer */}
-          <AccountFooter account={account} onOpenLogin={onOpenLogin} onLogout={onLogout} />
         </aside>
       )}
     </div>

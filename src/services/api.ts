@@ -97,7 +97,6 @@ export interface ChatOrchestrateResult {
     assigneeId: string;
     assigneeHandle: string;
     priority: '高' | '中' | '低';
-    budgetLimitUsd: number;
   }[];
 }
 
@@ -115,8 +114,6 @@ export interface KanbanExecuteResult {
   deliverableSummary: string;
   deliverableArtifact: string;
   chatBroadcast: string;
-  tokensUsed: number;
-  actualCostUsd: number;
 }
 
 export function executeKanbanTask(payload: {
@@ -131,7 +128,7 @@ export interface ExpertOptimizeResult {
   optimizedBio: string;
   recommendedSkills: string[];
   recommendedMcpTools: string[];
-  suggestedPricePerTaskUsd: number;
+  suggestedProjectPriceUsd: number;
   marketAdvice: string;
 }
 
@@ -139,6 +136,7 @@ export function optimizeExpertProfile(payload: {
   name: string;
   title: string;
   category: string;
+  serviceMode: string;
   skills: string[];
   bio: string;
 }): Promise<ExpertOptimizeResult> {

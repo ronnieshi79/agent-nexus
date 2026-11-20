@@ -18,12 +18,11 @@ import type {
   ChatMessage,
   ExpertAgent,
   ProjectWorkspace,
-  TaskStatus,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
-import { AccountFooter } from '../account/AccountPanel';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
+import { WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
   workspace: ProjectWorkspace;
@@ -42,23 +41,7 @@ interface GroupChatViewProps {
   onJumpToMarket: () => void;
   onJumpToKanban: () => void;
   onJumpToTeam: () => void;
-  onOpenLogin: () => void;
-  onLogout: () => void;
 }
-
-const STATUS_LABELS: Record<TaskStatus, string> = {
-  pending: '待接单',
-  in_progress: '执行中',
-  review: '待审核',
-  done: '已完成',
-};
-
-const STATUS_TEXT_COLORS: Record<TaskStatus, string> = {
-  pending: 'text-slate-600',
-  in_progress: 'text-blue-700',
-  review: 'text-amber-700',
-  done: 'text-emerald-700',
-};
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
   planning: '产品策划',
@@ -84,8 +67,6 @@ export function GroupChatView({
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
-  onOpenLogin,
-  onLogout,
 }: GroupChatViewProps) {
   const [draft, setDraft] = useState('');
   const [rightOpen, setRightOpen] = useState(true);
@@ -102,7 +83,7 @@ export function GroupChatView({
   const [cardTitle, setCardTitle] = useState('');
   const [cardDesc, setCardDesc] = useState('');
   const [cardAssignee, setCardAssignee] = useState(hiredAgents[0]?.id || '');
-  const [cardBudget, setCardBudget] = useState(2.0);
+  const [cardPriority, setCardPriority] = useState<'高' | '中' | '低'>('高');
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -172,8 +153,7 @@ export function GroupChatView({
       title: cardTitle,
       description: cardDesc,
       assigneeId: cardAssignee,
-      priority: '高',
-      budgetLimitUsd: cardBudget,
+      priority: cardPriority,
     });
     setCardTitle('');
     setCardDesc('');
@@ -193,7 +173,7 @@ export function GroupChatView({
     hiredAgents[0]
       ? `${hiredAgents[0].handle} 补充多币种退款异常边界并生成规划工作卡`
       : '@Nexa 检查本项目当前各功能模块进展',
-    '@Nexa 汇总本项目所有工作卡片进度与预算剩余',
+    '@Nexa 汇总本项目当前所有工作卡片进度与交付风险',
   ];
 
   return (
@@ -273,14 +253,6 @@ export function GroupChatView({
                         </>
                       )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
-                      {typeof msg.costUsd === 'number' && msg.costUsd > 0 && (
-                        <>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="text-emerald-700 font-mono tabular-nums">
-                            ${msg.costUsd.toFixed(2)}
-                          </span>
-                        </>
-                      )}
                     </div>
 
                     <div
@@ -292,65 +264,56 @@ export function GroupChatView({
                     >
                       <p className="whitespace-pre-wrap">{msg.content}</p>
 
+                      {/* Lightweight inline task status reference (natural conversation, no heavy buttons or bars) */}
                       {linkedTasks.length > 0 && (
-                        <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                        <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1">
                           {linkedTasks.map((task) => {
                             const isExec = executingTaskId === task.id;
+                            const st = WORK_STATUS_META[task.status];
                             return (
                               <div
                                 key={task.id}
-                                className="rounded-lg bg-slate-50 border border-slate-200 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                className="flex items-center justify-between gap-3 py-1 text-xs"
                               >
-                                <div className="min-w-0">
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                                    <span className="font-medium text-slate-700">
-                                      {task.featureModule}
-                                    </span>
-                                    <span aria-hidden="true">·</span>
-                                    <span className="text-slate-500">
-                                      {WORK_TYPE_LABELS[task.workType]}
-                                    </span>
-                                    <span aria-hidden="true">·</span>
-                                    <span className={`font-semibold ${STATUS_TEXT_COLORS[task.status]}`}>
-                                      {STATUS_LABELS[task.status]}
-                                    </span>
-                                    <span aria-hidden="true">·</span>
-                                    <span className="text-slate-600">{task.assigneeHandle}</span>
-                                  </div>
-                                  <div className="text-xs font-semibold text-slate-900 mt-1">
-                                    {task.title}
-                                  </div>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setRightOpen(true);
+                                    setRightTab('tasks');
+                                  }}
+                                  className="flex items-center gap-2 min-w-0 text-left text-slate-700 hover:text-slate-950 cursor-pointer"
+                                >
+                                  <span
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.activeSegmentCls} ${
+                                      task.status === 'in_progress' ? 'animate-pulse' : ''
+                                    }`}
+                                  />
+                                  <span className="truncate font-medium">{task.title}</span>
+                                </button>
 
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2.5 shrink-0 whitespace-nowrap text-[11px]">
+                                  <span className={`font-medium ${st.textCls}`}>
+                                    {isExec ? '正在执行' : st.label}
+                                  </span>
                                   {task.status === 'pending' && (
                                     <button
                                       type="button"
                                       disabled={Boolean(executingTaskId)}
                                       onClick={() => onRunTask(task.id)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white cursor-pointer whitespace-nowrap disabled:opacity-45"
+                                      className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45"
                                     >
-                                      <Play className="w-3 h-3" />
-                                      <span>{isExec ? '执行中...' : 'AI 执行'}</span>
+                                      批准执行
                                     </button>
                                   )}
                                   {task.status === 'review' && (
                                     <button
                                       type="button"
                                       onClick={() => onApproveTask(task.id)}
-                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer whitespace-nowrap"
+                                      className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer"
                                     >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>批准交付</span>
+                                      验收通过
                                     </button>
                                   )}
-                                  <button
-                                    type="button"
-                                    onClick={onJumpToKanban}
-                                    className="text-xs text-slate-600 hover:text-slate-900 underline underline-offset-2 cursor-pointer whitespace-nowrap"
-                                  >
-                                    工作看板
-                                  </button>
                                 </div>
                               </div>
                             );
@@ -470,17 +433,15 @@ export function GroupChatView({
                       </option>
                     ))}
                   </select>
-                  <div className="flex items-center gap-1.5 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5">
-                    <span className="text-[11px] text-slate-500 whitespace-nowrap">预算 $</span>
-                    <input
-                      type="number"
-                      min="0.5"
-                      step="0.5"
-                      value={cardBudget}
-                      onChange={(e) => setCardBudget(Number(e.target.value) || 1.5)}
-                      className="w-full text-xs font-mono tabular-nums text-slate-900 focus:outline-none"
-                    />
-                  </div>
+                  <select
+                    value={cardPriority}
+                    onChange={(e) => setCardPriority(e.target.value as '高' | '中' | '低')}
+                    className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    <option value="高">优先级：高</option>
+                    <option value="中">优先级：中</option>
+                    <option value="低">优先级：低</option>
+                  </select>
                 </div>
 
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
@@ -612,7 +573,7 @@ export function GroupChatView({
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{isBusy ? '派遣中...' : '发送派单'}</span>
+                  <span>{isBusy ? '发送中...' : '发送'}</span>
                 </button>
               </div>
             </form>
@@ -620,7 +581,7 @@ export function GroupChatView({
         </div>
       </div>
 
-      {/* Right Docked Side Panel: Project Work Cards + Active Members + Bottom AgentNexus Account Login */}
+      {/* Right Docked Side Panel: Project Work Cards + Active Members */}
       {rightOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="p-3 border-b border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
@@ -669,17 +630,18 @@ export function GroupChatView({
 
                       {moduleTasks.map((task) => {
                         const isExec = executingTaskId === task.id;
+                        const st = WORK_STATUS_META[task.status];
                         return (
                           <div
                             key={task.id}
-                            className="bg-white rounded-xl p-3.5 border border-slate-200/90 space-y-2"
+                            className="bg-white rounded-xl p-3.5 border border-slate-200/90 space-y-2.5"
                           >
                             <div className="flex items-center justify-between text-[11px]">
                               <span className="text-slate-500 font-medium">
                                 {WORK_TYPE_LABELS[task.workType]} · <span className="font-mono">{task.id}</span>
                               </span>
-                              <span className={`font-semibold ${STATUS_TEXT_COLORS[task.status]}`}>
-                                {STATUS_LABELS[task.status]}
+                              <span className={`font-semibold ${st.textCls}`}>
+                                {st.label}
                               </span>
                             </div>
 
@@ -687,12 +649,12 @@ export function GroupChatView({
                               {task.title}
                             </div>
 
+                            <WorkCardStageBar status={task.status} />
+
                             <div className="flex items-center justify-between text-[11px] text-slate-500">
                               <span>{task.assigneeHandle}</span>
                               <span className="font-mono tabular-nums">
-                                {task.actualCostUsd > 0
-                                  ? `实耗 $${task.actualCostUsd.toFixed(2)}`
-                                  : `上限 $${task.budgetLimitUsd.toFixed(2)}`}
+                                {task.priority}优 · {task.updatedAt}
                               </span>
                             </div>
 
@@ -708,22 +670,40 @@ export function GroupChatView({
                                 type="button"
                                 disabled={Boolean(executingTaskId)}
                                 onClick={() => onRunTask(task.id)}
-                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45"
+                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45"
                               >
                                 <Play className="w-3 h-3" />
-                                <span>{isExec ? '执行中...' : '启动 AI 自主执行'}</span>
+                                <span>{isExec ? '正在执行中...' : '批准执行'}</span>
                               </button>
+                            )}
+
+                            {task.status === 'in_progress' && (
+                              <div className="w-full text-center py-1.5 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50">
+                                正在执行中 · 沙箱运行并同步产物...
+                              </div>
                             )}
 
                             {task.status === 'review' && (
                               <button
                                 type="button"
                                 onClick={() => onApproveTask(task.id)}
-                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
                               >
                                 <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>批准交付并归档</span>
+                                <span>验收通过</span>
                               </button>
+                            )}
+
+                            {task.status === 'done' && (
+                              <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold pt-0.5">
+                                <span className="inline-flex items-center gap-1">
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>已经完成 · 产物已归档</span>
+                                </span>
+                                <span className="font-mono tabular-nums text-slate-400 font-normal">
+                                  {task.updatedAt}
+                                </span>
+                              </div>
                             )}
                           </div>
                         );
@@ -768,10 +748,10 @@ export function GroupChatView({
                     </p>
 
                     <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                      <span className="font-mono tabular-nums text-slate-500">
+                      <span className="font-mono tabular-nums text-slate-600">
                         {agent.ownership === 'private'
                           ? '私有自用'
-                          : `$${agent.pricePerTaskUsd.toFixed(2)}/任务`}
+                          : `$${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · 信誉 ${agent.performance.reputationScore}`}
                       </span>
                       <button
                         type="button"
@@ -804,9 +784,6 @@ export function GroupChatView({
               </>
             )}
           </div>
-
-          {/* Right Bottom: AgentNexus Account Login Footer */}
-          <AccountFooter account={account} onOpenLogin={onOpenLogin} onLogout={onLogout} />
         </aside>
       )}
     </div>

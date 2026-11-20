@@ -60,8 +60,6 @@ interface UnifiedChatViewProps {
   onJumpToMarket: () => void;
   onJumpToKanban: (projectId?: string) => void;
   onJumpToTeam: () => void;
-  onOpenLogin: () => void;
-  onLogout: () => void;
 }
 
 export function UnifiedChatView({
@@ -101,8 +99,6 @@ export function UnifiedChatView({
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
-  onOpenLogin,
-  onLogout,
 }: UnifiedChatViewProps) {
   const activeDmThread =
     activeChannel.type === 'dm'
@@ -128,8 +124,6 @@ export function UnifiedChatView({
           onOpenDm={(agentId) => onStartNegotiation(agentId)}
           onOpenKanban={onJumpToKanban}
           onOpenTeam={onJumpToTeam}
-          onOpenLogin={onOpenLogin}
-          onLogout={onLogout}
         />
       )}
 
@@ -151,8 +145,6 @@ export function UnifiedChatView({
           onJumpToMarket={onJumpToMarket}
           onJumpToKanban={() => onJumpToKanban(activeWorkspace.id)}
           onJumpToTeam={onJumpToTeam}
-          onOpenLogin={onOpenLogin}
-          onLogout={onLogout}
         />
       )}
 
@@ -169,8 +161,6 @@ export function UnifiedChatView({
           onUpdateTerms={onUpdateNegotiationTerms}
           onConfirmHire={onConfirmHire}
           onJumpToProjectGroup={onSelectProject}
-          onOpenLogin={onOpenLogin}
-          onLogout={onLogout}
         />
       )}
     </div>

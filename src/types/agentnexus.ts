@@ -15,6 +15,10 @@ export type ServiceMode = 'pure-agent' | 'human-agent';
 
 export type AgentOwnership = 'marketplace' | 'private';
 
+export type CapabilityTier = 'S 级稀缺' | 'A+ 资深' | 'A 级专业';
+
+export type DemandStatus = '供不应求' | '需求旺盛' | '档期充裕';
+
 export type TaskStatus = 'pending' | 'in_progress' | 'review' | 'done';
 
 export type WorkCardType = 'planning' | 'development' | 'testing' | 'review';
@@ -33,11 +37,16 @@ export interface AgentNexusAccount {
 }
 
 export interface AgentPerformance {
-  completedTasks: number;
+  completedProjects: number;
   successRate: number;
-  avgDurationMin: number;
+  reputationScore: number;
+  repeatHireRate: number;
+  avgDeliveryDays: number;
   rating: number;
-  costEfficiency: string;
+  capabilityTier: CapabilityTier;
+  demandStatus: DemandStatus;
+  demandNote: string;
+  pricingBasis: string;
   recentReviews: {
     employer: string;
     project: string;
@@ -60,8 +69,8 @@ export interface ExpertAgent {
   engineModel: string;
   skills: string[];
   mcpTools: string[];
-  pricePerTaskUsd: number;
-  pricePerHourUsd: number;
+  /** Standard project engagement fee (USD / project), priced by capability, reputation & supply-demand */
+  projectPriceUsd: number;
   bio: string;
   avatarAccent: string;
   avatarCode: string;
@@ -81,6 +90,7 @@ export interface NegotiationThread {
   agentId: string;
   targetProjectId: string;
   status: NegotiationStatus;
+  /** Negotiated project engagement fee (USD / project) */
   negotiatedPriceUsd: number;
   scopeNote: string;
   firstWorkCardTitle: string;
@@ -117,7 +127,7 @@ export interface SettlementRecord {
   projectId: string;
   projectName: string;
   agentHandle: string;
-  taskTitle: string;
+  milestoneLabel: string;
   amountUsd: number;
   status: 'unsettled' | 'settled';
   createdAt: string;
@@ -143,9 +153,6 @@ export interface WorkflowTask {
   assigneeHandle: string;
   status: TaskStatus;
   priority: '高' | '中' | '低';
-  budgetLimitUsd: number;
-  actualCostUsd: number;
-  tokensUsed: number;
   dependsOnTaskId?: string;
   deliverableSummary?: string;
   deliverableArtifact?: string;
@@ -165,7 +172,6 @@ export interface ChatMessage {
   timestamp: string;
   linkedTaskIds?: string[];
   mentions?: string[];
-  costUsd?: number;
 }
 
 export interface ProjectWorkspace {
@@ -173,7 +179,9 @@ export interface ProjectWorkspace {
   name: string;
   goal: string;
   workspaceTier: '加密持久化工作区 (50GB)' | '24h 临时沙箱';
+  /** Overall project budget ceiling (USD) */
   budgetCapUsd: number;
+  /** Total contracted external expert project fees (USD) */
   spentUsd: number;
   hiredAgentIds: string[];
 }

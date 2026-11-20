@@ -17,7 +17,6 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
-import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   ExpertAgent,
   NegotiationStatus,
@@ -29,6 +28,7 @@ import type {
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
+import { WORK_CARD_STAGES, WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
 
 type WorkBoardTab = 'overview' | 'flow' | 'hiring';
 
@@ -43,7 +43,6 @@ interface WorkflowKanbanViewProps {
   settlements: SettlementRecord[];
   executingTaskId: string | null;
   onCreateProject: (name: string, goal: string) => string;
-  onCreateWorkCard: (input: CreateWorkCardInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
   onUpdateStatus: (taskId: string, status: TaskStatus) => void;
   onOpenNegotiation: (agentId: string) => void;
@@ -54,18 +53,6 @@ interface WorkflowKanbanViewProps {
   onReleaseAgent: (agentId: string, projectId?: string) => void;
   onMentionInChat: (handle: string, projectId?: string) => void;
 }
-
-const COLUMNS: {
-  status: TaskStatus;
-  title: string;
-  hint: string;
-  accent: string;
-}[] = [
-  { status: 'pending', title: '待接单', hint: '已立项待触发执行', accent: 'text-slate-800' },
-  { status: 'in_progress', title: '执行中', hint: '特工沙箱运行中', accent: 'text-blue-700' },
-  { status: 'review', title: '待审核', hint: '待雇主验收合并', accent: 'text-amber-700' },
-  { status: 'done', title: '已完成', hint: '产物已归档工作区', accent: 'text-emerald-700' },
-];
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
   planning: '产品策划',
@@ -79,13 +66,6 @@ const WORK_TYPE_COLORS: Record<WorkCardType, string> = {
   development: 'text-blue-700',
   testing: 'text-teal-700',
   review: 'text-amber-700',
-};
-
-const TASK_STATUS_SHORT: Record<TaskStatus, { label: string; cls: string }> = {
-  pending: { label: '待接单', cls: 'text-slate-600' },
-  in_progress: { label: '执行中', cls: 'text-blue-700' },
-  review: { label: '待审核', cls: 'text-amber-700' },
-  done: { label: '已完成', cls: 'text-emerald-700' },
 };
 
 const NEGOTIATION_STATUS_META: Record<NegotiationStatus, { label: string; cls: string }> = {
@@ -110,7 +90,6 @@ export function WorkflowKanbanView({
   settlements,
   executingTaskId,
   onCreateProject,
-  onCreateWorkCard,
   onRunTask,
   onUpdateStatus,
   onOpenNegotiation,
@@ -125,22 +104,11 @@ export function WorkflowKanbanView({
   const [activeTab, setActiveTab] = useState<WorkBoardTab>('overview');
   const [projectScope, setProjectScope] = useState<string>('all');
   const [workTypeFilter, setWorkTypeFilter] = useState<'all' | WorkCardType>('all');
-  const [showCreateCardForm, setShowCreateCardForm] = useState(false);
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
 
   // Create project inline form state
   const [projName, setProjName] = useState('');
   const [projGoal, setProjGoal] = useState('');
-
-  // Create work card inline form state
-  const [newProjectId, setNewProjectId] = useState(activeWorkspace.id);
-  const [newModule, setNewModule] = useState('A功能 · 多币种结算');
-  const [newWorkType, setNewWorkType] = useState<WorkCardType>('development');
-  const [newTitle, setNewTitle] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newAssigneeId, setNewAssigneeId] = useState(activeWorkspace.hiredAgentIds[0] || '');
-  const [newPriority, setNewPriority] = useState<'高' | '中' | '低'>('高');
-  const [newBudget, setNewBudget] = useState('2.50');
 
   useEffect(() => {
     if (projectSeed) {
@@ -218,7 +186,7 @@ export function WorkflowKanbanView({
       totalCards: number;
       activeCards: number;
       doneCards: number;
-      spentUsd: number;
+      contractedPriceUsd: number;
     }[] = [];
 
     metricWorkspaces.forEach((proj) => {
@@ -234,7 +202,7 @@ export function WorkflowKanbanView({
           totalCards: projTasks.length,
           activeCards: projTasks.filter((t) => t.status !== 'done').length,
           doneCards: projTasks.filter((t) => t.status === 'done').length,
-          spentUsd: projTasks.reduce((sum, t) => sum + t.actualCostUsd, 0),
+          contractedPriceUsd: agent.ownership === 'private' ? 0 : agent.projectPriceUsd,
         });
       });
     });
@@ -253,39 +221,6 @@ export function WorkflowKanbanView({
     });
     return Array.from(map.entries());
   }, [focusedProject, metricTasks]);
-
-  const formProject = workspaceMap.get(newProjectId) || activeWorkspace;
-  const formAssignableAgents = useMemo(() => {
-    const hired = agents.filter((a) => formProject.hiredAgentIds.includes(a.id));
-    return hired.length > 0 ? hired : agents;
-  }, [agents, formProject.hiredAgentIds]);
-
-  const handleOpenCreateCard = () => {
-    const defaultProjId = focusedProject ? focusedProject.id : activeWorkspace.id;
-    const proj = workspaceMap.get(defaultProjId) || activeWorkspace;
-    setNewProjectId(proj.id);
-    setNewAssigneeId(proj.hiredAgentIds[0] || agents[0]?.id || '');
-    setShowCreateProjectForm(false);
-    setShowCreateCardForm(true);
-  };
-
-  const handleCreateCardSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    onCreateWorkCard({
-      sessionId: newProjectId,
-      featureModule: newModule.trim() || '核心功能模块',
-      workType: newWorkType,
-      title: newTitle.trim(),
-      description: newDesc.trim() || '按项目规范执行并提交可验收产物。',
-      assigneeId: newAssigneeId || formAssignableAgents[0]?.id || '',
-      priority: newPriority,
-      budgetLimitUsd: Number(newBudget) || 2.0,
-    });
-    setNewTitle('');
-    setNewDesc('');
-    setShowCreateCardForm(false);
-  };
 
   const handleCreateProjectSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -309,29 +244,20 @@ export function WorkflowKanbanView({
           <div>
             <h1 className="text-xl font-bold text-slate-900">工作看板</h1>
             <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              支持多项目全景切换与单项目聚焦管理：项目概览置顶统筹，联动任务流执行与外部专家雇佣协商。
+              工作卡片统一由项目群聊对话或输入框直接生成，看板专注多项目概览统筹、任务流状态流转与雇佣协同。
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2 shrink-0">
             <button
               type="button"
-              onClick={handleOpenCreateCard}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>新建工作卡片</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() =>
                 onJumpToChat(focusedProject ? focusedProject.id : activeWorkspace.id)
               }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
             >
               <MessageSquareText className="w-3.5 h-3.5" />
-              <span>进入项目群聊</span>
+              <span>进入项目群对话生成</span>
             </button>
           </div>
         </div>
@@ -374,10 +300,7 @@ export function WorkflowKanbanView({
 
           <button
             type="button"
-            onClick={() => {
-              setShowCreateCardForm(false);
-              setShowCreateProjectForm((v) => !v);
-            }}
+            onClick={() => setShowCreateProjectForm((v) => !v)}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 border border-dashed border-slate-300 hover:border-slate-400 whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Plus className="w-3.5 h-3.5" />
@@ -424,151 +347,6 @@ export function WorkflowKanbanView({
           </form>
         )}
 
-        {/* Inline Create Work Card Form */}
-        {showCreateCardForm && (
-          <form
-            onSubmit={handleCreateCardSubmit}
-            className="mt-3 p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-900">
-                新建项目工作卡片（同步至对应项目群与工作看板）
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowCreateCardForm(false)}
-                className="p-1 text-slate-400 hover:text-slate-700 cursor-pointer"
-                aria-label="关闭表单"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  所属项目
-                </label>
-                <select
-                  value={newProjectId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setNewProjectId(nextId);
-                    const nextProj = workspaceMap.get(nextId);
-                    if (nextProj && nextProj.hiredAgentIds.length > 0) {
-                      setNewAssigneeId(nextProj.hiredAgentIds[0]);
-                    }
-                  }}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                >
-                  {workspaces.map((w) => (
-                    <option key={w.id} value={w.id}>
-                      {w.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  所属功能模块
-                </label>
-                <input
-                  type="text"
-                  value={newModule}
-                  onChange={(e) => setNewModule(e.target.value)}
-                  placeholder="如：A功能 · 多币种结算"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  卡片类型
-                </label>
-                <select
-                  value={newWorkType}
-                  onChange={(e) => setNewWorkType(e.target.value as WorkCardType)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                >
-                  <option value="planning">产品策划</option>
-                  <option value="development">功能开发</option>
-                  <option value="testing">功能测试</option>
-                  <option value="review">架构评审</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  指派专家
-                </label>
-                <select
-                  value={newAssigneeId}
-                  onChange={(e) => setNewAssigneeId(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                >
-                  {formAssignableAgents.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.handle} ({a.name})
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5">
-              <div className="lg:col-span-5">
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder="工作卡片标题（例如：测试 A 功能：跨境结算回调幂等回归压测）"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                />
-              </div>
-              <div className="lg:col-span-4">
-                <input
-                  type="text"
-                  value={newDesc}
-                  onChange={(e) => setNewDesc(e.target.value)}
-                  placeholder="补充交付标准或验收要求（可选）"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
-                />
-              </div>
-              <div className="lg:col-span-1">
-                <select
-                  value={newPriority}
-                  onChange={(e) => setNewPriority(e.target.value as '高' | '中' | '低')}
-                  aria-label="优先级"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs text-slate-900"
-                >
-                  <option value="高">高优</option>
-                  <option value="中">中优</option>
-                  <option value="低">低优</option>
-                </select>
-              </div>
-              <div className="lg:col-span-2 flex items-center gap-1.5">
-                <input
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  value={newBudget}
-                  onChange={(e) => setNewBudget(e.target.value)}
-                  aria-label="预算上限 USD"
-                  className="w-20 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-mono tabular-nums text-slate-900"
-                />
-                <button
-                  type="submit"
-                  className="flex-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                >
-                  创建卡片
-                </button>
-              </div>
-            </div>
-          </form>
-        )}
-
         {/* 4-Column Tabular KPI Strip */}
         <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-5 pt-4 border-t border-slate-100">
           <div>
@@ -592,13 +370,13 @@ export function WorkflowKanbanView({
             <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
               <span className="text-xl font-bold text-slate-900">{progressPct}%</span>
               <span className="text-xs text-slate-500">
-                {doneCount}/{metricTasks.length} 卡 · {reviewCount} 待审
+                {doneCount}/{metricTasks.length} 卡 · {reviewCount} 待验收
               </span>
             </div>
           </div>
 
           <div>
-            <div className="text-xs text-slate-500">雇佣协商 / 待结算</div>
+            <div className="text-xs text-slate-500">雇佣协商 / 待结项目款</div>
             <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
               <span className="text-xl font-bold text-amber-700">{pendingNegotiationCount}</span>
               <span className="text-xs font-sans text-slate-500">
@@ -608,7 +386,7 @@ export function WorkflowKanbanView({
                   onClick={onJumpToAssistant}
                   className="font-mono text-blue-700 hover:underline cursor-pointer"
                 >
-                  待结 ${scopedUnsettledUsd.toFixed(2)}
+                  待结 ${Math.round(scopedUnsettledUsd).toLocaleString('en-US')}
                 </button>
               </span>
             </div>
@@ -617,12 +395,14 @@ export function WorkflowKanbanView({
           <div>
             <div className="text-xs text-slate-500 flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>预算消耗护栏</span>
+              <span>项目签约总额</span>
             </div>
             <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-xl font-bold text-slate-900">${totalSpent.toFixed(2)}</span>
+              <span className="text-xl font-bold text-slate-900">
+                ${totalSpent.toLocaleString('en-US')}
+              </span>
               <span className="text-xs text-slate-500">
-                / ${totalCap.toFixed(2)} ({budgetPct}%)
+                / ${totalCap.toLocaleString('en-US')} ({budgetPct}%)
               </span>
             </div>
           </div>
@@ -792,7 +572,7 @@ export function WorkflowKanbanView({
                           />
                         </div>
                         <div className="mt-1.5 text-[11px] text-slate-500">
-                          {projReview > 0 ? `${projReview} 张待审核` : '暂无审核阻塞'} ·{' '}
+                          {projReview > 0 ? `${projReview} 张待验收` : '暂无验收阻塞'} ·{' '}
                           {projNegotiations.length > 0
                             ? `${projNegotiations.length} 位外部专家洽谈中`
                             : '无待确认雇佣'}
@@ -824,7 +604,8 @@ export function WorkflowKanbanView({
                         <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
                           <span>在役专家 ({projMembers.length})</span>
                           <span className="font-mono tabular-nums text-slate-700">
-                            ${proj.spentUsd.toFixed(2)} / ${proj.budgetCapUsd.toFixed(2)}
+                            ${proj.spentUsd.toLocaleString('en-US')} / $
+                            {proj.budgetCapUsd.toLocaleString('en-US')}
                           </span>
                         </div>
                         <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-700">
@@ -842,7 +623,7 @@ export function WorkflowKanbanView({
                         </div>
                         {projUnsettled > 0 && (
                           <div className="mt-1.5 text-[11px] text-amber-700 font-mono tabular-nums">
-                            待结算账单 ${projUnsettled.toFixed(2)}
+                            待结项目款 ${Math.round(projUnsettled).toLocaleString('en-US')}
                           </div>
                         )}
                       </div>
@@ -892,22 +673,22 @@ export function WorkflowKanbanView({
                 {/* Feature Modules & Work Cards Breakdown */}
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
                   <section className="lg:col-span-8 bg-white rounded-xl border border-slate-200 overflow-hidden">
-                    <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+                    <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
                       <h3 className="text-sm font-bold text-slate-900">
                         功能模块与工作卡片概览 ({metricTasks.length})
                       </h3>
                       <button
                         type="button"
-                        onClick={handleOpenCreateCard}
-                        className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                        onClick={() => onJumpToChat(focusedProject.id)}
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
                       >
-                        + 添加工作卡
+                        去项目群对话生成 →
                       </button>
                     </div>
 
                     {focusedModules.length === 0 ? (
                       <div className="p-8 text-center text-xs text-slate-500">
-                        该项目暂无工作卡片，点击右上角「+ 添加工作卡」即可按功能拆解任务。
+                        该项目暂无工作卡片，在项目群对话框中直接描述需求或 @ 专家即可自动生成。
                       </div>
                     ) : (
                       <div className="divide-y divide-slate-200">
@@ -918,67 +699,82 @@ export function WorkflowKanbanView({
                               <div className="flex items-center justify-between text-xs">
                                 <span className="font-bold text-slate-900">{modName}</span>
                                 <span className="font-mono tabular-nums text-slate-500">
-                                  已完成 {modDone}/{modTasks.length}
+                                  已经完成 {modDone}/{modTasks.length}
                                 </span>
                               </div>
                               <div className="space-y-2">
                                 {modTasks.map((task) => {
-                                  const st = TASK_STATUS_SHORT[task.status];
+                                  const st = WORK_STATUS_META[task.status];
                                   return (
                                     <div
                                       key={task.id}
-                                      className="rounded-lg bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                                      className="rounded-lg bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 space-y-2"
                                     >
-                                      <div className="min-w-0">
-                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                                          <span
-                                            className={`font-semibold ${WORK_TYPE_COLORS[task.workType]}`}
-                                          >
-                                            {WORK_TYPE_LABELS[task.workType]}
-                                          </span>
-                                          <span className="text-slate-300" aria-hidden="true">·</span>
-                                          <span className={`font-semibold ${st.cls}`}>
-                                            {st.label}
-                                          </span>
-                                          <span className="text-slate-300" aria-hidden="true">·</span>
-                                          <span className="text-slate-600">
-                                            {task.assigneeHandle}
-                                          </span>
-                                          <span className="text-slate-300" aria-hidden="true">·</span>
-                                          <span className="font-mono tabular-nums text-slate-500">
-                                            限额 ${task.budgetLimitUsd.toFixed(2)}
-                                          </span>
+                                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                        <div className="min-w-0">
+                                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                                            <span
+                                              className={`font-semibold ${WORK_TYPE_COLORS[task.workType]}`}
+                                            >
+                                              {WORK_TYPE_LABELS[task.workType]}
+                                            </span>
+                                            <span className="text-slate-300" aria-hidden="true">·</span>
+                                            <span className={`font-semibold ${st.textCls}`}>
+                                              {st.label}
+                                            </span>
+                                            <span className="text-slate-300" aria-hidden="true">·</span>
+                                            <span className="text-slate-600">
+                                              {task.assigneeHandle}
+                                            </span>
+                                            <span className="text-slate-300" aria-hidden="true">·</span>
+                                            <span className="font-mono tabular-nums text-slate-500">
+                                              {task.priority}优
+                                            </span>
+                                          </div>
+                                          <div className="text-xs font-semibold text-slate-900 mt-0.5">
+                                            {task.title}
+                                          </div>
                                         </div>
-                                        <div className="text-xs font-semibold text-slate-900 mt-0.5">
-                                          {task.title}
+
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                          {task.status === 'pending' && (
+                                            <button
+                                              type="button"
+                                              disabled={Boolean(executingTaskId)}
+                                              onClick={() => onRunTask(task.id)}
+                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                                            >
+                                              <Play className="w-3 h-3" />
+                                              <span>
+                                                {executingTaskId === task.id ? '正在执行中...' : '批准执行'}
+                                              </span>
+                                            </button>
+                                          )}
+                                          {task.status === 'in_progress' && (
+                                            <span className="text-[11px] font-semibold text-blue-700 whitespace-nowrap">
+                                              正在执行中...
+                                            </span>
+                                          )}
+                                          {task.status === 'review' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => onUpdateStatus(task.id, 'done')}
+                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                                            >
+                                              <CheckCircle2 className="w-3 h-3" />
+                                              <span>验收通过</span>
+                                            </button>
+                                          )}
+                                          {task.status === 'done' && (
+                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
+                                              <CheckCircle2 className="w-3 h-3" />
+                                              <span>已经完成</span>
+                                            </span>
+                                          )}
                                         </div>
                                       </div>
 
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        {task.status === 'pending' && (
-                                          <button
-                                            type="button"
-                                            disabled={Boolean(executingTaskId)}
-                                            onClick={() => onRunTask(task.id)}
-                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
-                                          >
-                                            <Play className="w-3 h-3" />
-                                            <span>
-                                              {executingTaskId === task.id ? '执行中...' : '启动执行'}
-                                            </span>
-                                          </button>
-                                        )}
-                                        {task.status === 'review' && (
-                                          <button
-                                            type="button"
-                                            onClick={() => onUpdateStatus(task.id, 'done')}
-                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                                          >
-                                            <CheckCircle2 className="w-3 h-3" />
-                                            <span>批准合并</span>
-                                          </button>
-                                        )}
-                                      </div>
+                                      <WorkCardStageBar status={task.status} compact />
                                     </div>
                                   );
                                 })}
@@ -1023,7 +819,10 @@ export function WorkflowKanbanView({
                                   {row.agent.handle}
                                 </div>
                                 <div className="text-[11px] text-slate-500 font-mono tabular-nums">
-                                  {row.activeCards} 进行 · ${row.spentUsd.toFixed(2)}
+                                  {row.activeCards} 进行 ·{' '}
+                                  {row.contractedPriceUsd > 0
+                                    ? `$${row.contractedPriceUsd.toLocaleString('en-US')}/项目`
+                                    : '私有自用'}
                                 </div>
                               </div>
                             </div>
@@ -1060,8 +859,8 @@ export function WorkflowKanbanView({
                               >
                                 <div className="flex items-center justify-between text-xs">
                                   <span className="font-semibold text-slate-900">{ag.handle}</span>
-                                  <span className={`text-[11px] font-semibold ${st.cls}`}>
-                                    {st.label} · ${neg.negotiatedPriceUsd.toFixed(2)}
+                                  <span className={`text-[11px] font-semibold font-mono tabular-nums ${st.cls}`}>
+                                    {st.label} · ${Math.round(neg.negotiatedPriceUsd).toLocaleString('en-US')}/项目
                                   </span>
                                 </div>
                                 <p className="text-[11px] text-slate-600 line-clamp-1">
@@ -1087,10 +886,10 @@ export function WorkflowKanbanView({
           </div>
         )}
 
-        {/* TAB 2: Project Task Flow (4-Column Kanban) */}
+        {/* TAB 2: Project Task Flow (4-Column Unified Lifecycle Kanban) */}
         {activeTab === 'flow' && (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 min-h-full">
-            {COLUMNS.map((col) => {
+            {WORK_CARD_STAGES.map((col) => {
               const colTasks = scopedFlowTasks.filter((t) => t.status === col.status);
               return (
                 <div
@@ -1099,7 +898,7 @@ export function WorkflowKanbanView({
                 >
                   <div className="px-1.5 pb-2.5 mb-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
                     <div>
-                      <h2 className={`text-sm font-bold ${col.accent}`}>{col.title}</h2>
+                      <h2 className={`text-sm font-bold ${col.textCls}`}>{col.label}</h2>
                       <p className="text-[11px] text-slate-500">{col.hint}</p>
                     </div>
                     <span className="text-xs font-mono tabular-nums font-semibold text-slate-600">
@@ -1110,7 +909,7 @@ export function WorkflowKanbanView({
                   <div className="space-y-3 flex-1">
                     {colTasks.length === 0 ? (
                       <div className="h-28 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400">
-                        暂无{col.title}工作卡
+                        暂无{col.label}工作卡
                       </div>
                     ) : (
                       colTasks.map((task) => {
@@ -1143,11 +942,13 @@ export function WorkflowKanbanView({
                               </p>
                             </div>
 
+                            <WorkCardStageBar status={task.status} />
+
                             <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500 font-mono tabular-nums">
                               <span>
                                 {task.id} · {task.priority}优
                               </span>
-                              <span>限额 ${task.budgetLimitUsd.toFixed(2)}</span>
+                              <span>{task.updatedAt}</span>
                             </div>
 
                             {task.dependsOnTaskId && (
@@ -1181,9 +982,9 @@ export function WorkflowKanbanView({
                                   {task.assigneeHandle}
                                 </span>
                               </div>
-                              {task.actualCostUsd > 0 && (
-                                <span className="font-mono tabular-nums text-[11px] text-slate-500 shrink-0">
-                                  实耗 ${task.actualCostUsd.toFixed(2)}
+                              {agent && (
+                                <span className="text-[11px] text-slate-400 shrink-0 whitespace-nowrap">
+                                  {agent.performance.capabilityTier}
                                 </span>
                               )}
                             </div>
@@ -1197,13 +998,13 @@ export function WorkflowKanbanView({
                                   className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45"
                                 >
                                   <Play className="w-3 h-3" />
-                                  <span>{isExecuting ? '执行中...' : '启动 AI 自主执行'}</span>
+                                  <span>{isExecuting ? '正在执行中...' : '批准执行'}</span>
                                 </button>
                               )}
 
                               {task.status === 'in_progress' && (
                                 <div className="w-full text-center py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-md">
-                                  沙箱运行中，产物生成后自动流转...
+                                  正在执行中 · 沙箱运行并同步产物...
                                 </div>
                               )}
 
@@ -1215,7 +1016,7 @@ export function WorkflowKanbanView({
                                     className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>批准合并</span>
+                                    <span>验收通过</span>
                                   </button>
                                   <button
                                     type="button"
@@ -1229,12 +1030,13 @@ export function WorkflowKanbanView({
                               )}
 
                               {task.status === 'done' && (
-                                <div className="w-full flex items-center justify-between text-[11px] text-emerald-700 font-medium">
-                                  <span>已验收归档</span>
-                                  <span className="font-mono tabular-nums text-slate-400">
-                                    {task.tokensUsed > 0
-                                      ? `${task.tokensUsed.toLocaleString()} tok`
-                                      : task.updatedAt}
+                                <div className="w-full flex items-center justify-between text-[11px] text-emerald-700 font-semibold">
+                                  <span className="inline-flex items-center gap-1">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>已经完成 · 产物已归档</span>
+                                  </span>
+                                  <span className="font-mono tabular-nums text-slate-400 font-normal">
+                                    {task.updatedAt}
                                   </span>
                                 </div>
                               )}
@@ -1312,7 +1114,11 @@ export function WorkflowKanbanView({
                               <span>目标项目：{targetProj?.name || '未指定'}</span>
                               <span className="text-slate-300" aria-hidden="true">·</span>
                               <span className="font-mono tabular-nums font-semibold text-slate-900">
-                                协商价 ${thread.negotiatedPriceUsd.toFixed(2)}
+                                协商项目价 ${Math.round(thread.negotiatedPriceUsd).toLocaleString('en-US')}/项目
+                              </span>
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+                              <span>
+                                {agent.performance.capabilityTier} · 信誉 {agent.performance.reputationScore}
                               </span>
                               <span className="text-slate-300" aria-hidden="true">·</span>
                               <span>{SERVICE_MODE_LABELS[agent.serviceMode]}</span>
@@ -1366,7 +1172,7 @@ export function WorkflowKanbanView({
                   项目在役专家雇佣清单 ({hiredEngagements.length})
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  按项目维度查看每位已雇佣专家的工作卡片负载与实际耗费，支持快速 @ 派单或解约移出。
+                  按项目维度查看每位在役专家的工作卡片负载与项目签约价，支持快速 @ 派单或解约移出。
                 </p>
               </div>
 
@@ -1378,7 +1184,7 @@ export function WorkflowKanbanView({
                       <th className="py-2.5 px-4">所属项目</th>
                       <th className="py-2.5 px-4">服务模式</th>
                       <th className="py-2.5 px-4 text-right">工作卡片负载</th>
-                      <th className="py-2.5 px-4 text-right">已产生费用</th>
+                      <th className="py-2.5 px-4 text-right">项目签约价</th>
                       <th className="py-2.5 px-5 text-right">操作</th>
                     </tr>
                   </thead>
@@ -1401,7 +1207,8 @@ export function WorkflowKanbanView({
                                 {row.agent.handle}
                               </div>
                               <div className="text-[11px] text-slate-500 truncate">
-                                {row.agent.title}
+                                {row.agent.title} · {row.agent.performance.capabilityTier} · 信誉{' '}
+                                {row.agent.performance.reputationScore}
                               </div>
                             </div>
                           </div>
@@ -1416,7 +1223,9 @@ export function WorkflowKanbanView({
                           进行 {row.activeCards} / 完成 {row.doneCards}
                         </td>
                         <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold text-slate-900 whitespace-nowrap">
-                          ${row.spentUsd.toFixed(2)}
+                          {row.contractedPriceUsd > 0
+                            ? `$${row.contractedPriceUsd.toLocaleString('en-US')} / 项目`
+                            : '私有自用'}
                         </td>
                         <td className="py-3 px-5 text-right whitespace-nowrap">
                           <div className="inline-flex items-center gap-2">

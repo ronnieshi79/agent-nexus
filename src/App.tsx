@@ -29,6 +29,7 @@ export default function App() {
         hiredCount={store.hiredAgents.length}
         privateCount={store.privateAgents.length}
         marketCount={store.marketplaceAgents.length}
+        account={store.account}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
         onSelectView={store.setActiveView}
@@ -40,6 +41,8 @@ export default function App() {
           store.setActiveView('chat');
         }}
         onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+        onOpenLogin={() => store.setAuthModalOpen(true)}
+        onLogout={store.logoutAccount}
       />
 
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
@@ -48,12 +51,10 @@ export default function App() {
           activeChatChannel={store.activeChatChannel}
           workspace={store.activeWorkspace}
           agents={store.agents}
-          account={store.account}
           unsettledCount={store.unsettledCount}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           onOpenAssistant={store.openAssistantChat}
           onBackToChat={() => store.setActiveView('chat')}
-          onOpenLogin={() => store.setAuthModalOpen(true)}
         />
 
         {store.aiError && (
@@ -109,8 +110,6 @@ export default function App() {
               onJumpToMarket={() => store.setActiveView('market')}
               onJumpToKanban={store.openKanbanForProject}
               onJumpToTeam={() => store.setActiveView('team')}
-              onOpenLogin={() => store.setAuthModalOpen(true)}
-              onLogout={store.logoutAccount}
             />
           )}
 
@@ -126,7 +125,6 @@ export default function App() {
               settlements={store.settlements}
               executingTaskId={store.executingTaskId}
               onCreateProject={store.createSession}
-              onCreateWorkCard={store.createWorkCard}
               onRunTask={store.runAutonomousTask}
               onUpdateStatus={store.updateTaskStatus}
               onOpenNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}

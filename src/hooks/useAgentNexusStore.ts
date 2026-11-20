@@ -39,6 +39,10 @@ function nowTimeStr(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function formatUsd(amount: number): string {
+  return `$${Math.round(amount).toLocaleString('en-US')}`;
+}
+
 export interface CreateWorkCardInput {
   sessionId?: string;
   featureModule: string;
@@ -47,7 +51,6 @@ export interface CreateWorkCardInput {
   description: string;
   assigneeId: string;
   priority: '高' | '中' | '低';
-  budgetLimitUsd: number;
 }
 
 export function useAgentNexusStore() {
@@ -192,8 +195,8 @@ export function useAgentNexusStore() {
       name: cleanedName,
       goal: goal.trim() || '协同产品与研发专家 Agent 按工作卡片推进项目交付',
       workspaceTier: '加密持久化工作区 (50GB)',
-      budgetCapUsd: 25.0,
-      spentUsd: 0,
+      budgetCapUsd: 8000,
+      spentUsd: 1200,
       hiredAgentIds: ['agent_pm_lin'],
     };
     const ts = nowTimeStr();
@@ -209,7 +212,7 @@ export function useAgentNexusStore() {
         senderId: 'butler',
         senderName: 'Nexa 助理',
         senderHandle: '@Nexa',
-        content: `已创建项目群「${newWorkspace.name}」并默认配属 @产品策划师。点击顶部「+ 新建工作卡片」即可按功能拆解开发/测试卡片，也可在左侧消息栏发起外部专家私聊协商。`,
+        content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在左侧发起外部专家私聊敲定项目签约。`,
         timestamp: ts,
       },
     ]);
@@ -218,7 +221,7 @@ export function useAgentNexusStore() {
         id: `aud_${Date.now()}`,
         category: 'audit',
         title: `新建托管项目「${newWorkspace.name}」`,
-        detail: `已开启加密持久化工作区与 $${newWorkspace.budgetCapUsd.toFixed(2)} Harness 预算护栏。`,
+        detail: `已开启加密持久化工作区，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
         severity: 'success',
         timestamp: ts,
       },
@@ -243,9 +246,6 @@ export function useAgentNexusStore() {
         assigneeHandle: assignee?.handle || '@Nexa',
         status: 'pending',
         priority: input.priority,
-        budgetLimitUsd: Number(input.budgetLimitUsd) || 2.0,
-        actualCostUsd: 0,
-        tokensUsed: 0,
         createdAt: ts,
         updatedAt: ts,
       };
@@ -274,25 +274,51 @@ export function useAgentNexusStore() {
     (
       agentId: string,
       projectId?: string,
-      initialCard?: { title: string; scope: string; budget: number },
+      initialCard?: { title: string; scope: string; contractedPriceUsd?: number },
     ) => {
       const targetProjectId = projectId || activeWorkspace.id;
       const targetProject = workspaces.find((w) => w.id === targetProjectId) || activeWorkspace;
       const target = agents.find((a) => a.id === agentId);
       if (!target) return;
 
+      const contractedFee =
+        target.ownership === 'private'
+          ? 0
+          : Math.round(initialCard?.contractedPriceUsd || target.projectPriceUsd);
       const alreadyInProject = targetProject.hiredAgentIds.includes(agentId);
+      const ts = nowTimeStr();
+
       if (!alreadyInProject) {
         setWorkspaces((prev) =>
           prev.map((w) =>
             w.id === targetProject.id
-              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, agentId] }
+              ? {
+                  ...w,
+                  hiredAgentIds: [...w.hiredAgentIds, agentId],
+                  spentUsd: w.spentUsd + contractedFee,
+                }
               : w,
           ),
         );
+
+        if (contractedFee > 0) {
+          const newSettlementId = `stl_${Date.now().toString().slice(-4)}`;
+          setSettlements((prev) => [
+            {
+              id: newSettlementId,
+              projectId: targetProject.id,
+              projectName: targetProject.name,
+              agentHandle: target.handle,
+              milestoneLabel: `项目签约托管（${target.performance.capabilityTier} · ${target.serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用'}）`,
+              amountUsd: contractedFee,
+              status: 'unsettled',
+              createdAt: ts,
+            },
+            ...prev,
+          ]);
+        }
       }
 
-      const ts = nowTimeStr();
       let createdTaskId: string | undefined;
 
       if (initialCard && initialCard.title.trim()) {
@@ -310,14 +336,11 @@ export function useAgentNexusStore() {
           featureModule: '协商立项工作卡',
           workType,
           title: initialCard.title.trim(),
-          description: initialCard.scope.trim() || '按私聊协商确认的交付范围执行并提交验收。',
+          description: initialCard.scope.trim() || '按项目签约确认的交付范围执行并提交验收。',
           assigneeId: target.id,
           assigneeHandle: target.handle,
           status: 'pending',
           priority: '高',
-          budgetLimitUsd: Number(initialCard.budget) || target.pricePerTaskUsd,
-          actualCostUsd: 0,
-          tokensUsed: 0,
           createdAt: ts,
           updatedAt: ts,
         };
@@ -333,8 +356,9 @@ export function useAgentNexusStore() {
         ),
       );
 
-      const sourceText = target.ownership === 'private' ? '私有挂载节点' : '外部专家';
+      const sourceText = target.ownership === 'private' ? '私有节点' : '外部专家';
       const modeText = target.serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用';
+      const feeText = contractedFee > 0 ? `，项目签约价 ${formatUsd(contractedFee)}` : '（私有自用）';
 
       setAllMessages((prev) => [
         ...prev,
@@ -345,9 +369,7 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已确认雇佣${sourceText} ${target.handle}（${modeText}）加入项目群「${targetProject.name}」${
-            createdTaskId ? '，并同步生成协商确认的首张工作卡片' : ''
-          }。`,
+          content: `已签约${sourceText} ${target.handle}（${modeText}${feeText}）加入项目群「${targetProject.name}」。`,
           timestamp: ts,
         },
         {
@@ -359,8 +381,8 @@ export function useAgentNexusStore() {
           senderHandle: target.handle,
           content: `已正式入群就位！我是 ${target.name}（${modeText}），加密工作区已同步挂载。${
             createdTaskId
-              ? '已认领咱们私聊敲定的首张工作卡片，随时可点击启动执行。'
-              : `可以直接 ${target.handle} 派发工作卡片。`
+              ? '咱们刚才确认的首项工作已经挂上去了，批准后我立即推进。'
+              : `随时可以直接 ${target.handle} 沟通需求。`
           }`,
           timestamp: ts,
           linkedTaskIds: createdTaskId ? [createdTaskId] : undefined,
@@ -371,8 +393,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_hire_${Date.now()}`,
           category: 'order',
-          title: `已雇佣 ${target.handle} 加入「${targetProject.name}」`,
-          detail: `模式：${modeText}；已按最小权限授予加密工作区挂载令牌。`,
+          title: `已签约 ${target.handle} 加入「${targetProject.name}」`,
+          detail: `${modeText}${feeText}；已按最小权限授予加密工作区挂载凭证。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -450,8 +472,8 @@ export function useAgentNexusStore() {
           agentId,
           targetProjectId: activeWorkspace.id,
           status: isAlreadyHired ? 'hired' : 'negotiating',
-          negotiatedPriceUsd: target.pricePerTaskUsd,
-          scopeNote: `协助「${activeWorkspace.name}」推进 ${target.title}`,
+          negotiatedPriceUsd: target.projectPriceUsd,
+          scopeNote: `负责「${activeWorkspace.name}」项目的 ${target.title}`,
           firstWorkCardTitle: `${
             target.category === 'qa'
               ? '测试'
@@ -516,9 +538,9 @@ export function useAgentNexusStore() {
         agentId,
         targetProjectId: targetProject.id,
         status: 'negotiating',
-        negotiatedPriceUsd: target.pricePerTaskUsd,
-        scopeNote: `协助「${targetProject.name}」推进 ${target.title}`,
-        firstWorkCardTitle: `专项交付：${target.skills[0] || target.title}`,
+        negotiatedPriceUsd: target.projectPriceUsd,
+        scopeNote: `负责「${targetProject.name}」项目的 ${target.title}`,
+        firstWorkCardTitle: `项目启动：${target.skills[0] || target.title}`,
         updatedAt: ts,
         messages: [],
       };
@@ -551,8 +573,8 @@ export function useAgentNexusStore() {
 
         const replyTs = nowTimeStr();
         const quotedPrice =
-          typeof res.quotedPriceUsd === 'number' && res.quotedPriceUsd > 0
-            ? Number(res.quotedPriceUsd.toFixed(2))
+          typeof res.quotedPriceUsd === 'number' && res.quotedPriceUsd >= 100
+            ? Math.round(res.quotedPriceUsd)
             : baseThread.negotiatedPriceUsd;
 
         const replyMsg: DirectMessage = {
@@ -602,9 +624,9 @@ export function useAgentNexusStore() {
           ? {
               title: thread.firstWorkCardTitle,
               scope: thread.scopeNote,
-              budget: thread.negotiatedPriceUsd,
+              contractedPriceUsd: thread.negotiatedPriceUsd,
             }
-          : undefined,
+          : { title: '', scope: '', contractedPriceUsd: thread.negotiatedPriceUsd },
       );
       setActiveView('chat');
     },
@@ -639,7 +661,7 @@ export function useAgentNexusStore() {
           id: `asst_stl_${Date.now()}`,
           sender: 'assistant',
           category: 'settlement',
-          content: `已完成结算核销：账单 ${record.id}（${record.projectName} · ${record.agentHandle}）金额 $${record.amountUsd.toFixed(2)} 已划转并归档至平台结算台账。`,
+          content: `已完成项目结算核销：账单 ${record.id}（${record.projectName} · ${record.agentHandle}）项目签约款 ${formatUsd(record.amountUsd)} 已划转归档。`,
           timestamp: ts,
         },
       ]);
@@ -648,8 +670,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_stl_${Date.now()}`,
           category: 'settlement',
-          title: `账单已结算：$${record.amountUsd.toFixed(2)}`,
-          detail: `${record.projectName} · ${record.agentHandle}（${record.taskTitle}）已完成结算放款。`,
+          title: `项目签约款已结算：${formatUsd(record.amountUsd)}`,
+          detail: `${record.projectName} · ${record.agentHandle}（${record.milestoneLabel}）已完成放款。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -681,7 +703,7 @@ export function useAgentNexusStore() {
         id: `asst_stl_all_${Date.now()}`,
         sender: 'assistant',
         category: 'settlement',
-        content: `已批量完成 ${pending.length} 笔待结算账单核销，合计金额 $${total.toFixed(2)}，所有项目账本现已对齐结清。`,
+        content: `已批量完成 ${pending.length} 笔项目签约结算核销，合计金额 ${formatUsd(total)}，各项目托管账本已全部对齐结清。`,
         timestamp: ts,
       },
     ]);
@@ -689,8 +711,8 @@ export function useAgentNexusStore() {
       {
         id: `aud_stl_all_${Date.now()}`,
         category: 'settlement',
-        title: `批量结算完成（${pending.length} 笔 · $${total.toFixed(2)}）`,
-        detail: '所有已完成计量工作卡片费用已核销归档。',
+        title: `批量项目结算完成（${pending.length} 笔 · ${formatUsd(total)}）`,
+        detail: '所有到期项目里程碑签约费用已核销归档。',
         severity: 'success',
         timestamp: ts,
       },
@@ -749,7 +771,7 @@ export function useAgentNexusStore() {
           | undefined;
 
         if (category === 'settlement' && firstUnsettled) {
-          actionLabel = `确认结算 $${firstUnsettled.amountUsd.toFixed(2)}`;
+          actionLabel = `确认结算 ${formatUsd(firstUnsettled.amountUsd)}`;
           actionTarget = { type: 'settle', settlementId: firstUnsettled.id };
         } else if (category === 'order' && firstActiveNeg) {
           actionLabel = '打开私聊协商';
@@ -803,7 +825,7 @@ export function useAgentNexusStore() {
           id: `aud_list_${Date.now()}`,
           category: 'order',
           title: `私有节点 ${expert.handle} 已上架市场接单`,
-          detail: `定价 $${expert.pricePerTaskUsd.toFixed(2)}/任务，Nexa 助理将自动跟进外部雇主咨询与结算。`,
+          detail: `项目签约挂牌价 ${formatUsd(expert.projectPriceUsd)}/项目，Nexa 助理将自动跟进外部雇主咨询与结算。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -893,9 +915,6 @@ export function useAgentNexusStore() {
             assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Nexa',
             status: 'pending',
             priority: nt.priority === '高' || nt.priority === '低' ? nt.priority : '中',
-            budgetLimitUsd: Number(nt.budgetLimitUsd) || 2.0,
-            actualCostUsd: 0,
-            tokensUsed: 0,
             createdAt: ts,
             updatedAt: ts,
             sourceMessageId: userMsgId,
@@ -996,9 +1015,6 @@ export function useAgentNexusStore() {
           workspace: taskWorkspace,
         });
 
-        const safeCost = Number(
-          Math.min(Number(result.actualCostUsd) || 1.25, task.budgetLimitUsd).toFixed(2),
-        );
         const ts = nowTimeStr();
 
         setAllTasks((prev) =>
@@ -1009,44 +1025,18 @@ export function useAgentNexusStore() {
                   status: 'review',
                   deliverableSummary: result.deliverableSummary,
                   deliverableArtifact: result.deliverableArtifact,
-                  tokensUsed: result.tokensUsed || 28400,
-                  actualCostUsd: safeCost,
                   updatedAt: ts,
                 }
               : t,
           ),
         );
 
-        setWorkspaces((prev) =>
-          prev.map((w) =>
-            w.id === task.sessionId
-              ? { ...w, spentUsd: Number((w.spentUsd + safeCost).toFixed(2)) }
-              : w,
-          ),
-        );
-
-        // Automatically generate a pending settlement record & audit notice for Nexa Platform Assistant
-        const newSettlementId = `stl_${Date.now().toString().slice(-4)}`;
-        setSettlements((prev) => [
-          {
-            id: newSettlementId,
-            projectId: taskWorkspace.id,
-            projectName: taskWorkspace.name,
-            agentHandle: assignedAgent?.handle || task.assigneeHandle,
-            taskTitle: task.title,
-            amountUsd: safeCost,
-            status: 'unsettled',
-            createdAt: ts,
-          },
-          ...prev,
-        ]);
-
         setAuditLogs((prev) => [
           {
             id: `aud_exec_${Date.now()}`,
             category: 'audit',
-            title: `新交付待审批：${task.title}`,
-            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 实耗 $${safeCost.toFixed(2)}，已生成待结算账单 ${newSettlementId}。`,
+            title: `新交付物待验收：${task.title}`,
+            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已提交产物 ${result.deliverableArtifact}，请雇主复核验收。`,
             severity: 'warning',
             timestamp: ts,
           },
@@ -1062,10 +1052,9 @@ export function useAgentNexusStore() {
             senderId: assignedAgent?.id || 'butler',
             senderName: assignedAgent?.name || 'Nexa 助理',
             senderHandle: assignedAgent?.handle || task.assigneeHandle,
-            content: `${result.chatBroadcast}（产物路径：${result.deliverableArtifact}，实际耗费 $${safeCost.toFixed(2)}）`,
+            content: `${result.chatBroadcast}（产物已更新至 ${result.deliverableArtifact}）`,
             timestamp: ts,
             linkedTaskIds: [taskId],
-            costUsd: safeCost,
           },
         ]);
       } catch (err) {

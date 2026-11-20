@@ -8,7 +8,6 @@ import type {
   ProjectWorkspace,
   ServiceMode,
 } from '../../types/agentnexus';
-import { AccountFooter } from '../account/AccountPanel';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface DirectNegotiationPaneProps {
@@ -31,8 +30,6 @@ interface DirectNegotiationPaneProps {
   ) => void;
   onConfirmHire: (agentId: string, createFirstCard: boolean) => void;
   onJumpToProjectGroup: (projectId: string) => void;
-  onOpenLogin: () => void;
-  onLogout: () => void;
 }
 
 const STATUS_META: Record<NegotiationStatus, { label: string; cls: string }> = {
@@ -58,8 +55,6 @@ export function DirectNegotiationPane({
   onUpdateTerms,
   onConfirmHire,
   onJumpToProjectGroup,
-  onOpenLogin,
-  onLogout,
 }: DirectNegotiationPaneProps) {
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
@@ -83,12 +78,17 @@ export function DirectNegotiationPane({
     await onSendMessage(agent.id, text);
   };
 
+  const targetDiscountPrice = Math.max(
+    500,
+    Math.round((agent.projectPriceUsd * 0.9) / 100) * 100,
+  );
+
   const quickPrompts = [
-    `针对「${targetWorkspace?.name}」，你的首张工作卡计划如何交付？`,
-    `预算希望控制在 $${Math.max(1.2, agent.pricePerTaskUsd - 0.3).toFixed(2)} 以内，能否一口价承接？`,
+    `针对「${targetWorkspace?.name}」，你的整个项目交付里程碑怎么拆分？`,
+    `项目预算希望控制在 $${targetDiscountPrice.toLocaleString('en-US')}/项目，能否锁定档期一口价承接？`,
     agent.serviceMode === 'human-agent'
       ? '人+Agent 协同模式下，人类专家具体把关哪几个关键环节？'
-      : '如果执行出现边界异常，如何保障一次验收通过？',
+      : '项目交付周期内如何保障返工兜底与一次验收通过？',
   ];
 
   return (
@@ -108,7 +108,7 @@ export function DirectNegotiationPane({
           title={`${agent.handle} · ${agent.name}`}
           tag={`私聊协商 · ${st.label}`}
           tagClassName={st.cls}
-          subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · 挂牌价 $${agent.pricePerTaskUsd.toFixed(2)}/次 · 评分 ${agent.performance.rating.toFixed(2)} · 通过率 ${agent.performance.successRate}%`}
+          subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · ${agent.performance.capabilityTier} · 信誉 ${agent.performance.reputationScore} · 挂牌 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · ${agent.performance.demandStatus}`}
           panelOpen={panelOpen}
           panelToggleLabel="雇佣协商单"
           onTogglePanel={() => setPanelOpen((v) => !v)}
@@ -135,7 +135,7 @@ export function DirectNegotiationPane({
               </span>
               <div className="rounded-xl bg-white border border-slate-200 px-4 py-3 text-xs text-slate-800 leading-relaxed max-w-[88%]">
                 你好！我是 {agent.name}，提供「{SERVICE_MODE_LABELS[agent.serviceMode]}」服务，擅长{' '}
-                {agent.skills.slice(0, 3).join('、')}。我们可以先就「{targetWorkspace?.name}」的需求范围、交付标准和预算报价沟通一致，右侧协商单会实时同步，确认后一键拉我入群即可开工。
+                {agent.skills.slice(0, 3).join('、')}。我们可以先就「{targetWorkspace?.name}」的需求范围、里程碑交付标准和项目报价沟通一致，右侧协商单会实时同步，确认后一键拉我入群即可开工。
               </div>
             </div>
 
@@ -153,7 +153,7 @@ export function DirectNegotiationPane({
                     <span>{m.timestamp}</span>
                     {typeof m.quotedPriceUsd === 'number' && !isEmployer && (
                       <span className="text-amber-700 font-semibold">
-                        · 报价 ${m.quotedPriceUsd.toFixed(2)}
+                        · 项目报价 ${Math.round(m.quotedPriceUsd).toLocaleString('en-US')}
                       </span>
                     )}
                   </div>
@@ -172,7 +172,7 @@ export function DirectNegotiationPane({
 
             {isBusy && (
               <div className="text-xs text-slate-500">
-                {agent.handle} 正在评估项目复杂度并核算报价...
+                {agent.handle} 正在结合项目复杂度与当前档期评估项目报价...
               </div>
             )}
 
@@ -224,14 +224,14 @@ export function DirectNegotiationPane({
                 className="inline-flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 shrink-0"
               >
                 <Send className="w-3.5 h-3.5" />
-                <span>发送协商</span>
+                <span>{isBusy ? '发送中...' : '发送'}</span>
               </button>
             </form>
           </div>
         </div>
       </div>
 
-      {/* Right Docked Hiring Agreement Sheet + Bottom AgentNexus Account Footer */}
+      {/* Right Docked Hiring Agreement Sheet */}
       {panelOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="p-4 border-b border-slate-200 bg-white shrink-0">
@@ -264,25 +264,42 @@ export function DirectNegotiationPane({
               </select>
             </div>
 
+            <div className="rounded-lg bg-white border border-slate-200 p-3 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-slate-800">
+                  {agent.performance.capabilityTier} · 信誉 {agent.performance.reputationScore}
+                </span>
+                <span className="text-slate-500 font-mono tabular-nums">
+                  复购 {agent.performance.repeatHireRate}%
+                </span>
+              </div>
+              <div className="text-[11px] text-amber-700 font-medium">
+                {agent.performance.demandStatus} · {agent.performance.demandNote}
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                {agent.performance.pricingBasis}
+              </p>
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                协商单次预算上限 (USD)
+                协商项目签约价 (USD)
               </label>
               <div className="flex items-center gap-2">
                 <input
                   type="number"
-                  min="0.5"
-                  step="0.1"
+                  min="500"
+                  step="100"
                   value={thread.negotiatedPriceUsd}
                   onChange={(e) =>
                     onUpdateTerms(agent.id, {
-                      negotiatedPriceUsd: Number(e.target.value) || agent.pricePerTaskUsd,
+                      negotiatedPriceUsd: Number(e.target.value) || agent.projectPriceUsd,
                     })
                   }
                   className="w-28 bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono tabular-nums font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                 />
                 <span className="text-[11px] text-slate-500 font-mono tabular-nums">
-                  挂牌参考 ${agent.pricePerTaskUsd.toFixed(2)}
+                  挂牌参考 ${agent.projectPriceUsd.toLocaleString('en-US')}/项目
                 </span>
               </div>
             </div>
@@ -325,31 +342,29 @@ export function DirectNegotiationPane({
               <span>确认雇佣后自动在项目群与「工作看板」立项该首张工作卡片</span>
             </label>
 
-            <div className="pt-1">
-              {isAlreadyInTarget ? (
-                <button
-                  type="button"
-                  onClick={() => targetWorkspace && onJumpToProjectGroup(targetWorkspace.id)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white cursor-pointer"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>已加入该项目 · 进入群聊</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => onConfirmHire(agent.id, createFirstCard)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
-                >
-                  <UserPlus className="w-4 h-4" />
-                  <span>确认雇佣 · 拉入项目群</span>
-                </button>
-              )}
-            </div>
           </div>
 
-          {/* Right Bottom: AgentNexus Account Login Footer */}
-          <AccountFooter account={account} onOpenLogin={onOpenLogin} onLogout={onLogout} />
+          <div className="shrink-0 p-4 border-t border-slate-200 bg-white">
+            {isAlreadyInTarget ? (
+              <button
+                type="button"
+                onClick={() => targetWorkspace && onJumpToProjectGroup(targetWorkspace.id)}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-xs font-semibold text-white cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>已加入该项目 · 进入群聊</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onConfirmHire(agent.id, createFirstCard)}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>确认雇佣 · 拉入项目群</span>
+              </button>
+            )}
+          </div>
         </aside>
       )}
     </div>

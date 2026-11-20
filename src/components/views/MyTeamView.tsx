@@ -79,10 +79,9 @@ export function MyTeamView({
   const [category, setCategory] = useState<AgentCategory>('engineering');
   const [serviceMode, setServiceMode] = useState<ServiceMode>('pure-agent');
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
-  const [pricePerTaskUsd, setPricePerTaskUsd] = useState(1.8);
-  const [pricePerHourUsd, setPricePerHourUsd] = useState(6.0);
+  const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '我本地调优的私有领域 Agent，可优先拉入自有项目群零外包费使用，闲时可勾选对外上架市场接单变现。',
+    '我本地调优的私有领域 Agent，可优先拉入自有项目群零签约费使用，闲时可勾选对外上架市场按项目接单变现。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '代码规范检查', '自动化回归脚本']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
@@ -101,9 +100,8 @@ export function MyTeamView({
     setCategory('engineering');
     setServiceMode('pure-agent');
     setRegion('本地 anx-worker 私有节点');
-    setPricePerTaskUsd(1.8);
-    setPricePerHourUsd(6.2);
-    setBio('我本地调优的私有 Agent，支持加密云工作空间挂载。默认私有自用，勾选上架即可进入专家市场接受外部雇主私聊与租用。');
+    setProjectPriceUsd(1800);
+    setBio('我本地调优的私有 Agent，支持加密云工作空间挂载。默认私有自用，勾选上架即可进入专家市场接受外部雇主私聊并按项目签约。');
     setSkills(['接口契约联调', '边界单测补全', '安全基线审计', '自动化文档']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
     setIsListedInMarket(defaultListToMarket);
@@ -120,8 +118,7 @@ export function MyTeamView({
     setCategory(agent.category);
     setServiceMode(agent.serviceMode);
     setRegion(agent.region);
-    setPricePerTaskUsd(agent.pricePerTaskUsd);
-    setPricePerHourUsd(agent.pricePerHourUsd);
+    setProjectPriceUsd(agent.projectPriceUsd);
     setBio(agent.bio);
     setSkills([...agent.skills]);
     setMcpTools([...agent.mcpTools]);
@@ -152,14 +149,15 @@ export function MyTeamView({
         name,
         title,
         category,
+        serviceMode,
         skills,
         bio,
       });
       setBio(res.optimizedBio || bio);
       if (res.recommendedSkills?.length) setSkills(res.recommendedSkills);
       if (res.recommendedMcpTools?.length) setMcpTools(res.recommendedMcpTools);
-      if (res.suggestedPricePerTaskUsd) {
-        setPricePerTaskUsd(Number(res.suggestedPricePerTaskUsd.toFixed(2)));
+      if (res.suggestedProjectPriceUsd) {
+        setProjectPriceUsd(Math.round(res.suggestedProjectPriceUsd));
       }
       setAiAdvice(res.marketAdvice);
     } catch (err) {
@@ -192,8 +190,7 @@ export function MyTeamView({
           : '自有私有节点 · anx-worker 直连',
       skills: skills.length > 0 ? skills : ['私有领域交付'],
       mcpTools: mcpTools.length > 0 ? mcpTools : ['Git-PR'],
-      pricePerTaskUsd: Number(pricePerTaskUsd) || 1.6,
-      pricePerHourUsd: Number(pricePerHourUsd) || 5.8,
+      projectPriceUsd: Math.round(Number(projectPriceUsd)) || 1800,
       bio: bio.trim(),
       avatarAccent:
         existing?.avatarAccent ||
@@ -209,16 +206,21 @@ export function MyTeamView({
               : 'PV'),
       isOnlineForOrders: true,
       performance: existing?.performance || {
-        completedTasks: 12,
+        completedProjects: 12,
         successRate: 98.8,
-        avgDurationMin: 10,
+        reputationScore: 96,
+        repeatHireRate: 88,
+        avgDeliveryDays: 3,
         rating: 4.93,
-        costEfficiency: '自有私有配额 · 闲时高毛利',
+        capabilityTier: serviceMode === 'human-agent' ? 'S 级稀缺' : 'A+ 资深',
+        demandStatus: '档期充裕',
+        demandNote: '自有节点 · 内部自用免签约费',
+        pricingBasis: '基于自有领域知识库与履约信誉设定的项目制签约价',
         recentReviews: [
           {
             employer: '内部沙箱验收',
             project: '私有节点准入基准',
-            comment: '能力标签与工作流契约校验通过，满足自用与对外接单标准。',
+            comment: '能力标签与工作流契约校验通过，满足自用与对外项目签约标准。',
             score: 4.9,
           },
         ],
@@ -245,7 +247,7 @@ export function MyTeamView({
             <div>
               <h1 className="text-xl font-bold text-slate-900">我的团队</h1>
               <p className="text-sm text-slate-600 mt-1">
-                统一管理当前项目的在群专家，以及你自己的私有 Agent 节点；私有节点默认自用，需要对外接单时一键上架至市场。
+                永久在线，按需持续交付的外部 / 内部 Agent 专家团队。
               </p>
             </div>
             <div className="flex items-center gap-2.5 shrink-0">
@@ -294,12 +296,12 @@ export function MyTeamView({
               </div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">当前项目预算花费</div>
+              <div className="text-xs text-slate-500">当前项目签约总额</div>
               <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
-                ${workspace.spentUsd.toFixed(2)}
+                ${workspace.spentUsd.toLocaleString('en-US')}
                 <span className="text-xs text-slate-400 font-normal">
                   {' '}
-                  / ${workspace.budgetCapUsd.toFixed(0)}
+                  / ${workspace.budgetCapUsd.toLocaleString('en-US')}
                 </span>
               </div>
             </div>
@@ -329,7 +331,6 @@ export function MyTeamView({
                 {hiredAgents.map((agent) => {
                   const agentTasks = tasks.filter((t) => t.assigneeId === agent.id);
                   const doneTasks = agentTasks.filter((t) => t.status === 'done').length;
-                  const spent = agentTasks.reduce((sum, t) => sum + t.actualCostUsd, 0);
 
                   return (
                     <div
@@ -349,7 +350,7 @@ export function MyTeamView({
                             <span className="text-slate-500">· {agent.name}</span>
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span className="font-medium text-slate-700">
-                              {agent.ownership === 'private' ? '我的私有节点' : '市场租用'}
+                              {agent.ownership === 'private' ? '我的私有节点' : agent.performance.capabilityTier}
                             </span>
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span
@@ -372,15 +373,17 @@ export function MyTeamView({
                       <div className="flex flex-wrap sm:flex-nowrap items-center justify-between lg:justify-end gap-5 shrink-0">
                         <div className="flex items-center gap-5 text-xs font-mono tabular-nums">
                           <div>
-                            <div className="text-[11px] font-sans text-slate-500">任务完成</div>
+                            <div className="text-[11px] font-sans text-slate-500">工作交付</div>
                             <div className="font-semibold text-slate-900 mt-0.5">
-                              {doneTasks} / {agentTasks.length}
+                              {doneTasks} / {agentTasks.length} 卡
                             </div>
                           </div>
                           <div>
-                            <div className="text-[11px] font-sans text-slate-500">项目花费</div>
+                            <div className="text-[11px] font-sans text-slate-500">项目签约价</div>
                             <div className="font-semibold text-slate-900 mt-0.5">
-                              {agent.ownership === 'private' ? '私有自用' : `$${spent.toFixed(2)}`}
+                              {agent.ownership === 'private'
+                                ? '私有自用'
+                                : `$${agent.projectPriceUsd.toLocaleString('en-US')}`}
                             </div>
                           </div>
                         </div>
@@ -465,7 +468,7 @@ export function MyTeamView({
                             {agent.isListedInMarket ? (
                               <>
                                 <Globe className="w-3 h-3" />
-                                已上架市场 (${agent.pricePerTaskUsd.toFixed(2)}/任务)
+                                已上架市场 (${agent.projectPriceUsd.toLocaleString('en-US')}/项目)
                               </>
                             ) : (
                               <>
@@ -589,7 +592,7 @@ export function MyTeamView({
                 <div>
                   <div className="text-xs font-bold text-slate-900">是否对外上架到专家市场</div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    关闭则仅自己私有使用；开启后外部雇主可私聊并按任务租用
+                    关闭则仅自己私有使用；开启后外部雇主可私聊并按项目签约
                   </div>
                 </div>
                 <button
@@ -666,14 +669,14 @@ export function MyTeamView({
                 </label>
 
                 <label className="block">
-                  <span className="text-xs font-medium text-slate-700">对外单任务价 (USD)</span>
+                  <span className="text-xs font-medium text-slate-700">对外项目签约价 (USD)</span>
                   <input
                     type="number"
-                    step="0.1"
-                    min="0.5"
-                    max="50"
-                    value={pricePerTaskUsd}
-                    onChange={(e) => setPricePerTaskUsd(Number(e.target.value))}
+                    step="100"
+                    min="500"
+                    max="20000"
+                    value={projectPriceUsd}
+                    onChange={(e) => setProjectPriceUsd(Number(e.target.value))}
                     className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono tabular-nums text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   />
                 </label>
