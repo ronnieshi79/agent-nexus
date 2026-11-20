@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowRight,
   CheckCircle2,
   FileCode2,
   FolderKanban,
   GitBranch,
   Handshake,
   Layers,
-  MessageSquareText,
   Play,
   Plus,
   RotateCcw,
@@ -34,7 +32,6 @@ type WorkBoardTab = 'overview' | 'flow' | 'hiring';
 
 interface WorkflowKanbanViewProps {
   workspaces: ProjectWorkspace[];
-  activeWorkspace: ProjectWorkspace;
   projectSeed: string | null;
   onClearProjectSeed: () => void;
   allTasks: WorkflowTask[];
@@ -45,13 +42,9 @@ interface WorkflowKanbanViewProps {
   onCreateProject: (name: string, goal: string) => string;
   onRunTask: (taskId: string) => Promise<void>;
   onUpdateStatus: (taskId: string, status: TaskStatus) => void;
-  onOpenNegotiation: (agentId: string) => void;
   onConfirmHire: (agentId: string, createFirstCard: boolean) => void;
-  onJumpToChat: (projectId?: string) => void;
-  onJumpToAssistant: () => void;
   onJumpToMarket: () => void;
   onReleaseAgent: (agentId: string, projectId?: string) => void;
-  onMentionInChat: (handle: string, projectId?: string) => void;
 }
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
@@ -81,7 +74,6 @@ const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
 
 export function WorkflowKanbanView({
   workspaces,
-  activeWorkspace,
   projectSeed,
   onClearProjectSeed,
   allTasks,
@@ -92,13 +84,9 @@ export function WorkflowKanbanView({
   onCreateProject,
   onRunTask,
   onUpdateStatus,
-  onOpenNegotiation,
   onConfirmHire,
-  onJumpToChat,
-  onJumpToAssistant,
   onJumpToMarket,
   onReleaseAgent,
-  onMentionInChat,
 }: WorkflowKanbanViewProps) {
   // Overview is FIRST and default!
   const [activeTab, setActiveTab] = useState<WorkBoardTab>('overview');
@@ -237,33 +225,10 @@ export function WorkflowKanbanView({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-white">
-      {/* Top Multi-Project Switcher + Actions + KPI + Perspective Tabs */}
-      <div className="shrink-0 px-5 sm:px-8 pt-5 pb-4 border-b border-slate-200">
-        {/* Title Row */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">工作看板</h1>
-            <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
-              工作卡片统一由项目群聊对话或输入框直接生成，看板专注多项目概览统筹、任务流状态流转与雇佣协同。
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() =>
-                onJumpToChat(focusedProject ? focusedProject.id : activeWorkspace.id)
-              }
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-            >
-              <MessageSquareText className="w-3.5 h-3.5" />
-              <span>进入项目群对话生成</span>
-            </button>
-          </div>
-        </div>
-
+      {/* Top Multi-Project Switcher + KPI + Perspective Tabs */}
+      <div className="shrink-0 px-5 sm:px-8 pt-4 pb-4 border-b border-slate-200">
         {/* Dedicated Multi-Project Switcher Strip */}
-        <div className="mt-4 flex items-center gap-1.5 overflow-x-auto pb-1">
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
           <button
             type="button"
             onClick={() => setProjectScope('all')}
@@ -381,13 +346,9 @@ export function WorkflowKanbanView({
               <span className="text-xl font-bold text-amber-700">{pendingNegotiationCount}</span>
               <span className="text-xs font-sans text-slate-500">
                 洽谈 ·{' '}
-                <button
-                  type="button"
-                  onClick={onJumpToAssistant}
-                  className="font-mono text-blue-700 hover:underline cursor-pointer"
-                >
+                <span className="font-mono text-slate-700">
                   待结 ${Math.round(scopedUnsettledUsd).toLocaleString('en-US')}
-                </button>
+                </span>
               </span>
             </div>
           </div>
@@ -534,7 +495,7 @@ export function WorkflowKanbanView({
                           onClick={() => setProjectScope(proj.id)}
                           className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
                         >
-                          聚焦单项目概览
+                          单项目概览
                         </button>
                         <button
                           type="button"
@@ -542,17 +503,9 @@ export function WorkflowKanbanView({
                             setProjectScope(proj.id);
                             setActiveTab('flow');
                           }}
-                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
                         >
                           项目任务流
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onJumpToChat(proj.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          <span>进入项目群</span>
-                          <ArrowRight className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -658,14 +611,6 @@ export function WorkflowKanbanView({
                       >
                         切换四列任务流
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onJumpToChat(focusedProject.id)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                      >
-                        <span>进入项目群聊</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </button>
                     </div>
                   </div>
                 </section>
@@ -677,13 +622,6 @@ export function WorkflowKanbanView({
                       <h3 className="text-sm font-bold text-slate-900">
                         功能模块与工作卡片概览 ({metricTasks.length})
                       </h3>
-                      <button
-                        type="button"
-                        onClick={() => onJumpToChat(focusedProject.id)}
-                        className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-                      >
-                        去项目群对话生成 →
-                      </button>
                     </div>
 
                     {focusedModules.length === 0 ? (
@@ -826,15 +764,6 @@ export function WorkflowKanbanView({
                                 </div>
                               </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onMentionInChat(row.agent.handle, focusedProject.id)
-                              }
-                              className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer shrink-0"
-                            >
-                              @ 派单
-                            </button>
                           </div>
                         ))}
                       </div>
@@ -855,7 +784,7 @@ export function WorkflowKanbanView({
                             return (
                               <div
                                 key={neg.agentId}
-                                className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1.5"
+                                className="p-2.5 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1"
                               >
                                 <div className="flex items-center justify-between text-xs">
                                   <span className="font-semibold text-slate-900">{ag.handle}</span>
@@ -866,13 +795,6 @@ export function WorkflowKanbanView({
                                 <p className="text-[11px] text-slate-600 line-clamp-1">
                                   {neg.firstWorkCardTitle}
                                 </p>
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenNegotiation(neg.agentId)}
-                                  className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                                >
-                                  打开私聊协商 →
-                                </button>
                               </div>
                             );
                           })}
@@ -1130,24 +1052,11 @@ export function WorkflowKanbanView({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => onOpenNegotiation(agent.id)}
-                            className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-                          >
-                            打开私聊 ({thread.messages.length})
-                          </button>
-
                           {alreadyInTarget ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onMentionInChat(agent.handle, thread.targetProjectId)
-                              }
-                              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              已入群 · 去 @ 派单
-                            </button>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 text-emerald-700 text-xs font-semibold whitespace-nowrap">
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>已雇佣入群</span>
+                            </span>
                           ) : (
                             <button
                               type="button"
@@ -1172,7 +1081,7 @@ export function WorkflowKanbanView({
                   项目在役专家雇佣清单 ({hiredEngagements.length})
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  按项目维度查看每位在役专家的工作卡片负载与项目签约价，支持快速 @ 派单或解约移出。
+                  按项目维度查看每位在役专家的工作卡片负载与项目签约价。
                 </p>
               </div>
 
@@ -1228,25 +1137,14 @@ export function WorkflowKanbanView({
                             : '私有自用'}
                         </td>
                         <td className="py-3 px-5 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onMentionInChat(row.agent.handle, row.project.id)
-                              }
-                              className="text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
-                            >
-                              @ 派单
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => onReleaseAgent(row.agent.id, row.project.id)}
-                              title="移出该项目群"
-                              className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
-                            >
-                              <UserMinus className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onReleaseAgent(row.agent.id, row.project.id)}
+                            title="移出该项目群"
+                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                          >
+                            <UserMinus className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     ))}

@@ -295,7 +295,7 @@ export function Sidebar({
                 type="submit"
                 className="w-full py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
               >
-                创建并进入项目群
+                创建项目群
               </button>
             </form>
           )}

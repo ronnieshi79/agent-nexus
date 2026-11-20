@@ -3,7 +3,6 @@ import {
   Check,
   Globe,
   Lock,
-  MessageSquareText,
   Plus,
   Settings2,
   Sparkles,
@@ -27,7 +26,6 @@ interface MyTeamViewProps {
   hiredIds: string[];
   tasks: WorkflowTask[];
   openMountDrawerSignal: number;
-  onMentionInChat: (handle: string) => void;
   onHireAgent: (agentId: string) => void;
   onReleaseAgent: (agentId: string) => void;
   onSavePrivateAgent: (expert: ExpertAgent, isNew: boolean) => void;
@@ -61,7 +59,6 @@ export function MyTeamView({
   hiredIds,
   tasks,
   openMountDrawerSignal,
-  onMentionInChat,
   onHireAgent,
   onReleaseAgent,
   onSavePrivateAgent,
@@ -241,37 +238,9 @@ export function MyTeamView({
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Team & Private Nodes Area */}
       <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 space-y-8">
-          {/* Header */}
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-5 border-b border-slate-200">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">我的团队</h1>
-              <p className="text-sm text-slate-600 mt-1">
-                永久在线，按需持续交付的外部 / 内部 Agent 专家团队。
-              </p>
-            </div>
-            <div className="flex items-center gap-2.5 shrink-0">
-              <button
-                type="button"
-                onClick={() => openCreateDrawer(false)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>挂载私有 Agent</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => onRecruitCategory('all')}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>去市场选人</span>
-              </button>
-            </div>
-          </div>
-
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5 space-y-7">
           {/* 4-Column Tabular Summary Strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 pb-6 border-b border-slate-200">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 pb-5 border-b border-slate-200">
             <div>
               <div className="text-xs text-slate-500">当前项目在群专家</div>
               <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
@@ -309,10 +278,18 @@ export function MyTeamView({
 
           {/* Section 1: Active Project Group Members */}
           <section>
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="text-sm font-bold text-slate-900">
                 当前项目在群专家 · {workspace.name} ({hiredAgents.length})
               </h2>
+              <button
+                type="button"
+                onClick={() => onRecruitCategory('all')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>去市场选人</span>
+              </button>
             </div>
 
             {hiredAgents.length === 0 ? (
@@ -391,14 +368,6 @@ export function MyTeamView({
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => onMentionInChat(agent.handle)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-900 hover:bg-slate-800 text-white cursor-pointer whitespace-nowrap"
-                          >
-                            <MessageSquareText className="w-3.5 h-3.5" />
-                            <span>群里 @ 派单</span>
-                          </button>
-                          <button
-                            type="button"
                             onClick={() => onReleaseAgent(agent.id)}
                             title="移出当前项目群"
                             className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors cursor-pointer"
@@ -425,15 +394,25 @@ export function MyTeamView({
                   私有挂载默认仅供自己项目使用；需要闲时对外接单变现时，可直接切换“上架到市场”同步曝光。
                 </p>
               </div>
-              {listedPrivateCount > 0 && (
+              <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
+                {listedPrivateCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={onJumpToMarket}
+                    className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                  >
+                    去市场查看已上架节点 →
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={onJumpToMarket}
-                  className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap self-start sm:self-auto"
+                  onClick={() => openCreateDrawer(false)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
                 >
-                  去市场查看已上架节点 →
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>挂载私有 Agent</span>
                 </button>
-              )}
+              </div>
             </div>
 
             <div className="border border-slate-200 rounded-xl divide-y divide-slate-200 overflow-hidden">

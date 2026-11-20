@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  ArrowUpRight,
   Check,
   MessageCircle,
   Search,
@@ -40,9 +39,7 @@ interface AgentMarketViewProps {
   onClearCategorySeed: () => void;
   onHire: (agentId: string) => void;
   onRelease: (agentId: string) => void;
-  onJumpToChat: () => void;
   onJumpToMountPrivate: () => void;
-  onOpenFullNegotiation: (agentId: string) => void;
 }
 
 const CATEGORY_TABS: { id: 'all' | AgentCategory; label: string }[] = [
@@ -78,9 +75,7 @@ export function AgentMarketView({
   onClearCategorySeed,
   onHire,
   onRelease,
-  onJumpToChat,
   onJumpToMountPrivate,
-  onOpenFullNegotiation,
 }: AgentMarketViewProps) {
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [modeFilter, setModeFilter] = useState<'all' | ServiceMode>('all');
@@ -189,48 +184,42 @@ export function AgentMarketView({
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Market Directory */}
       <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6">
-          <div className="pb-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">专家 Agent 市场</h1>
-              <p className="text-sm text-slate-600 mt-1">
-                按项目签约定价（基于专家能力等级、历史信誉、稀缺度与市场供需），支持先在右侧 1v1 私聊协商再一键拉入项目群。
-              </p>
-            </div>
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5">
+          {/* AI Talent Advisor Bar + Mount Entry */}
+          <div className="flex flex-col lg:flex-row lg:items-center gap-2.5">
+            <form
+              onSubmit={handleAiMatch}
+              className="flex-1 min-w-0 p-1.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
+            >
+              <div className="flex items-center gap-1.5 px-2.5 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                <span>AI 选人顾问</span>
+              </div>
+              <input
+                type="text"
+                value={aiQuery}
+                onChange={(e) => setAiQuery(e.target.value)}
+                placeholder="输入项目难点（如：需要人+Agent 协同审高并发支付架构，再配一个自动化压测）..."
+                className="flex-1 min-w-0 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              />
+              <button
+                type="submit"
+                disabled={aiMatching || !aiQuery.trim()}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
+              >
+                {aiMatching ? '筛选中...' : '智能匹配组合'}
+              </button>
+            </form>
+
             <button
               type="button"
               onClick={onJumpToMountPrivate}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0 cursor-pointer self-start sm:self-auto"
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
             >
               <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
               <span>挂载我的 Agent 上架</span>
             </button>
           </div>
-
-          {/* AI Talent Advisor Bar */}
-          <form
-            onSubmit={handleAiMatch}
-            className="mt-5 p-2 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
-          >
-            <div className="flex items-center gap-1.5 px-2.5 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0">
-              <Sparkles className="w-4 h-4 text-blue-600" />
-              <span>AI 选人顾问</span>
-            </div>
-            <input
-              type="text"
-              value={aiQuery}
-              onChange={(e) => setAiQuery(e.target.value)}
-              placeholder="输入项目难点（如：需要人+Agent 协同审高并发支付架构，再配一个自动化压测）..."
-              className="flex-1 min-w-0 bg-white rounded-lg px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-            />
-            <button
-              type="submit"
-              disabled={aiMatching || !aiQuery.trim()}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
-            >
-              {aiMatching ? '筛选中...' : '智能匹配组合'}
-            </button>
-          </form>
 
           {matchError && (
             <div className="mt-3 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center justify-between gap-2">
@@ -525,39 +514,28 @@ export function AgentMarketView({
             </div>
 
             {/* Segmented Drawer Tabs */}
-            <div className="mt-3 flex items-center gap-2">
-              <div className="flex-1 grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setDrawerTab('dm')}
-                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                    drawerTab === 'dm'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  1v1 私聊协商
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDrawerTab('profile')}
-                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                    drawerTab === 'profile'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  能力与绩效
-                </button>
-              </div>
+            <div className="mt-3 grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
               <button
                 type="button"
-                onClick={() => onOpenFullNegotiation(drawerAgent.id)}
-                title="展开至完整私聊协商工作台（含雇佣协商单）"
-                className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 whitespace-nowrap shrink-0 cursor-pointer"
+                onClick={() => setDrawerTab('dm')}
+                className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  drawerTab === 'dm'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
               >
-                <span>协商单</span>
-                <ArrowUpRight className="w-3.5 h-3.5" />
+                1v1 私聊协商
+              </button>
+              <button
+                type="button"
+                onClick={() => setDrawerTab('profile')}
+                className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                  drawerTab === 'profile'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                能力与绩效
               </button>
             </div>
           </div>
@@ -741,13 +719,10 @@ export function AgentMarketView({
             </div>
 
             {hiredIds.includes(drawerAgent.id) ? (
-              <button
-                type="button"
-                onClick={onJumpToChat}
-                className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white hover:bg-slate-800 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                已在群 · 去 @ 派单
-              </button>
+              <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-50 border border-emerald-200 text-emerald-800 whitespace-nowrap shrink-0">
+                <Check className="w-3.5 h-3.5" />
+                <span>已在当前项目群</span>
+              </span>
             ) : (
               <button
                 type="button"

@@ -51,10 +51,7 @@ export default function App() {
           activeChatChannel={store.activeChatChannel}
           workspace={store.activeWorkspace}
           agents={store.agents}
-          unsettledCount={store.unsettledCount}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
-          onOpenAssistant={store.openAssistantChat}
-          onBackToChat={() => store.setActiveView('chat')}
         />
 
         {store.aiError && (
@@ -95,7 +92,6 @@ export default function App() {
               draftSeed={store.chatDraftSeed}
               onClearDraftSeed={store.clearChatDraftSeed}
               onClearDmError={store.clearDmError}
-              onSelectProject={store.selectSession}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
               onSendGroupMessage={store.sendGroupMessage}
               onCreateWorkCard={store.createWorkCard}
@@ -116,7 +112,6 @@ export default function App() {
           {store.activeView === 'kanban' && (
             <WorkflowKanbanView
               workspaces={store.workspaces}
-              activeWorkspace={store.activeWorkspace}
               projectSeed={store.kanbanProjectSeed}
               onClearProjectSeed={store.clearKanbanProjectSeed}
               allTasks={store.allTasks}
@@ -127,16 +122,9 @@ export default function App() {
               onCreateProject={store.createSession}
               onRunTask={store.runAutonomousTask}
               onUpdateStatus={store.updateTaskStatus}
-              onOpenNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
               onConfirmHire={store.confirmHireFromNegotiation}
-              onJumpToChat={(projectId) => {
-                if (projectId) store.selectSession(projectId);
-                else store.setActiveView('chat');
-              }}
-              onJumpToAssistant={store.openAssistantChat}
               onJumpToMarket={() => store.setActiveView('market')}
               onReleaseAgent={store.releaseAgent}
-              onMentionInChat={store.jumpToChatWithMention}
             />
           )}
 
@@ -148,7 +136,6 @@ export default function App() {
               hiredIds={store.hiredIds}
               tasks={store.sessionTasks}
               openMountDrawerSignal={store.openMountDrawerSignal}
-              onMentionInChat={store.jumpToChatWithMention}
               onHireAgent={store.hireAgent}
               onReleaseAgent={store.releaseAgent}
               onSavePrivateAgent={store.savePrivateAgent}
@@ -172,9 +159,7 @@ export default function App() {
               onClearCategorySeed={store.clearMarketCategorySeed}
               onHire={store.hireAgent}
               onRelease={store.releaseAgent}
-              onJumpToChat={() => store.setActiveView('chat')}
               onJumpToMountPrivate={store.jumpToMountPrivateAgent}
-              onOpenFullNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
             />
           )}
         </main>

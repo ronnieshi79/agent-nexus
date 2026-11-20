@@ -37,7 +37,6 @@ interface UnifiedChatViewProps {
   draftSeed: string;
   onClearDraftSeed: () => void;
   onClearDmError: () => void;
-  onSelectProject: (projectId: string) => void;
   onStartNegotiation: (agentId: string) => void;
   onSendGroupMessage: (text: string) => Promise<void>;
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
@@ -84,7 +83,6 @@ export function UnifiedChatView({
   draftSeed,
   onClearDraftSeed,
   onClearDmError,
-  onSelectProject,
   onStartNegotiation,
   onSendGroupMessage,
   onCreateWorkCard,
@@ -160,7 +158,6 @@ export function UnifiedChatView({
           onSendMessage={onSendDm}
           onUpdateTerms={onUpdateNegotiationTerms}
           onConfirmHire={onConfirmHire}
-          onJumpToProjectGroup={onSelectProject}
         />
       )}
     </div>
