@@ -1,10 +1,13 @@
 import type {
-  BrainRecommendation,
+  AssistantMessage,
   ChatMessage,
+  DirectMessage,
   ExpertAgent,
+  NegotiationThread,
+  PlatformServiceCategory,
   ProjectWorkspace,
-  ServiceCardId,
-  UserPerspective,
+  SettlementRecord,
+  WorkCardType,
   WorkflowTask,
 } from '../types/agentnexus';
 
@@ -21,15 +24,24 @@ async function postJson<T>(url: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-export function fetchBrainRecommendation(payload: {
-  userIntent?: string;
-  perspective: UserPerspective;
-  activeCard: ServiceCardId;
-  workspace: ProjectWorkspace;
-  hiredAgents: ExpertAgent[];
+export interface PlatformAssistantResult {
+  category: PlatformServiceCategory;
+  reply: string;
+  cardTitle: string;
+  cardDetail: string;
+  metricLabel: string;
+}
+
+export function sendPlatformAssistantMessage(payload: {
+  message: string;
+  history: AssistantMessage[];
+  workspaces: ProjectWorkspace[];
   tasks: WorkflowTask[];
-}): Promise<BrainRecommendation> {
-  return postJson<BrainRecommendation>('/api/brain/recommend', payload);
+  negotiations: NegotiationThread[];
+  settlements: SettlementRecord[];
+  privateAgents: ExpertAgent[];
+}): Promise<PlatformAssistantResult> {
+  return postJson<PlatformAssistantResult>('/api/assistant/chat', payload);
 }
 
 export interface MarketMatchResult {
@@ -49,6 +61,26 @@ export function fetchMarketMatches(payload: {
   return postJson<MarketMatchResult>('/api/market/match', payload);
 }
 
+export interface ExpertDmResult {
+  reply: string;
+  quotedPriceUsd: number;
+  proposedScope: string;
+  proposedWorkCardTitle: string;
+}
+
+export function sendExpertDirectMessage(payload: {
+  agent: ExpertAgent;
+  workspace: ProjectWorkspace;
+  history: DirectMessage[];
+  message: string;
+  currentTerms?: {
+    negotiatedPriceUsd: number;
+    scopeNote: string;
+  };
+}): Promise<ExpertDmResult> {
+  return postJson<ExpertDmResult>('/api/market/dm', payload);
+}
+
 export interface ChatOrchestrateResult {
   replies: {
     senderId: string;
@@ -58,6 +90,8 @@ export interface ChatOrchestrateResult {
     content: string;
   }[];
   newTasks: {
+    featureModule: string;
+    workType: WorkCardType;
     title: string;
     description: string;
     assigneeId: string;

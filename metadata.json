@@ -2,5 +2,7 @@
   "name": "AgentNexus 智能体协同原型",
   "description": "面向超级个体与团队的无菜单 Agentic 协同原型：内置情境感知 AI 大脑、拟物卡通 Airobot、专家 Agent 市场、团队群聊 @ 派单与自动化工作流看板。",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

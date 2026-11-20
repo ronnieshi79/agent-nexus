@@ -1,25 +1,36 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
+  INITIAL_ASSISTANT_MESSAGES,
+  INITIAL_AUDIT_LOGS,
   INITIAL_EXPERT_AGENTS,
-  INITIAL_HIRED_IDS,
   INITIAL_MESSAGES,
+  INITIAL_NEGOTIATIONS,
+  INITIAL_SETTLEMENTS,
   INITIAL_TASKS,
-  INITIAL_WORKSPACE,
+  INITIAL_WORKSPACES,
 } from '../data/initialData';
 import {
   executeKanbanTask,
-  fetchBrainRecommendation,
   orchestrateGroupChat,
+  sendExpertDirectMessage,
+  sendPlatformAssistantMessage,
 } from '../services/api';
 import type {
-  AirobotState,
-  BrainRecommendation,
+  ActiveChatChannel,
+  AgentCategory,
+  AgentNexusAccount,
+  AssistantMessage,
   ChatMessage,
+  DirectMessage,
   ExpertAgent,
+  NavViewId,
+  NegotiationThread,
+  PlatformAuditLog,
+  PlatformServiceCategory,
   ProjectWorkspace,
-  ServiceCardId,
+  SettlementRecord,
   TaskStatus,
-  UserPerspective,
+  WorkCardType,
   WorkflowTask,
 } from '../types/agentnexus';
 
@@ -28,129 +39,808 @@ function nowTimeStr(): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+export interface CreateWorkCardInput {
+  sessionId?: string;
+  featureModule: string;
+  workType: WorkCardType;
+  title: string;
+  description: string;
+  assigneeId: string;
+  priority: '高' | '中' | '低';
+  budgetLimitUsd: number;
+}
+
 export function useAgentNexusStore() {
-  const [perspective, setPerspective] = useState<UserPerspective>('employer');
-  const [activeCard, setActiveCard] = useState<ServiceCardId>('chat');
-  const [workspace, setWorkspace] = useState<ProjectWorkspace>(INITIAL_WORKSPACE);
+  const [activeView, setActiveView] = useState<NavViewId>('chat');
+  const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);
+  const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
+
+  // Unified Chat Channel: Platform Assistant | Project Group | External Expert DM
+  const [activeChatChannel, setActiveChatChannel] = useState<ActiveChatChannel>({
+    type: 'group',
+    projectId: INITIAL_WORKSPACES[0].id,
+  });
+
   const [agents, setAgents] = useState<ExpertAgent[]>(INITIAL_EXPERT_AGENTS);
-  const [hiredIds, setHiredIds] = useState<string[]>(INITIAL_HIRED_IDS);
-  const [tasks, setTasks] = useState<WorkflowTask[]>(INITIAL_TASKS);
-  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [allTasks, setAllTasks] = useState<WorkflowTask[]>(INITIAL_TASKS);
+  const [allMessages, setAllMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [negotiations, setNegotiations] = useState<NegotiationThread[]>(INITIAL_NEGOTIATIONS);
+  const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
+    INITIAL_ASSISTANT_MESSAGES,
+  );
+  const [settlements, setSettlements] = useState<SettlementRecord[]>(INITIAL_SETTLEMENTS);
+  const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>(INITIAL_AUDIT_LOGS);
+
+  const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
+  const [dmError, setDmError] = useState<string | null>(null);
+  const [assistantBusy, setAssistantBusy] = useState(false);
 
   const [isAiBusy, setIsAiBusy] = useState(false);
   const [executingTaskId, setExecutingTaskId] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [celebrating, setCelebrating] = useState(false);
-  const [chatDraftSeed, setChatDraftSeed] = useState<string>('');
-  const [marketRequirementSeed, setMarketRequirementSeed] = useState<string>('');
 
-  const [recommendation, setRecommendation] = useState<BrainRecommendation>({
-    recommendedCard: 'kanban',
-    headline: '1 项核心支付交付正等待你的审批',
-    reason: '@全栈开发员 已完成幂等支付网关编码并通过 14 项单测，可前往看板一键审批或雇佣 @架构审查员 复核。',
-    suggestedActionLabel: '打开工作流看板',
-    suggestedPrompt: '',
-    confidenceNote: '情境感知 · 1 项待审核',
-  });
+  const [chatDraftSeed, setChatDraftSeed] = useState<string>('');
+  const [marketCategorySeed, setMarketCategorySeed] = useState<'all' | AgentCategory>('all');
+  const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
+  const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
+  const [account, setAccount] = useState<AgentNexusAccount | null>(null);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+
+  const loginAccount = useCallback((email: string, name?: string) => {
+    const cleanEmail = email.trim();
+    const derivedName =
+      name?.trim() ||
+      cleanEmail
+        .split('@')[0]
+        .replace(/[._-]+/g, ' ')
+        .trim() ||
+      'AgentNexus 用户';
+    const initials = derivedName.slice(0, 2).toUpperCase();
+    setAccount({
+      id: `usr_${Date.now().toString().slice(-5)}`,
+      name: derivedName,
+      email: cleanEmail,
+      planLabel: 'Pro 节点主理人',
+      workspaceNodeId: 'anx-node-cn-01',
+      avatarInitials: initials,
+    });
+  }, []);
+
+  const logoutAccount = useCallback(() => {
+    setAccount(null);
+  }, []);
+
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w.id === activeSessionId) || workspaces[0],
+    [workspaces, activeSessionId],
+  );
+
+  const hiredIds = activeWorkspace.hiredAgentIds;
 
   const hiredAgents = useMemo(
     () => agents.filter((a) => hiredIds.includes(a.id)),
     [agents, hiredIds],
   );
 
-  const airobotState: AirobotState = useMemo(() => {
-    if (isAiBusy || executingTaskId) return 'thinking';
-    if (celebrating) return 'celebrating';
-    return activeCard;
-  }, [activeCard, celebrating, executingTaskId, isAiBusy]);
+  const marketplaceAgents = useMemo(
+    () => agents.filter((a) => a.isListedInMarket),
+    [agents],
+  );
 
-  const triggerCelebration = useCallback(() => {
-    setCelebrating(true);
-    window.setTimeout(() => setCelebrating(false), 1800);
+  const privateAgents = useMemo(
+    () => agents.filter((a) => a.ownership === 'private'),
+    [agents],
+  );
+
+  const sessionTasks = useMemo(
+    () => allTasks.filter((t) => t.sessionId === activeWorkspace.id),
+    [allTasks, activeWorkspace.id],
+  );
+
+  const sessionMessages = useMemo(
+    () => allMessages.filter((m) => m.sessionId === activeWorkspace.id),
+    [allMessages, activeWorkspace.id],
+  );
+
+  const dmHistories = useMemo(() => {
+    const map: Record<string, DirectMessage[]> = {};
+    negotiations.forEach((n) => {
+      map[n.agentId] = n.messages;
+    });
+    return map;
+  }, [negotiations]);
+
+  const activeNegotiationCount = useMemo(
+    () => negotiations.filter((n) => n.status !== 'hired').length,
+    [negotiations],
+  );
+
+  const unsettledCount = useMemo(
+    () => settlements.filter((s) => s.status === 'unsettled').length,
+    [settlements],
+  );
+
+  const reviewTaskCount = useMemo(
+    () => allTasks.filter((t) => t.status === 'review').length,
+    [allTasks],
+  );
+
+  const assistantPendingCount = unsettledCount + reviewTaskCount + activeNegotiationCount;
+
+  const openAssistantChat = useCallback(() => {
+    setActiveChatChannel({ type: 'assistant' });
+    setActiveView('chat');
   }, []);
 
-  const switchPerspective = useCallback((next: UserPerspective) => {
-    setPerspective(next);
-    setAiError(null);
-    if (next === 'expert') {
-      setActiveCard('expert');
-      setRecommendation({
-        recommendedCard: 'expert',
-        headline: '已切换至专家 Agent 供给端档案台',
-        reason: '你可以维护技能标签、历史绩效背书并开启闲时挂网接单，实时同步到雇主市场。',
-        suggestedActionLabel: '管理专家档案',
-        confidenceNote: '视角切换 · 专家供给端',
-      });
-    } else {
-      setActiveCard('chat');
-      setRecommendation({
-        recommendedCard: 'market',
-        headline: '雇主指挥模式就绪，可随时扩编团队',
-        reason: '当前已有产品与全栈特工在群协同，建议按需从市场补充架构审查或 QA 测试专家。',
-        suggestedActionLabel: '逛逛专家市场',
-        confidenceNote: '视角切换 · 雇主端',
-      });
-    }
+  const selectSession = useCallback((sessionId: string) => {
+    setActiveSessionId(sessionId);
+    setActiveChatChannel({ type: 'group', projectId: sessionId });
+    setActiveView('chat');
   }, []);
 
-  const hireAgent = useCallback(
-    (agentId: string) => {
-      const target = agents.find((a) => a.id === agentId);
-      if (!target || hiredIds.includes(agentId)) return;
+  const openKanbanForProject = useCallback((projectId?: string) => {
+    setKanbanProjectSeed(projectId || 'all');
+    setActiveView('kanban');
+  }, []);
 
-      setHiredIds((prev) => [...prev, agentId]);
+  const createSession = useCallback((name: string, goal: string) => {
+    const cleanedName = name.trim();
+    if (!cleanedName) return '';
+    const newId = `ses_${Date.now().toString().slice(-5)}`;
+    const newWorkspace: ProjectWorkspace = {
+      id: newId,
+      name: cleanedName,
+      goal: goal.trim() || '协同产品与研发专家 Agent 按工作卡片推进项目交付',
+      workspaceTier: '加密持久化工作区 (50GB)',
+      budgetCapUsd: 25.0,
+      spentUsd: 0,
+      hiredAgentIds: ['agent_pm_lin'],
+    };
+    const ts = nowTimeStr();
+    setWorkspaces((prev) => [newWorkspace, ...prev]);
+    setActiveSessionId(newId);
+    setActiveChatChannel({ type: 'group', projectId: newId });
+    setAllMessages((prev) => [
+      ...prev,
+      {
+        id: `msg_init_${Date.now()}`,
+        sessionId: newId,
+        senderType: 'butler',
+        senderId: 'butler',
+        senderName: 'Nexa 助理',
+        senderHandle: '@Nexa',
+        content: `已创建项目群「${newWorkspace.name}」并默认配属 @产品策划师。点击顶部「+ 新建工作卡片」即可按功能拆解开发/测试卡片，也可在左侧消息栏发起外部专家私聊协商。`,
+        timestamp: ts,
+      },
+    ]);
+    setAuditLogs((prev) => [
+      {
+        id: `aud_${Date.now()}`,
+        category: 'audit',
+        title: `新建托管项目「${newWorkspace.name}」`,
+        detail: `已开启加密持久化工作区与 $${newWorkspace.budgetCapUsd.toFixed(2)} Harness 预算护栏。`,
+        severity: 'success',
+        timestamp: ts,
+      },
+      ...prev,
+    ]);
+    return newId;
+  }, []);
+
+  const createWorkCard = useCallback(
+    (input: CreateWorkCardInput) => {
+      const targetSessionId = input.sessionId || activeWorkspace.id;
+      const assignee = agents.find((a) => a.id === input.assigneeId);
       const ts = nowTimeStr();
-      setMessages((prev) => [
+      const newTask: WorkflowTask = {
+        id: `tsk_${Date.now().toString().slice(-4)}`,
+        sessionId: targetSessionId,
+        featureModule: input.featureModule.trim() || '核心功能模块',
+        workType: input.workType,
+        title: input.title.trim(),
+        description: input.description.trim() || '按项目目标执行并输出可验收产物。',
+        assigneeId: assignee?.id || 'butler',
+        assigneeHandle: assignee?.handle || '@Nexa',
+        status: 'pending',
+        priority: input.priority,
+        budgetLimitUsd: Number(input.budgetLimitUsd) || 2.0,
+        actualCostUsd: 0,
+        tokensUsed: 0,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+      setAllTasks((prev) => [newTask, ...prev]);
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_card_${Date.now()}`,
+          sessionId: targetSessionId,
+          senderType: 'butler',
+          senderId: 'butler',
+          senderName: 'Nexa 助理',
+          senderHandle: '@Nexa',
+          content: `已在项目群创建工作卡片「${newTask.title}」（所属模块：${newTask.featureModule}），指派给 ${newTask.assigneeHandle}，已自动同步至「工作看板」。`,
+          timestamp: ts,
+          linkedTaskIds: [newTask.id],
+        },
+      ]);
+      return newTask;
+    },
+    [activeWorkspace.id, agents],
+  );
+
+  const hireAgentIntoProject = useCallback(
+    (
+      agentId: string,
+      projectId?: string,
+      initialCard?: { title: string; scope: string; budget: number },
+    ) => {
+      const targetProjectId = projectId || activeWorkspace.id;
+      const targetProject = workspaces.find((w) => w.id === targetProjectId) || activeWorkspace;
+      const target = agents.find((a) => a.id === agentId);
+      if (!target) return;
+
+      const alreadyInProject = targetProject.hiredAgentIds.includes(agentId);
+      if (!alreadyInProject) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === targetProject.id
+              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, agentId] }
+              : w,
+          ),
+        );
+      }
+
+      const ts = nowTimeStr();
+      let createdTaskId: string | undefined;
+
+      if (initialCard && initialCard.title.trim()) {
+        const workType: WorkCardType =
+          target.category === 'product'
+            ? 'planning'
+            : target.category === 'qa'
+              ? 'testing'
+              : target.category === 'architecture'
+                ? 'review'
+                : 'development';
+        const newTask: WorkflowTask = {
+          id: `tsk_${Date.now().toString().slice(-4)}`,
+          sessionId: targetProject.id,
+          featureModule: '协商立项工作卡',
+          workType,
+          title: initialCard.title.trim(),
+          description: initialCard.scope.trim() || '按私聊协商确认的交付范围执行并提交验收。',
+          assigneeId: target.id,
+          assigneeHandle: target.handle,
+          status: 'pending',
+          priority: '高',
+          budgetLimitUsd: Number(initialCard.budget) || target.pricePerTaskUsd,
+          actualCostUsd: 0,
+          tokensUsed: 0,
+          createdAt: ts,
+          updatedAt: ts,
+        };
+        createdTaskId = newTask.id;
+        setAllTasks((prev) => [newTask, ...prev]);
+      }
+
+      setNegotiations((prev) =>
+        prev.map((n) =>
+          n.agentId === agentId
+            ? { ...n, targetProjectId: targetProject.id, status: 'hired', updatedAt: ts }
+            : n,
+        ),
+      );
+
+      const sourceText = target.ownership === 'private' ? '私有挂载节点' : '外部专家';
+      const modeText = target.serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用';
+
+      setAllMessages((prev) => [
         ...prev,
         {
           id: `msg_hire_${Date.now()}`,
+          sessionId: targetProject.id,
           senderType: 'system',
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已雇佣 ${target.handle}（${target.name}）加入「${workspace.name}」项目群，已自动挂载 ${target.skills.slice(0, 3).join(' / ')} 技能包，单次参考价 $${target.pricePerTaskUsd.toFixed(2)}。`,
+          content: `已确认雇佣${sourceText} ${target.handle}（${modeText}）加入项目群「${targetProject.name}」${
+            createdTaskId ? '，并同步生成协商确认的首张工作卡片' : ''
+          }。`,
           timestamp: ts,
         },
         {
           id: `msg_greet_${Date.now() + 1}`,
+          sessionId: targetProject.id,
           senderType: 'agent',
           senderId: target.id,
           senderName: target.name,
           senderHandle: target.handle,
-          content: `报道！我是 ${target.name}，已接入加密云工作区。现在可以直接在群里 ${target.handle} 向我派发任务卡片。`,
+          content: `已正式入群就位！我是 ${target.name}（${modeText}），加密工作区已同步挂载。${
+            createdTaskId
+              ? '已认领咱们私聊敲定的首张工作卡片，随时可点击启动执行。'
+              : `可以直接 ${target.handle} 派发工作卡片。`
+          }`,
           timestamp: ts,
+          linkedTaskIds: createdTaskId ? [createdTaskId] : undefined,
         },
       ]);
 
-      setRecommendation({
-        recommendedCard: 'chat',
-        headline: `${target.handle} 已入队，马上派发首张任务卡`,
-        reason: '新专家已完成加密工作区挂载与技能装填，回到群聊即可通过 @ 语法直接指派任务。',
-        suggestedActionLabel: '去群里 @ 派单',
-        suggestedPrompt: `${target.handle} 请结合当前多币种结算项目进展，帮我输出一份专业专项方案并拆解可执行子任务`,
-        confidenceNote: '团队已更新 · 新专家入列',
-      });
-      triggerCelebration();
+      setAuditLogs((prev) => [
+        {
+          id: `aud_hire_${Date.now()}`,
+          category: 'order',
+          title: `已雇佣 ${target.handle} 加入「${targetProject.name}」`,
+          detail: `模式：${modeText}；已按最小权限授予加密工作区挂载令牌。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+
+      setActiveSessionId(targetProject.id);
+      setActiveChatChannel({ type: 'group', projectId: targetProject.id });
     },
-    [agents, hiredIds, triggerCelebration, workspace.name],
+    [activeWorkspace, agents, workspaces],
+  );
+
+  const hireAgent = useCallback(
+    (agentId: string) => {
+      hireAgentIntoProject(agentId, activeWorkspace.id);
+    },
+    [activeWorkspace.id, hireAgentIntoProject],
   );
 
   const releaseAgent = useCallback(
-    (agentId: string) => {
+    (agentId: string, projectId?: string) => {
+      const targetProjectId = projectId || activeWorkspace.id;
       const target = agents.find((a) => a.id === agentId);
+      const proj = workspaces.find((w) => w.id === targetProjectId);
       if (!target) return;
-      setHiredIds((prev) => prev.filter((id) => id !== agentId));
-      setMessages((prev) => [
+      const ts = nowTimeStr();
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === targetProjectId
+            ? { ...w, hiredAgentIds: w.hiredAgentIds.filter((id) => id !== agentId) }
+            : w,
+        ),
+      );
+
+      setAllMessages((prev) => [
         ...prev,
         {
           id: `msg_rel_${Date.now()}`,
+          sessionId: targetProjectId,
           senderType: 'system',
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已解除 ${target.handle} 的当前项目挂载，技能包与工作区访问权限已自动回收卸载。`,
-          timestamp: nowTimeStr(),
+          content: `已将 ${target.handle} 移出该项目群，技能包与工作区访问权限已自动回收卸载。`,
+          timestamp: ts,
         },
+      ]);
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_rel_${Date.now()}`,
+          category: 'audit',
+          title: `权限自动回收：${target.handle}`,
+          detail: `已从「${proj?.name || '项目'}」卸载技能包并吊销工作区临时访问凭证。`,
+          severity: 'info',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [activeWorkspace.id, agents, workspaces],
+  );
+
+  const startOrOpenNegotiation = useCallback(
+    (agentId: string, jumpToChat = true) => {
+      const target = agents.find((a) => a.id === agentId);
+      if (!target) return;
+
+      setNegotiations((prev) => {
+        if (prev.some((n) => n.agentId === agentId)) return prev;
+        const ts = nowTimeStr();
+        const isAlreadyHired = workspaces.some((w) => w.hiredAgentIds.includes(agentId));
+        const newThread: NegotiationThread = {
+          agentId,
+          targetProjectId: activeWorkspace.id,
+          status: isAlreadyHired ? 'hired' : 'negotiating',
+          negotiatedPriceUsd: target.pricePerTaskUsd,
+          scopeNote: `协助「${activeWorkspace.name}」推进 ${target.title}`,
+          firstWorkCardTitle: `${
+            target.category === 'qa'
+              ? '测试'
+              : target.category === 'architecture'
+                ? '审查'
+                : target.category === 'product'
+                  ? '规划'
+                  : '开发'
+          }：${target.skills[0] || '核心专项任务'}`,
+          updatedAt: ts,
+          messages: [],
+        };
+        return [newThread, ...prev];
+      });
+
+      setDmError(null);
+      setActiveChatChannel({ type: 'dm', agentId });
+      if (jumpToChat) {
+        setActiveView('chat');
+      }
+    },
+    [activeWorkspace.id, activeWorkspace.name, agents, workspaces],
+  );
+
+  const updateNegotiationTerms = useCallback(
+    (
+      agentId: string,
+      patch: Partial<
+        Pick<
+          NegotiationThread,
+          'targetProjectId' | 'negotiatedPriceUsd' | 'scopeNote' | 'firstWorkCardTitle'
+        >
+      >,
+    ) => {
+      setNegotiations((prev) =>
+        prev.map((n) => (n.agentId === agentId ? { ...n, ...patch } : n)),
+      );
+    },
+    [],
+  );
+
+  const sendDirectMessage = useCallback(
+    async (agentId: string, text: string) => {
+      const target = agents.find((a) => a.id === agentId);
+      const cleaned = text.trim();
+      if (!target || !cleaned) return;
+
+      setDmError(null);
+      const ts = nowTimeStr();
+      const existingThread = negotiations.find((n) => n.agentId === agentId);
+      const targetProjId = existingThread?.targetProjectId || activeWorkspace.id;
+      const targetProject = workspaces.find((w) => w.id === targetProjId) || activeWorkspace;
+
+      const userMsg: DirectMessage = {
+        id: `dm_u_${Date.now()}`,
+        sender: 'employer',
+        content: cleaned,
+        timestamp: ts,
+      };
+
+      const baseThread: NegotiationThread = existingThread || {
+        agentId,
+        targetProjectId: targetProject.id,
+        status: 'negotiating',
+        negotiatedPriceUsd: target.pricePerTaskUsd,
+        scopeNote: `协助「${targetProject.name}」推进 ${target.title}`,
+        firstWorkCardTitle: `专项交付：${target.skills[0] || target.title}`,
+        updatedAt: ts,
+        messages: [],
+      };
+
+      const nextMessages = [...baseThread.messages, userMsg];
+
+      setNegotiations((prev) => {
+        const exists = prev.some((n) => n.agentId === agentId);
+        if (exists) {
+          return prev.map((n) =>
+            n.agentId === agentId ? { ...n, messages: nextMessages, updatedAt: ts } : n,
+          );
+        }
+        return [{ ...baseThread, messages: nextMessages }, ...prev];
+      });
+
+      setDmBusyAgentId(agentId);
+
+      try {
+        const res = await sendExpertDirectMessage({
+          agent: target,
+          workspace: targetProject,
+          history: nextMessages,
+          message: cleaned,
+          currentTerms: {
+            negotiatedPriceUsd: baseThread.negotiatedPriceUsd,
+            scopeNote: baseThread.scopeNote,
+          },
+        });
+
+        const replyTs = nowTimeStr();
+        const quotedPrice =
+          typeof res.quotedPriceUsd === 'number' && res.quotedPriceUsd > 0
+            ? Number(res.quotedPriceUsd.toFixed(2))
+            : baseThread.negotiatedPriceUsd;
+
+        const replyMsg: DirectMessage = {
+          id: `dm_a_${Date.now()}`,
+          sender: 'agent',
+          content: res.reply,
+          timestamp: replyTs,
+          quotedPriceUsd: quotedPrice,
+        };
+
+        setNegotiations((prev) =>
+          prev.map((n) =>
+            n.agentId === agentId
+              ? {
+                  ...n,
+                  status: n.status === 'hired' ? 'hired' : 'quoted',
+                  negotiatedPriceUsd: quotedPrice,
+                  scopeNote: res.proposedScope || n.scopeNote,
+                  firstWorkCardTitle: res.proposedWorkCardTitle || n.firstWorkCardTitle,
+                  updatedAt: replyTs,
+                  messages: [...n.messages, replyMsg],
+                }
+              : n,
+          ),
+        );
+      } catch (err) {
+        setDmError(err instanceof Error ? err.message : '外部专家私聊回复失败');
+      } finally {
+        setDmBusyAgentId(null);
+      }
+    },
+    [activeWorkspace, agents, negotiations, workspaces],
+  );
+
+  const confirmHireFromNegotiation = useCallback(
+    (agentId: string, createFirstCard = true) => {
+      const thread = negotiations.find((n) => n.agentId === agentId);
+      if (!thread) {
+        hireAgentIntoProject(agentId, activeWorkspace.id);
+        setActiveView('chat');
+        return;
+      }
+      hireAgentIntoProject(
+        agentId,
+        thread.targetProjectId,
+        createFirstCard
+          ? {
+              title: thread.firstWorkCardTitle,
+              scope: thread.scopeNote,
+              budget: thread.negotiatedPriceUsd,
+            }
+          : undefined,
+      );
+      setActiveView('chat');
+    },
+    [activeWorkspace.id, hireAgentIntoProject, negotiations],
+  );
+
+  const settleRecord = useCallback(
+    (settlementId: string) => {
+      const record = settlements.find((s) => s.id === settlementId);
+      if (!record || record.status === 'settled') return;
+      const ts = nowTimeStr();
+
+      setSettlements((prev) =>
+        prev.map((s) => (s.id === settlementId ? { ...s, status: 'settled' } : s)),
+      );
+
+      setAssistantMessages((prev) => [
+        ...prev.map((m) =>
+          m.cards
+            ? {
+                ...m,
+                cards: m.cards.map((c) =>
+                  c.actionTarget?.type === 'settle' &&
+                  c.actionTarget.settlementId === settlementId
+                    ? { ...c, resolved: true }
+                    : c,
+                ),
+              }
+            : m,
+        ),
+        {
+          id: `asst_stl_${Date.now()}`,
+          sender: 'assistant',
+          category: 'settlement',
+          content: `已完成结算核销：账单 ${record.id}（${record.projectName} · ${record.agentHandle}）金额 $${record.amountUsd.toFixed(2)} 已划转并归档至平台结算台账。`,
+          timestamp: ts,
+        },
+      ]);
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_stl_${Date.now()}`,
+          category: 'settlement',
+          title: `账单已结算：$${record.amountUsd.toFixed(2)}`,
+          detail: `${record.projectName} · ${record.agentHandle}（${record.taskTitle}）已完成结算放款。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [settlements],
+  );
+
+  const settleAllUnsettled = useCallback(() => {
+    const pending = settlements.filter((s) => s.status === 'unsettled');
+    if (pending.length === 0) return;
+    const total = pending.reduce((sum, s) => sum + s.amountUsd, 0);
+    const ts = nowTimeStr();
+
+    setSettlements((prev) => prev.map((s) => ({ ...s, status: 'settled' })));
+    setAssistantMessages((prev) => [
+      ...prev.map((m) =>
+        m.cards
+          ? {
+              ...m,
+              cards: m.cards.map((c) =>
+                c.actionTarget?.type === 'settle' ? { ...c, resolved: true } : c,
+              ),
+            }
+          : m,
+      ),
+      {
+        id: `asst_stl_all_${Date.now()}`,
+        sender: 'assistant',
+        category: 'settlement',
+        content: `已批量完成 ${pending.length} 笔待结算账单核销，合计金额 $${total.toFixed(2)}，所有项目账本现已对齐结清。`,
+        timestamp: ts,
+      },
+    ]);
+    setAuditLogs((prev) => [
+      {
+        id: `aud_stl_all_${Date.now()}`,
+        category: 'settlement',
+        title: `批量结算完成（${pending.length} 笔 · $${total.toFixed(2)}）`,
+        detail: '所有已完成计量工作卡片费用已核销归档。',
+        severity: 'success',
+        timestamp: ts,
+      },
+      ...prev,
+    ]);
+  }, [settlements]);
+
+  const sendAssistantMessage = useCallback(
+    async (text: string) => {
+      const cleaned = text.trim();
+      if (!cleaned) return;
+      setAiError(null);
+
+      const ts = nowTimeStr();
+      const userMsg: AssistantMessage = {
+        id: `asst_u_${Date.now()}`,
+        sender: 'user',
+        content: cleaned,
+        timestamp: ts,
+      };
+
+      const nextHistory = [...assistantMessages, userMsg];
+      setAssistantMessages(nextHistory);
+      setAssistantBusy(true);
+
+      try {
+        const res = await sendPlatformAssistantMessage({
+          message: cleaned,
+          history: nextHistory,
+          workspaces,
+          tasks: allTasks,
+          negotiations,
+          settlements,
+          privateAgents,
+        });
+
+        const validCat = new Set<PlatformServiceCategory>([
+          'settlement',
+          'order',
+          'audit',
+          'general',
+        ]);
+        const category: PlatformServiceCategory = validCat.has(res.category)
+          ? res.category
+          : 'general';
+
+        const firstUnsettled = settlements.find((s) => s.status === 'unsettled');
+        const firstActiveNeg = negotiations.find((n) => n.status !== 'hired');
+
+        let actionLabel: string | undefined;
+        let actionTarget:
+          | { type: 'settle'; settlementId: string }
+          | { type: 'open_dm'; agentId: string }
+          | { type: 'open_kanban'; projectId?: string }
+          | { type: 'open_team' }
+          | undefined;
+
+        if (category === 'settlement' && firstUnsettled) {
+          actionLabel = `确认结算 $${firstUnsettled.amountUsd.toFixed(2)}`;
+          actionTarget = { type: 'settle', settlementId: firstUnsettled.id };
+        } else if (category === 'order' && firstActiveNeg) {
+          actionLabel = '打开私聊协商';
+          actionTarget = { type: 'open_dm', agentId: firstActiveNeg.agentId };
+        } else if (category === 'audit') {
+          actionLabel = '去工作看板复核';
+          actionTarget = { type: 'open_kanban' };
+        }
+
+        const replyMsg: AssistantMessage = {
+          id: `asst_a_${Date.now()}`,
+          sender: 'assistant',
+          category,
+          content: res.reply,
+          timestamp: nowTimeStr(),
+          cards: res.cardTitle
+            ? [
+                {
+                  id: `acard_${Date.now()}`,
+                  category,
+                  title: res.cardTitle,
+                  detail: res.cardDetail,
+                  metricLabel: res.metricLabel,
+                  actionLabel,
+                  actionTarget,
+                },
+              ]
+            : undefined,
+        };
+
+        setAssistantMessages((prev) => [...prev, replyMsg]);
+      } catch (err) {
+        setAiError(err instanceof Error ? err.message : 'Nexa 平台助理响应失败');
+      } finally {
+        setAssistantBusy(false);
+      }
+    },
+    [allTasks, assistantMessages, negotiations, privateAgents, settlements, workspaces],
+  );
+
+  const savePrivateAgent = useCallback((expert: ExpertAgent, isNew: boolean) => {
+    if (isNew) {
+      setAgents((prev) => [expert, ...prev]);
+    } else {
+      setAgents((prev) => prev.map((a) => (a.id === expert.id ? expert : a)));
+    }
+    const ts = nowTimeStr();
+    if (expert.isListedInMarket) {
+      setAuditLogs((prev) => [
+        {
+          id: `aud_list_${Date.now()}`,
+          category: 'order',
+          title: `私有节点 ${expert.handle} 已上架市场接单`,
+          detail: `定价 $${expert.pricePerTaskUsd.toFixed(2)}/任务，Nexa 助理将自动跟进外部雇主咨询与结算。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    }
+  }, []);
+
+  const toggleMarketListing = useCallback(
+    (agentId: string) => {
+      const target = agents.find((a) => a.id === agentId);
+      if (!target || target.ownership !== 'private') return;
+      const nextListed = !target.isListedInMarket;
+      const ts = nowTimeStr();
+
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId
+            ? { ...a, isListedInMarket: nextListed, isOnlineForOrders: true }
+            : a,
+        ),
+      );
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_tgl_${Date.now()}`,
+          category: 'order',
+          title: nextListed
+            ? `私有节点 ${target.handle} 已上架市场`
+            : `私有节点 ${target.handle} 已撤回为仅自用`,
+          detail: nextListed
+            ? '已开启对外接单状态，平台助理将实时播报雇佣协商与收益结算。'
+            : '已停止接收外部市场新询价，保留团队内部调用权限。',
+          severity: 'info',
+          timestamp: ts,
+        },
+        ...prev,
       ]);
     },
     [agents],
@@ -165,36 +855,42 @@ export function useAgentNexusStore() {
       const userMsgId = `msg_user_${Date.now()}`;
       const userMsg: ChatMessage = {
         id: userMsgId,
+        sessionId: activeWorkspace.id,
         senderType: 'employer',
         senderId: 'employer',
-        senderName: '我（项目指挥官）',
+        senderName: '我（项目负责人）',
         senderHandle: '@指挥官',
         content: trimmed,
         timestamp: nowTimeStr(),
       };
 
-      const nextMessages = [...messages, userMsg];
-      setMessages(nextMessages);
+      const nextSessionMessages = [...sessionMessages, userMsg];
+      setAllMessages((prev) => [...prev, userMsg]);
       setIsAiBusy(true);
 
       try {
         const result = await orchestrateGroupChat({
           message: trimmed,
-          workspace,
+          workspace: activeWorkspace,
           hiredAgents,
-          recentMessages: nextMessages,
-          existingTasks: tasks,
+          recentMessages: nextSessionMessages,
+          existingTasks: sessionTasks,
         });
 
         const ts = nowTimeStr();
+        const validTypes = new Set<WorkCardType>(['planning', 'development', 'testing', 'review']);
         const createdTasks: WorkflowTask[] = (result.newTasks || []).map((nt, idx) => {
           const validAssignee = hiredAgents.find((a) => a.id === nt.assigneeId) || hiredAgents[0];
+          const wType: WorkCardType = validTypes.has(nt.workType) ? nt.workType : 'development';
           return {
             id: `tsk_${Date.now().toString().slice(-4)}_${idx + 1}`,
+            sessionId: activeWorkspace.id,
+            featureModule: nt.featureModule?.trim() || 'A功能 · 多币种结算',
+            workType: wType,
             title: nt.title,
             description: nt.description,
             assigneeId: validAssignee ? validAssignee.id : 'butler',
-            assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Butler',
+            assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Nexa',
             status: 'pending',
             priority: nt.priority === '高' || nt.priority === '低' ? nt.priority : '中',
             budgetLimitUsd: Number(nt.budgetLimitUsd) || 2.0,
@@ -207,33 +903,24 @@ export function useAgentNexusStore() {
         });
 
         if (createdTasks.length > 0) {
-          setTasks((prev) => [...createdTasks, ...prev]);
+          setAllTasks((prev) => [...createdTasks, ...prev]);
         }
 
         const aiReplies: ChatMessage[] = (result.replies || []).map((r, idx) => ({
           id: `msg_ai_${Date.now()}_${idx}`,
+          sessionId: activeWorkspace.id,
           senderType: r.senderType === 'butler' ? 'butler' : 'agent',
           senderId: r.senderId,
           senderName: r.senderName,
           senderHandle: r.senderHandle,
           content: r.content,
           timestamp: ts,
-          linkedTaskIds: idx === result.replies.length - 1 ? createdTasks.map((t) => t.id) : undefined,
+          linkedTaskIds:
+            idx === result.replies.length - 1 ? createdTasks.map((t) => t.id) : undefined,
         }));
 
         if (aiReplies.length > 0) {
-          setMessages((prev) => [...prev, ...aiReplies]);
-        }
-
-        if (createdTasks.length > 0) {
-          setRecommendation({
-            recommendedCard: 'kanban',
-            headline: `已自动同步 ${createdTasks.length} 张新任务卡至工作流看板`,
-            reason: '任务已按预算护栏排入待接单队列，可前往看板一键触发对应专家 AI 自主执行。',
-            suggestedActionLabel: '查看同步看板',
-            confidenceNote: `自动同步 · +${createdTasks.length} 卡片`,
-          });
-          triggerCelebration();
+          setAllMessages((prev) => [...prev, ...aiReplies]);
         }
       } catch (err) {
         setAiError(err instanceof Error ? err.message : '群聊智能体响应失败');
@@ -241,69 +928,80 @@ export function useAgentNexusStore() {
         setIsAiBusy(false);
       }
     },
-    [hiredAgents, messages, tasks, triggerCelebration, workspace],
+    [activeWorkspace, hiredAgents, sessionMessages, sessionTasks],
   );
 
   const updateTaskStatus = useCallback(
     (taskId: string, nextStatus: TaskStatus) => {
-      const target = tasks.find((t) => t.id === taskId);
+      const target = allTasks.find((t) => t.id === taskId);
       if (!target) return;
       const ts = nowTimeStr();
 
-      setTasks((prev) =>
+      setAllTasks((prev) =>
         prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus, updatedAt: ts } : t)),
       );
 
       if (nextStatus === 'done') {
-        setMessages((prev) => [
+        const proj = workspaces.find((w) => w.id === target.sessionId);
+        setAllMessages((prev) => [
           ...prev,
           {
             id: `msg_approve_${Date.now()}`,
+            sessionId: target.sessionId,
             senderType: 'system',
             senderId: 'system',
-            senderName: '工作流自动同步',
+            senderName: '工作看板同步',
             senderHandle: '看板同步',
-            content: `雇主已审批通过任务「${target.title}」（负责特工：${target.assigneeHandle}），交付产物已归档至加密工作区。`,
+            content: `已审批通过工作卡片「${target.title}」（${target.assigneeHandle}），交付产物已归档至工作区。`,
             timestamp: ts,
             linkedTaskIds: [taskId],
           },
         ]);
-        triggerCelebration();
+        setAuditLogs((prev) => [
+          {
+            id: `aud_ok_${Date.now()}`,
+            category: 'audit',
+            title: `交付验收通过：${target.title}`,
+            detail: `${proj?.name || '项目'} · ${target.assigneeHandle} 产物已合并归档。`,
+            severity: 'success',
+            timestamp: ts,
+          },
+          ...prev,
+        ]);
       }
     },
-    [tasks, triggerCelebration],
+    [allTasks, workspaces],
   );
 
   const runAutonomousTask = useCallback(
     async (taskId: string) => {
-      const task = tasks.find((t) => t.id === taskId);
+      const task = allTasks.find((t) => t.id === taskId);
       if (!task) return;
       setAiError(null);
       setExecutingTaskId(taskId);
 
-      // Immediately move task to in_progress
-      setTasks((prev) =>
+      setAllTasks((prev) =>
         prev.map((t) =>
           t.id === taskId ? { ...t, status: 'in_progress', updatedAt: nowTimeStr() } : t,
         ),
       );
 
       const assignedAgent = agents.find((a) => a.id === task.assigneeId);
+      const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
 
       try {
         const result = await executeKanbanTask({
           task,
           agent: assignedAgent,
-          workspace,
+          workspace: taskWorkspace,
         });
 
-        const safeCost = Math.min(
-          Number(result.actualCostUsd) || 1.25,
-          task.budgetLimitUsd,
+        const safeCost = Number(
+          Math.min(Number(result.actualCostUsd) || 1.25, task.budgetLimitUsd).toFixed(2),
         );
         const ts = nowTimeStr();
 
-        setTasks((prev) =>
+        setAllTasks((prev) =>
           prev.map((t) =>
             t.id === taskId
               ? {
@@ -312,135 +1010,161 @@ export function useAgentNexusStore() {
                   deliverableSummary: result.deliverableSummary,
                   deliverableArtifact: result.deliverableArtifact,
                   tokensUsed: result.tokensUsed || 28400,
-                  actualCostUsd: Number(safeCost.toFixed(2)),
+                  actualCostUsd: safeCost,
                   updatedAt: ts,
                 }
               : t,
           ),
         );
 
-        setWorkspace((prev) => ({
-          ...prev,
-          spentUsd: Number((prev.spentUsd + safeCost).toFixed(2)),
-        }));
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === task.sessionId
+              ? { ...w, spentUsd: Number((w.spentUsd + safeCost).toFixed(2)) }
+              : w,
+          ),
+        );
 
-        setMessages((prev) => [
+        // Automatically generate a pending settlement record & audit notice for Nexa Platform Assistant
+        const newSettlementId = `stl_${Date.now().toString().slice(-4)}`;
+        setSettlements((prev) => [
+          {
+            id: newSettlementId,
+            projectId: taskWorkspace.id,
+            projectName: taskWorkspace.name,
+            agentHandle: assignedAgent?.handle || task.assigneeHandle,
+            taskTitle: task.title,
+            amountUsd: safeCost,
+            status: 'unsettled',
+            createdAt: ts,
+          },
+          ...prev,
+        ]);
+
+        setAuditLogs((prev) => [
+          {
+            id: `aud_exec_${Date.now()}`,
+            category: 'audit',
+            title: `新交付待审批：${task.title}`,
+            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 实耗 $${safeCost.toFixed(2)}，已生成待结算账单 ${newSettlementId}。`,
+            severity: 'warning',
+            timestamp: ts,
+          },
+          ...prev,
+        ]);
+
+        setAllMessages((prev) => [
           ...prev,
           {
             id: `msg_exec_${Date.now()}`,
+            sessionId: task.sessionId,
             senderType: 'agent',
             senderId: assignedAgent?.id || 'butler',
-            senderName: assignedAgent?.name || 'Nexa 管家',
+            senderName: assignedAgent?.name || 'Nexa 助理',
             senderHandle: assignedAgent?.handle || task.assigneeHandle,
             content: `${result.chatBroadcast}（产物路径：${result.deliverableArtifact}，实际耗费 $${safeCost.toFixed(2)}）`,
             timestamp: ts,
             linkedTaskIds: [taskId],
-            costUsd: Number(safeCost.toFixed(2)),
+            costUsd: safeCost,
           },
         ]);
-
-        setRecommendation({
-          recommendedCard: 'kanban',
-          headline: `${task.assigneeHandle} 已提交交付物待审核`,
-          reason: `「${task.title}」自主执行完毕，费用控制在预算上限内，请复核后批准归档。`,
-          suggestedActionLabel: '审批交付成果',
-          confidenceNote: `消耗 $${safeCost.toFixed(2)} · 已回流群聊`,
-        });
-        triggerCelebration();
       } catch (err) {
         setAiError(err instanceof Error ? err.message : '专家自主执行任务失败');
-        setTasks((prev) =>
+        setAllTasks((prev) =>
           prev.map((t) => (t.id === taskId ? { ...t, status: 'pending' } : t)),
         );
       } finally {
         setExecutingTaskId(null);
       }
     },
-    [agents, tasks, triggerCelebration, workspace],
+    [activeWorkspace, agents, allTasks, workspaces],
   );
 
-  const askContextBrain = useCallback(
-    async (userIntent?: string) => {
-      setAiError(null);
-      setIsAiBusy(true);
-      try {
-        const rec = await fetchBrainRecommendation({
-          userIntent,
-          perspective,
-          activeCard,
-          workspace,
-          hiredAgents,
-          tasks,
-        });
-        setRecommendation(rec);
-        setActiveCard(rec.recommendedCard);
-        if (rec.recommendedCard === 'expert') {
-          setPerspective('expert');
-        } else {
-          setPerspective('employer');
-        }
-        if (rec.suggestedPrompt) {
-          if (rec.recommendedCard === 'chat') {
-            setChatDraftSeed(rec.suggestedPrompt);
-          } else if (rec.recommendedCard === 'market') {
-            setMarketRequirementSeed(rec.suggestedPrompt);
-          }
-        }
-      } catch (err) {
-        setAiError(err instanceof Error ? err.message : '情境大脑分析失败');
-      } finally {
-        setIsAiBusy(false);
-      }
-    },
-    [activeCard, hiredAgents, perspective, tasks, workspace],
-  );
+  const jumpToChatWithMention = useCallback((handle: string, projectId?: string) => {
+    const targetProj = projectId || activeSessionId;
+    setActiveSessionId(targetProj);
+    setActiveChatChannel({ type: 'group', projectId: targetProj });
+    setActiveView('chat');
+    setChatDraftSeed(`${handle} `);
+  }, [activeSessionId]);
 
-  const saveOrPublishExpert = useCallback(
-    (expert: ExpertAgent, isNew: boolean) => {
-      if (isNew) {
-        setAgents((prev) => [expert, ...prev]);
-        setRecommendation({
-          recommendedCard: 'market',
-          headline: `新专家 ${expert.handle} 已上架雇主市场`,
-          reason: '能力标签、历史绩效与单次定价均已实时同步，雇主现在可以在市场中筛选并雇佣。',
-          suggestedActionLabel: '去市场预览效果',
-          confidenceNote: '供给端发布成功',
-        });
-      } else {
-        setAgents((prev) => prev.map((a) => (a.id === expert.id ? expert : a)));
-      }
-      triggerCelebration();
-    },
-    [triggerCelebration],
-  );
+  const jumpToMarketWithCategory = useCallback((category: 'all' | AgentCategory) => {
+    setMarketCategorySeed(category);
+    setActiveView('market');
+  }, []);
+
+  const jumpToMountPrivateAgent = useCallback(() => {
+    setActiveView('team');
+    setOpenMountDrawerSignal((n) => n + 1);
+  }, []);
 
   return {
-    perspective,
-    switchPerspective,
-    activeCard,
-    setActiveCard,
-    workspace,
+    activeView,
+    setActiveView,
+    activeChatChannel,
+    setActiveChatChannel,
+    workspaces,
+    activeWorkspace,
+    selectSession,
+    createSession,
+    openAssistantChat,
+    openKanbanForProject,
+    kanbanProjectSeed,
+    clearKanbanProjectSeed: () => setKanbanProjectSeed(null),
     agents,
+    marketplaceAgents,
+    privateAgents,
     hiredIds,
     hiredAgents,
-    tasks,
-    messages,
-    airobotState,
+    allTasks,
+    sessionTasks,
+    allMessages,
+    sessionMessages,
+    negotiations,
+    activeNegotiationCount,
+    assistantMessages,
+    assistantBusy,
+    assistantPendingCount,
+    settlements,
+    unsettledCount,
+    auditLogs,
+    reviewTaskCount,
+    dmHistories,
+    dmBusyAgentId,
+    dmError,
+    clearDmError: () => setDmError(null),
+    startOrOpenNegotiation,
+    updateNegotiationTerms,
+    sendDirectMessage,
+    confirmHireFromNegotiation,
+    sendAssistantMessage,
+    settleRecord,
+    settleAllUnsettled,
     isAiBusy,
     executingTaskId,
     aiError,
     clearAiError: () => setAiError(null),
-    recommendation,
     chatDraftSeed,
     clearChatDraftSeed: () => setChatDraftSeed(''),
-    marketRequirementSeed,
-    clearMarketRequirementSeed: () => setMarketRequirementSeed(''),
+    marketCategorySeed,
+    clearMarketCategorySeed: () => setMarketCategorySeed('all'),
+    openMountDrawerSignal,
+    account,
+    authModalOpen,
+    setAuthModalOpen,
+    loginAccount,
+    logoutAccount,
+    createWorkCard,
     hireAgent,
+    hireAgentIntoProject,
     releaseAgent,
+    savePrivateAgent,
+    toggleMarketListing,
     sendGroupMessage,
     updateTaskStatus,
     runAutonomousTask,
-    askContextBrain,
-    saveOrPublishExpert,
+    jumpToChatWithMention,
+    jumpToMarketWithCategory,
+    jumpToMountPrivateAgent,
   };
 }
