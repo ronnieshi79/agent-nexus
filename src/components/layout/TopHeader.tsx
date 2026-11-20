@@ -27,7 +27,7 @@ const VIEW_LABELS: Record<NavViewId, string> = {
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team' | 'discover', string> = {
   kanban: '统筹我主管与参与的项目概览、多项目任务流看板与专家雇佣协同',
   team: '永久在线，按需持续交付的外部 / 内部 Agent 专家团队',
-  discover: '发现开放空间与我加入的社区专区项目，一键承接或向专区发布需求',
+  discover: '公共社区与私有社区信息流交流、实战复盘分享与项目撮合对接',
 };
 
 export function TopHeader({

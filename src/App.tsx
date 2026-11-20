@@ -184,12 +184,17 @@ export default function App() {
               zones={store.zones}
               joinedZoneIds={store.joinedZoneIds}
               zoneProjects={store.zoneProjects}
+              communityPosts={store.communityPosts}
               allAgents={store.agents}
               zoneSeed={store.discoverZoneSeed}
               onClearZoneSeed={store.clearDiscoverZoneSeed}
               onToggleJoinZone={store.toggleJoinZone}
+              onCreatePost={store.createCommunityPost}
+              onToggleLikePost={store.toggleLikePost}
+              onAddPostComment={store.addPostComment}
               onPublishZoneProject={store.publishZoneProject}
               onClaimZoneProject={store.claimZoneProject}
+              onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
               onJumpToZoneMarket={store.openMarketForZone}
               onJumpToKanban={store.openKanbanForProject}
             />

@@ -2,6 +2,7 @@ import { useCallback, useMemo, useState } from 'react';
 import {
   INITIAL_ASSISTANT_MESSAGES,
   INITIAL_AUDIT_LOGS,
+  INITIAL_COMMUNITY_POSTS,
   INITIAL_EXPERT_AGENTS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
@@ -23,6 +24,8 @@ import type {
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
+  CommunityPost,
+  CommunityPostType,
   DirectMessage,
   ExpertAgent,
   NavViewId,
@@ -64,6 +67,7 @@ export function useAgentNexusStore() {
   const [activeView, setActiveView] = useState<NavViewId>('chat');
   const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);
   const [zoneProjects, setZoneProjects] = useState<ZoneProjectOpportunity[]>(INITIAL_ZONE_PROJECTS);
+  const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(INITIAL_COMMUNITY_POSTS);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
 
   // Unified Chat Channel: Platform Assistant | Project Group | External Expert DM
@@ -322,6 +326,29 @@ export function useAgentNexusStore() {
 
       setWorkspaces((prev) => [newWorkspace, ...prev]);
       setZoneProjects((prev) => [newOpp, ...prev]);
+      setCommunityPosts((prev) => [
+        {
+          id: `post_proj_${Date.now().toString().slice(-5)}`,
+          zoneId: input.zoneId,
+          type: 'project',
+          authorName: account ? account.name : '我（项目负责人）',
+          authorHandle: account ? `@${account.name}` : '@指挥官',
+          authorRole: '项目发起人',
+          authorAccent: '#1d4ed8',
+          authorCode: account ? account.avatarInitials : '我',
+          title: `【项目撮合】${cleanedTitle}`,
+          content:
+            input.summary.trim() ||
+            `已在「${zoneName}」发起项目需求，预算 ${formatUsd(newOpp.budgetUsd)} / 项目，期望 ${newOpp.durationDays} 天交付，欢迎社区专家或团队在评论区交流或直接承接！`,
+          tags: ['项目撮合', ...newOpp.requiredRoles.slice(0, 2)],
+          createdAt: '刚刚',
+          likes: 1,
+          likedByMe: true,
+          comments: [],
+          linkedProjectId: newOppId,
+        },
+        ...prev,
+      ]);
       setAllMessages((prev) => [
         ...prev,
         {
@@ -429,6 +456,77 @@ export function useAgentNexusStore() {
       return newWorkspaceId;
     },
     [agents, zoneProjects, zones],
+  );
+
+  const createCommunityPost = useCallback(
+    (input: {
+      zoneId: string;
+      type: Exclude<CommunityPostType, 'project'>;
+      title: string;
+      content: string;
+      tags?: string[];
+    }) => {
+      const cleanedContent = input.content.trim();
+      const cleanedTitle = input.title.trim() || cleanedContent.slice(0, 32);
+      if (!cleanedContent) return;
+      const newPost: CommunityPost = {
+        id: `post_${Date.now().toString().slice(-6)}`,
+        zoneId: input.zoneId,
+        type: input.type,
+        authorName: account ? account.name : '我（社区成员）',
+        authorHandle: account ? `@${account.name}` : '@指挥官',
+        authorRole: input.type === 'showcase' ? '节点主理人' : 'OPC 成员',
+        authorAccent: '#0f172a',
+        authorCode: account ? account.avatarInitials : '我',
+        title: cleanedTitle,
+        content: cleanedContent,
+        tags:
+          input.tags && input.tags.length > 0
+            ? input.tags
+            : [input.type === 'showcase' ? '专家自荐' : '社区交流'],
+        createdAt: '刚刚',
+        likes: 0,
+        likedByMe: false,
+        comments: [],
+      };
+      setCommunityPosts((prev) => [newPost, ...prev]);
+    },
+    [account],
+  );
+
+  const toggleLikePost = useCallback((postId: string) => {
+    setCommunityPosts((prev) =>
+      prev.map((p) => {
+        if (p.id !== postId) return p;
+        const nextLiked = !p.likedByMe;
+        return {
+          ...p,
+          likedByMe: nextLiked,
+          likes: Math.max(0, p.likes + (nextLiked ? 1 : -1)),
+        };
+      }),
+    );
+  }, []);
+
+  const addPostComment = useCallback(
+    (postId: string, content: string) => {
+      const cleaned = content.trim();
+      if (!cleaned) return;
+      const newComment = {
+        id: `cmt_${Date.now().toString().slice(-6)}`,
+        authorName: account ? account.name : '我',
+        authorHandle: account ? `@${account.name}` : '@指挥官',
+        authorRole: '社区成员',
+        content: cleaned,
+        timestamp: '刚刚',
+      };
+      setCommunityPosts((prev) =>
+        prev.map((p) =>
+          p.id === postId ? { ...p, comments: [...p.comments, newComment] } : p,
+        ),
+      );
+    },
+    [account],
   );
 
   const createWorkCard = useCallback(
@@ -1330,12 +1428,16 @@ export function useAgentNexusStore() {
     setActiveChatChannel,
     workspaces,
     zoneProjects,
+    communityPosts,
     openZoneProjectsCount,
     activeWorkspace,
     selectSession,
     createSession,
     publishZoneProject,
     claimZoneProject,
+    createCommunityPost,
+    toggleLikePost,
+    addPostComment,
     openAssistantChat,
     openKanbanForProject,
     openCommunityDiscover,

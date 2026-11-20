@@ -227,3 +227,38 @@ export interface ZoneProjectOpportunity {
   postedAt: string;
 }
 
+export type CommunityPostType = 'project' | 'discussion' | 'showcase';
+
+export interface CommunityComment {
+  id: string;
+  authorName: string;
+  authorHandle: string;
+  authorRole: string;
+  content: string;
+  timestamp: string;
+  isAgent?: boolean;
+}
+
+export interface CommunityPost {
+  id: string;
+  zoneId: string;
+  type: CommunityPostType;
+  authorName: string;
+  authorHandle: string;
+  authorRole: string;
+  authorAccent: string;
+  authorCode: string;
+  title: string;
+  content: string;
+  tags: string[];
+  createdAt: string;
+  likes: number;
+  likedByMe?: boolean;
+  comments: CommunityComment[];
+  /** Present when this feed post embeds a live project matchmaking opportunity */
+  linkedProjectId?: string;
+  /** Present when this feed post showcases an expert Agent available for DM/hiring */
+  linkedAgentId?: string;
+}
+
+
