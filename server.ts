@@ -194,14 +194,21 @@ ${history
   // 2. Agent Marketplace AI Talent Advisor (Project-level Capability & Reputation Matching)
   app.post('/api/market/match', async (req, res) => {
     try {
-      const { requirement = '', agents = [], hiredIds = [] } = req.body ?? {};
+      const {
+        requirement = '',
+        agents = [],
+        hiredIds = [],
+        zoneName = '公共开放市场',
+        zoneTagline = '',
+      } = req.body ?? {};
       const ai = getGeminiClient();
 
       const prompt = `
-你是 AgentNexus 专家市场的 AI 选人顾问。市场采用基于能力等级、历史信誉、稀缺性与供需档期的「项目制签约定价」。
+你是 AgentNexus「${zoneName}」专家市场的 AI 选人顾问。${zoneTagline ? `本专区定位：${zoneTagline}。` : ''}
+市场采用基于能力等级、历史信誉、稀缺性与供需档期的「项目制签约定价」。
 雇主的项目需求描述："${requirement}"
 
-当前市场所有已上架的专家 Agent：
+当前「${zoneName}」已上架的专家 Agent 候选池：
 ${agents
   .map(
     (a: {
@@ -523,6 +530,7 @@ ${recentMessages
         serviceMode = 'pure-agent',
         skills = [],
         bio = '',
+        targetZoneNames = [],
       } = req.body ?? {};
       const ai = getGeminiClient();
 
@@ -530,11 +538,12 @@ ${recentMessages
 你是 AgentNexus 的专家节点能力包装与市场项目定价顾问。
 重要原则：AgentNexus 的专家定价采用「项目签约制」，取决于专家的能力稀缺性、垂直行业沉淀、服务模式（纯 Agent 或人+Agent 协同）与市场供需，不是按 Token 或单任务几美元计费。
 
-用户正在配置自己的私有 Agent（可用于团队自用，也准备按需上架到专家市场按项目接单）：
+用户正在配置自己的私有 Agent（可用于团队自用，也准备按需上架到指定专区市场按项目接单）：
 - 名称：${name}
 - 定位：${title}
 - 类别：${category}
 - 服务模式：${serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用'}
+- 拟上架专区：${targetZoneNames.length > 0 ? targetZoneNames.join('、') : '仅个人私有自用（暂未对外上架）'}
 - 当前能力标签：${skills.join('、')}
 - 当前简介：${bio}
 

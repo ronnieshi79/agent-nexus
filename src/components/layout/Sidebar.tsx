@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import {
   Bot,
+  Compass,
   FolderKanban,
   Handshake,
   KanbanSquare,
@@ -14,6 +15,7 @@ import type {
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
+  CommunityZone,
   ExpertAgent,
   NavViewId,
   NegotiationStatus,
@@ -24,6 +26,7 @@ import type {
 import { AccountFooter } from '../account/AccountPanel';
 
 interface SidebarProps {
+  zones: CommunityZone[];
   activeView: NavViewId;
   activeChatChannel: ActiveChatChannel;
   workspaces: ProjectWorkspace[];
@@ -37,6 +40,7 @@ interface SidebarProps {
   hiredCount: number;
   privateCount: number;
   marketCount: number;
+  discoverCount: number;
   account: AgentNexusAccount | null;
   mobileOpen: boolean;
   onCloseMobile: () => void;
@@ -59,6 +63,7 @@ const NEG_STATUS_SHORT: Record<NegotiationStatus, { label: string; cls: string }
 };
 
 export function Sidebar({
+  zones,
   activeView,
   activeChatChannel,
   workspaces,
@@ -72,6 +77,7 @@ export function Sidebar({
   hiredCount,
   privateCount,
   marketCount,
+  discoverCount,
   account,
   mobileOpen,
   onCloseMobile,
@@ -88,6 +94,12 @@ export function Sidebar({
   const [createMode, setCreateMode] = useState<'none' | 'project' | 'dm'>('none');
   const [newName, setNewName] = useState('');
   const [newGoal, setNewGoal] = useState('');
+
+  const zoneMap = useMemo(() => {
+    const map = new Map<string, CommunityZone>();
+    zones.forEach((z) => map.set(z.id, z));
+    return map;
+  }, [zones]);
 
   const availableExternalAgents = useMemo(() => {
     const existingIds = new Set(negotiations.map((n) => n.agentId));
@@ -132,21 +144,32 @@ export function Sidebar({
       icon: Store,
       count: `${marketCount}`,
     },
+    {
+      id: 'discover',
+      label: '社区发现',
+      icon: Compass,
+      count: `${discoverCount} 项目`,
+    },
   ];
 
   const isChatView = activeView === 'chat';
 
   const sidebarContent = (
     <div className="h-full flex flex-col bg-slate-50 border-r border-slate-200 select-none">
-      {/* Brand Header */}
-      <div className="h-14 px-4 border-b border-slate-200/80 flex items-center justify-between gap-2 shrink-0 bg-white">
-        <span className="font-display text-lg font-extrabold tracking-tight text-slate-900 whitespace-nowrap">
-          AgentNexus
-        </span>
+      {/* Platform Brand Header */}
+      <div className="px-4 py-3.5 border-b border-slate-200/80 shrink-0 bg-white flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-display text-lg font-extrabold tracking-tight text-slate-900 whitespace-nowrap leading-none">
+            AgentNexus
+          </div>
+          <div className="text-[11px] font-medium text-slate-500 mt-1 truncate">
+            Agents 协作网络
+          </div>
+        </div>
         <button
           type="button"
           onClick={onCloseMobile}
-          className="lg:hidden p-1.5 rounded-lg text-slate-500 hover:bg-slate-200/60 cursor-pointer"
+          className="lg:hidden p-1 rounded-lg text-slate-500 hover:bg-slate-200/60 cursor-pointer"
           aria-label="关闭侧边栏"
         >
           <X className="w-4 h-4" />
@@ -304,42 +327,52 @@ export function Sidebar({
           {createMode === 'dm' && (
             <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-700">
-                  选择外部专家私聊协商
+                <span className="text-[11px] font-semibold text-slate-700 truncate">
+                  选择各专区外部专家私聊
                 </span>
                 <button
                   type="button"
                   onClick={() => setCreateMode('none')}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
               {availableExternalAgents.length === 0 ? (
                 <div className="text-[11px] text-slate-500 py-1">
-                  所有市场专家均已在聊天列表中。
+                  所有市场专家均已在私聊列表中。
                 </div>
               ) : (
-                <div className="max-h-44 overflow-y-auto clean-scroll space-y-1">
-                  {availableExternalAgents.map((a) => (
-                    <button
-                      key={a.id}
-                      type="button"
-                      onClick={() => {
-                        onStartNegotiation(a.id);
-                        setCreateMode('none');
-                        onCloseMobile();
-                      }}
-                      className="w-full text-left px-2 py-1.5 rounded-md bg-slate-50 hover:bg-blue-50/70 border border-slate-200/70 flex items-center justify-between gap-2 cursor-pointer"
-                    >
-                      <span className="text-xs font-medium text-slate-800 truncate">
-                        {a.handle}
-                      </span>
-                      <span className="text-[11px] font-mono tabular-nums text-slate-500 shrink-0">
-                        ${a.projectPriceUsd.toLocaleString('en-US')}/项目
-                      </span>
-                    </button>
-                  ))}
+                <div className="max-h-48 overflow-y-auto clean-scroll space-y-1">
+                  {availableExternalAgents.map((a) => {
+                    const zName = a.primaryZoneId
+                      ? zoneMap.get(a.primaryZoneId)?.name
+                      : undefined;
+                    return (
+                      <button
+                        key={a.id}
+                        type="button"
+                        onClick={() => {
+                          onStartNegotiation(a.id);
+                          setCreateMode('none');
+                          onCloseMobile();
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded-md bg-slate-50 hover:bg-blue-50/70 border border-slate-200/70 flex items-center justify-between gap-2 cursor-pointer"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-slate-800 truncate">
+                            {a.handle}
+                          </div>
+                          {zName && (
+                            <div className="text-[10px] text-slate-400 truncate">{zName}</div>
+                          )}
+                        </div>
+                        <span className="text-[11px] font-mono tabular-nums text-slate-500 shrink-0">
+                          ${a.projectPriceUsd.toLocaleString('en-US')}/项目
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -389,7 +422,7 @@ export function Sidebar({
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
                         <span className="text-slate-600 font-medium truncate">
-                          项目群 · {wsTasks.length} 卡
+                          {ws.role === 'participating' ? '参与' : '主管'} · {wsTasks.length} 卡
                         </span>
                         {reviewCount > 0 && (
                           <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">

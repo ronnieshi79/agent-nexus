@@ -1,4 +1,4 @@
-export type NavViewId = 'chat' | 'kanban' | 'team' | 'market';
+export type NavViewId = 'chat' | 'kanban' | 'team' | 'market' | 'discover';
 
 export type ChatChannelType = 'assistant' | 'group' | 'dm';
 
@@ -14,6 +14,20 @@ export type NodeTier = 'official-cloud' | 'idle-peer';
 export type ServiceMode = 'pure-agent' | 'human-agent';
 
 export type AgentOwnership = 'marketplace' | 'private';
+
+export type ZoneKind = 'public' | 'community' | 'enterprise';
+
+export interface CommunityZone {
+  id: string;
+  name: string;
+  shortCode: string;
+  kind: ZoneKind;
+  typeLabel: string;
+  tagline: string;
+  focusDomains: string[];
+  accentColor: string;
+  memberCount: number;
+}
 
 export type CapabilityTier = 'S 级稀缺' | 'A+ 资深' | 'A 级专业';
 
@@ -65,6 +79,10 @@ export interface ExpertAgent {
   nodeTier: NodeTier;
   serviceMode: ServiceMode;
   ownership: AgentOwnership;
+  /** Primary certified community/enterprise zone (undefined for personal private nodes) */
+  primaryZoneId?: string;
+  /** Zone IDs where this agent is publicly/privately listed in that zone's expert market */
+  listedZoneIds: string[];
   isListedInMarket: boolean;
   engineModel: string;
   skills: string[];
@@ -174,10 +192,16 @@ export interface ChatMessage {
   mentions?: string[];
 }
 
+export type ProjectRole = 'leading' | 'participating';
+
 export interface ProjectWorkspace {
   id: string;
   name: string;
   goal: string;
+  /** Whether the user leads this project as employer or participates as an expert contributor */
+  role: ProjectRole;
+  /** Optional community/enterprise zone this project is associated with or published to */
+  sourceZoneId?: string;
   workspaceTier: '加密持久化工作区 (50GB)' | '24h 临时沙箱';
   /** Overall project budget ceiling (USD) */
   budgetCapUsd: number;
@@ -185,3 +209,21 @@ export interface ProjectWorkspace {
   spentUsd: number;
   hiredAgentIds: string[];
 }
+
+export interface ZoneProjectOpportunity {
+  id: string;
+  zoneId: string;
+  title: string;
+  publisher: string;
+  summary: string;
+  budgetUsd: number;
+  durationDays: number;
+  requiredRoles: string[];
+  serviceModePref: 'any' | ServiceMode;
+  /** 'recruiting': external zone project I can claim & participate in; 'published_by_me': project I published to this zone to recruit experts */
+  direction: 'recruiting' | 'published_by_me';
+  status: 'open' | 'claimed';
+  linkedWorkspaceId?: string;
+  postedAt: string;
+}
+

@@ -8,6 +8,8 @@ import {
   INITIAL_SETTLEMENTS,
   INITIAL_TASKS,
   INITIAL_WORKSPACES,
+  INITIAL_ZONES,
+  INITIAL_ZONE_PROJECTS,
 } from '../data/initialData';
 import {
   executeKanbanTask,
@@ -32,6 +34,7 @@ import type {
   TaskStatus,
   WorkCardType,
   WorkflowTask,
+  ZoneProjectOpportunity,
 } from '../types/agentnexus';
 
 function nowTimeStr(): string {
@@ -54,8 +57,13 @@ export interface CreateWorkCardInput {
 }
 
 export function useAgentNexusStore() {
+  const [zones] = useState(INITIAL_ZONES);
+  const [activeZoneId, setActiveZoneId] = useState<string>('zone_public');
+  const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>(['zone_hz_dnx', 'zone_zj_opc']);
+
   const [activeView, setActiveView] = useState<NavViewId>('chat');
   const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);
+  const [zoneProjects, setZoneProjects] = useState<ZoneProjectOpportunity[]>(INITIAL_ZONE_PROJECTS);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
 
   // Unified Chat Channel: Platform Assistant | Project Group | External Expert DM
@@ -86,6 +94,10 @@ export function useAgentNexusStore() {
   const [marketCategorySeed, setMarketCategorySeed] = useState<'all' | AgentCategory>('all');
   const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
   const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
+  const [kanbanTabSeed, setKanbanTabSeed] = useState<'my_projects' | 'kanban' | 'hiring' | null>(
+    null,
+  );
+  const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
   const [account, setAccount] = useState<AgentNexusAccount | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
@@ -113,6 +125,11 @@ export function useAgentNexusStore() {
     setAccount(null);
   }, []);
 
+  const activeZone = useMemo(
+    () => zones.find((z) => z.id === activeZoneId) || zones[0],
+    [zones, activeZoneId],
+  );
+
   const activeWorkspace = useMemo(
     () => workspaces.find((w) => w.id === activeSessionId) || workspaces[0],
     [workspaces, activeSessionId],
@@ -125,8 +142,14 @@ export function useAgentNexusStore() {
     [agents, hiredIds],
   );
 
+  // Zone-scoped Expert Market: controlled inside Expert Market view
   const marketplaceAgents = useMemo(
-    () => agents.filter((a) => a.isListedInMarket),
+    () => agents.filter((a) => a.listedZoneIds.includes(activeZone.id)),
+    [agents, activeZone.id],
+  );
+
+  const totalMarketExpertsCount = useMemo(
+    () => agents.filter((a) => a.isListedInMarket).length,
     [agents],
   );
 
@@ -183,52 +206,230 @@ export function useAgentNexusStore() {
 
   const openKanbanForProject = useCallback((projectId?: string) => {
     setKanbanProjectSeed(projectId || 'all');
+    setKanbanTabSeed('kanban');
     setActiveView('kanban');
   }, []);
 
-  const createSession = useCallback((name: string, goal: string) => {
-    const cleanedName = name.trim();
-    if (!cleanedName) return '';
-    const newId = `ses_${Date.now().toString().slice(-5)}`;
-    const newWorkspace: ProjectWorkspace = {
-      id: newId,
-      name: cleanedName,
-      goal: goal.trim() || '协同产品与研发专家 Agent 按工作卡片推进项目交付',
-      workspaceTier: '加密持久化工作区 (50GB)',
-      budgetCapUsd: 8000,
-      spentUsd: 1200,
-      hiredAgentIds: ['agent_pm_lin'],
-    };
-    const ts = nowTimeStr();
-    setWorkspaces((prev) => [newWorkspace, ...prev]);
-    setActiveSessionId(newId);
-    setActiveChatChannel({ type: 'group', projectId: newId });
-    setAllMessages((prev) => [
-      ...prev,
-      {
-        id: `msg_init_${Date.now()}`,
-        sessionId: newId,
-        senderType: 'butler',
-        senderId: 'butler',
-        senderName: 'Nexa 助理',
-        senderHandle: '@Nexa',
-        content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在左侧发起外部专家私聊敲定项目签约。`,
-        timestamp: ts,
-      },
-    ]);
-    setAuditLogs((prev) => [
-      {
-        id: `aud_${Date.now()}`,
-        category: 'audit',
-        title: `新建托管项目「${newWorkspace.name}」`,
-        detail: `已开启加密持久化工作区，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
-        severity: 'success',
-        timestamp: ts,
-      },
-      ...prev,
-    ]);
-    return newId;
+  const openCommunityDiscover = useCallback((zoneId?: string) => {
+    if (zoneId) setDiscoverZoneSeed(zoneId);
+    setActiveView('discover');
   }, []);
+
+  const openMarketForZone = useCallback((zoneId: string) => {
+    setActiveZoneId(zoneId);
+    setActiveView('market');
+  }, []);
+
+  const toggleJoinZone = useCallback((zoneId: string) => {
+    setJoinedZoneIds((prev) =>
+      prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId],
+    );
+  }, []);
+
+  const createSession = useCallback(
+    (name: string, goal: string, sourceZoneId?: string) => {
+      const cleanedName = name.trim();
+      if (!cleanedName) return '';
+      const newId = `ses_${Date.now().toString().slice(-5)}`;
+      const newWorkspace: ProjectWorkspace = {
+        id: newId,
+        name: cleanedName,
+        goal: goal.trim() || '协同产品与研发专家 Agent 按工作卡片推进项目交付',
+        role: 'leading',
+        sourceZoneId,
+        workspaceTier: '加密持久化工作区 (50GB)',
+        budgetCapUsd: 8000,
+        spentUsd: 1200,
+        hiredAgentIds: ['agent_pm_lin'],
+      };
+      const ts = nowTimeStr();
+      setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setActiveSessionId(newId);
+      setActiveChatChannel({ type: 'group', projectId: newId });
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_init_${Date.now()}`,
+          sessionId: newId,
+          senderType: 'butler',
+          senderId: 'butler',
+          senderName: 'Nexa 助理',
+          senderHandle: '@Nexa',
+          content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在专家市场招募社区专家进群协同。`,
+          timestamp: ts,
+        },
+      ]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_${Date.now()}`,
+          category: 'audit',
+          title: `新建主管项目「${newWorkspace.name}」`,
+          detail: `已开启加密持久化工作区，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+      return newId;
+    },
+    [],
+  );
+
+  const publishZoneProject = useCallback(
+    (input: {
+      zoneId: string;
+      title: string;
+      summary: string;
+      budgetUsd: number;
+      durationDays: number;
+      requiredRoles: string[];
+    }) => {
+      const cleanedTitle = input.title.trim();
+      if (!cleanedTitle) return '';
+      const zoneName = zones.find((z) => z.id === input.zoneId)?.name || '专区';
+      const ts = nowTimeStr();
+      const newWorkspaceId = `ses_${Date.now().toString().slice(-5)}`;
+      const newOppId = `zproj_${Date.now().toString().slice(-5)}`;
+
+      const newWorkspace: ProjectWorkspace = {
+        id: newWorkspaceId,
+        name: cleanedTitle,
+        goal: input.summary.trim() || `已发布至「${zoneName}」招募社区专家团队协同交付`,
+        role: 'leading',
+        sourceZoneId: input.zoneId,
+        workspaceTier: '加密持久化工作区 (50GB)',
+        budgetCapUsd: Math.max(1000, Math.round(input.budgetUsd)),
+        spentUsd: 0,
+        hiredAgentIds: ['agent_pm_lin'],
+      };
+
+      const newOpp: ZoneProjectOpportunity = {
+        id: newOppId,
+        zoneId: input.zoneId,
+        title: cleanedTitle,
+        publisher: account ? `${account.name}（我方发布）` : '我方项目团队',
+        summary: input.summary.trim() || '面向该专区专家团队开放项目发包，欢迎直接私聊报价签约。',
+        budgetUsd: Math.max(1000, Math.round(input.budgetUsd)),
+        durationDays: Math.max(1, Math.round(input.durationDays || 7)),
+        requiredRoles:
+          input.requiredRoles.length > 0 ? input.requiredRoles : ['核心架构', '研发交付'],
+        serviceModePref: 'any',
+        direction: 'published_by_me',
+        status: 'open',
+        linkedWorkspaceId: newWorkspaceId,
+        postedAt: '刚刚',
+      };
+
+      setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setZoneProjects((prev) => [newOpp, ...prev]);
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_pub_${Date.now()}`,
+          sessionId: newWorkspaceId,
+          senderType: 'butler',
+          senderId: 'butler',
+          senderName: 'Nexa 助理',
+          senderHandle: '@Nexa',
+          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」专区项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「专家市场 → ${zoneName}」主动招募专家入群。`,
+          timestamp: ts,
+        },
+      ]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_pub_${Date.now()}`,
+          category: 'order',
+          title: `已向「${zoneName}」发布项目：${cleanedTitle}`,
+          detail: `项目预算 ${formatUsd(newOpp.budgetUsd)}，并已同步建立加密项目群聊。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+
+      return newWorkspaceId;
+    },
+    [account, zones],
+  );
+
+  const claimZoneProject = useCallback(
+    (oppId: string) => {
+      const opp = zoneProjects.find((p) => p.id === oppId);
+      if (!opp || opp.status === 'claimed') return '';
+      const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || '专区';
+      const ts = nowTimeStr();
+      const newWorkspaceId = `ses_part_${Date.now().toString().slice(-5)}`;
+      const myPrivateIds = agents
+        .filter((a) => a.ownership === 'private')
+        .slice(0, 2)
+        .map((a) => a.id);
+      const assignedAgent =
+        agents.find((a) => a.id === myPrivateIds[0]) || agents[0];
+
+      const newWorkspace: ProjectWorkspace = {
+        id: newWorkspaceId,
+        name: opp.title,
+        goal: `承接「${zoneName}」专区项目：${opp.summary}`,
+        role: 'participating',
+        sourceZoneId: opp.zoneId,
+        workspaceTier: '加密持久化工作区 (50GB)',
+        budgetCapUsd: opp.budgetUsd,
+        spentUsd: 0,
+        hiredAgentIds: myPrivateIds.length > 0 ? myPrivateIds : ['agent_pm_lin'],
+      };
+
+      const kickoffTask: WorkflowTask = {
+        id: `tsk_${Date.now().toString().slice(-4)}`,
+        sessionId: newWorkspaceId,
+        featureModule: `${zoneName} · 承接交付模块`,
+        workType: 'development',
+        title: `承接交付：${opp.title}`,
+        description: opp.summary,
+        assigneeId: assignedAgent?.id || 'butler',
+        assigneeHandle: assignedAgent?.handle || '@Nexa',
+        status: 'pending',
+        priority: '高',
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+      setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setZoneProjects((prev) =>
+        prev.map((p) =>
+          p.id === oppId ? { ...p, status: 'claimed', linkedWorkspaceId: newWorkspaceId } : p,
+        ),
+      );
+      setAllTasks((prev) => [kickoffTask, ...prev]);
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_claim_${Date.now()}`,
+          sessionId: newWorkspaceId,
+          senderType: 'system',
+          senderId: 'system',
+          senderName: '系统协同同步',
+          senderHandle: '系统通知',
+          content: `已承接「${zoneName}」专区项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻协作群并立项首张工作卡片。`,
+          timestamp: ts,
+          linkedTaskIds: [kickoffTask.id],
+        },
+      ]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_claim_${Date.now()}`,
+          category: 'order',
+          title: `已承接「${zoneName}」项目：${opp.title}`,
+          detail: `已归入「工作看板 → 我的项目（我参与）」，首张交付卡片已同步任务流看板。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+
+      return newWorkspaceId;
+    },
+    [agents, zoneProjects, zones],
+  );
 
   const createWorkCard = useCallback(
     (input: CreateWorkCardInput) => {
@@ -812,39 +1013,61 @@ export function useAgentNexusStore() {
     [allTasks, assistantMessages, negotiations, privateAgents, settlements, workspaces],
   );
 
-  const savePrivateAgent = useCallback((expert: ExpertAgent, isNew: boolean) => {
-    if (isNew) {
-      setAgents((prev) => [expert, ...prev]);
-    } else {
-      setAgents((prev) => prev.map((a) => (a.id === expert.id ? expert : a)));
-    }
-    const ts = nowTimeStr();
-    if (expert.isListedInMarket) {
-      setAuditLogs((prev) => [
-        {
-          id: `aud_list_${Date.now()}`,
-          category: 'order',
-          title: `私有节点 ${expert.handle} 已上架市场接单`,
-          detail: `项目签约挂牌价 ${formatUsd(expert.projectPriceUsd)}/项目，Nexa 助理将自动跟进外部雇主咨询与结算。`,
-          severity: 'success',
-          timestamp: ts,
-        },
-        ...prev,
-      ]);
-    }
-  }, []);
+  const savePrivateAgent = useCallback(
+    (expert: ExpertAgent, isNew: boolean) => {
+      const normalizedZones = Array.from(new Set(expert.listedZoneIds || []));
+      const normalizedExpert: ExpertAgent = {
+        ...expert,
+        listedZoneIds: normalizedZones,
+        isListedInMarket: normalizedZones.length > 0,
+      };
+      if (isNew) {
+        setAgents((prev) => [normalizedExpert, ...prev]);
+      } else {
+        setAgents((prev) => prev.map((a) => (a.id === normalizedExpert.id ? normalizedExpert : a)));
+      }
+      const ts = nowTimeStr();
+      if (normalizedZones.length > 0) {
+        const zoneNames = normalizedZones
+          .map((zid) => zones.find((z) => z.id === zid)?.name || zid)
+          .join('、');
+        setAuditLogs((prev) => [
+          {
+            id: `aud_list_${Date.now()}`,
+            category: 'order',
+            title: `私有节点 ${normalizedExpert.handle} 已上架至：${zoneNames}`,
+            detail: `项目签约挂牌价 ${formatUsd(normalizedExpert.projectPriceUsd)}/项目，Nexa 助理将自动跟进外部雇主咨询与结算。`,
+            severity: 'success',
+            timestamp: ts,
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [zones],
+  );
 
   const toggleMarketListing = useCallback(
-    (agentId: string) => {
+    (agentId: string, targetZoneId?: string) => {
       const target = agents.find((a) => a.id === agentId);
       if (!target || target.ownership !== 'private') return;
-      const nextListed = !target.isListedInMarket;
+      const zoneId = targetZoneId || activeZone.id;
+      const zoneName = zones.find((z) => z.id === zoneId)?.name || '当前专区';
+      const isInZone = target.listedZoneIds.includes(zoneId);
+      const nextZones = isInZone
+        ? target.listedZoneIds.filter((id) => id !== zoneId)
+        : [...target.listedZoneIds, zoneId];
       const ts = nowTimeStr();
 
       setAgents((prev) =>
         prev.map((a) =>
           a.id === agentId
-            ? { ...a, isListedInMarket: nextListed, isOnlineForOrders: true }
+            ? {
+                ...a,
+                listedZoneIds: nextZones,
+                isListedInMarket: nextZones.length > 0,
+                isOnlineForOrders: true,
+              }
             : a,
         ),
       );
@@ -853,19 +1076,21 @@ export function useAgentNexusStore() {
         {
           id: `aud_tgl_${Date.now()}`,
           category: 'order',
-          title: nextListed
-            ? `私有节点 ${target.handle} 已上架市场`
-            : `私有节点 ${target.handle} 已撤回为仅自用`,
-          detail: nextListed
-            ? '已开启对外接单状态，平台助理将实时播报雇佣协商与收益结算。'
-            : '已停止接收外部市场新询价，保留团队内部调用权限。',
+          title: !isInZone
+            ? `私有节点 ${target.handle} 已上架「${zoneName}」`
+            : `私有节点 ${target.handle} 已从「${zoneName}」下架`,
+          detail: !isInZone
+            ? `已在「${zoneName}」专家市场曝光接单，平台助理将实时播报雇佣协商与收益结算。`
+            : nextZones.length > 0
+              ? `已撤回在「${zoneName}」的曝光，其余已勾选专区仍保持接单。`
+              : '已撤回全部对外市场曝光，当前仅保留个人私有自用权限。',
           severity: 'info',
           timestamp: ts,
         },
         ...prev,
       ]);
     },
-    [agents],
+    [activeZone.id, agents, zones],
   );
 
   const sendGroupMessage = useCallback(
@@ -1087,21 +1312,43 @@ export function useAgentNexusStore() {
     setOpenMountDrawerSignal((n) => n + 1);
   }, []);
 
+  const openZoneProjectsCount = useMemo(
+    () => zoneProjects.filter((p) => p.direction === 'recruiting' && p.status === 'open').length,
+    [zoneProjects],
+  );
+
   return {
+    zones,
+    activeZoneId,
+    activeZone,
+    setActiveZoneId,
+    joinedZoneIds,
+    toggleJoinZone,
     activeView,
     setActiveView,
     activeChatChannel,
     setActiveChatChannel,
     workspaces,
+    zoneProjects,
+    openZoneProjectsCount,
     activeWorkspace,
     selectSession,
     createSession,
+    publishZoneProject,
+    claimZoneProject,
     openAssistantChat,
     openKanbanForProject,
+    openCommunityDiscover,
+    openMarketForZone,
     kanbanProjectSeed,
     clearKanbanProjectSeed: () => setKanbanProjectSeed(null),
+    kanbanTabSeed,
+    clearKanbanTabSeed: () => setKanbanTabSeed(null),
+    discoverZoneSeed,
+    clearDiscoverZoneSeed: () => setDiscoverZoneSeed(null),
     agents,
     marketplaceAgents,
+    totalMarketExpertsCount,
     privateAgents,
     hiredIds,
     hiredAgents,

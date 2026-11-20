@@ -13,6 +13,7 @@ import {
 import { optimizeExpertProfile } from '../../services/api';
 import type {
   AgentCategory,
+  CommunityZone,
   ExpertAgent,
   ProjectWorkspace,
   ServiceMode,
@@ -20,6 +21,8 @@ import type {
 } from '../../types/agentnexus';
 
 interface MyTeamViewProps {
+  zones: CommunityZone[];
+  activeZone: CommunityZone;
   workspace: ProjectWorkspace;
   hiredAgents: ExpertAgent[];
   privateAgents: ExpertAgent[];
@@ -29,7 +32,7 @@ interface MyTeamViewProps {
   onHireAgent: (agentId: string) => void;
   onReleaseAgent: (agentId: string) => void;
   onSavePrivateAgent: (expert: ExpertAgent, isNew: boolean) => void;
-  onToggleMarketListing: (agentId: string) => void;
+  onToggleMarketListing: (agentId: string, targetZoneId?: string) => void;
   onRecruitCategory: (category: 'all' | AgentCategory) => void;
   onJumpToMarket: () => void;
 }
@@ -53,6 +56,8 @@ const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
 const ACCENT_PALETTE = ['#0284c7', '#7c3aed', '#0f766e', '#d97706', '#4338ca', '#be123c'];
 
 export function MyTeamView({
+  zones,
+  activeZone,
   workspace,
   hiredAgents,
   privateAgents,
@@ -69,7 +74,7 @@ export function MyTeamView({
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | 'new'>('new');
 
-  // Private Agent Mount / Market Listing Drawer Form State
+  // Private Agent Mount / Multi-Zone Listing Drawer Form State
   const [handle, setHandle] = useState('@我的私有专家');
   const [name, setName] = useState('Nova · 领域私有交付节点');
   const [title, setTitle] = useState('私有工作流自动化执行与专项审计');
@@ -78,18 +83,18 @@ export function MyTeamView({
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '我本地调优的私有领域 Agent，可优先拉入自有项目群零签约费使用，闲时可勾选对外上架市场按项目接单变现。',
+    '我本地调优的私有领域 Agent，可优先拉入自有项目群零签约费使用，闲时可勾选上架到指定社区或公共市场按项目接单变现。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '代码规范检查', '自动化回归脚本']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
-  const [isListedInMarket, setIsListedInMarket] = useState(false);
+  const [listedZoneIds, setListedZoneIds] = useState<string[]>([]);
   const [newSkillInput, setNewSkillInput] = useState('');
 
   const [aiOptimizing, setAiOptimizing] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
 
-  const openCreateDrawer = (defaultListToMarket = false) => {
+  const openCreateDrawer = (defaultZones: string[] = []) => {
     setEditingId('new');
     setHandle('@私有专项特工');
     setName('Kestrel · 领域专项私有节点');
@@ -98,10 +103,10 @@ export function MyTeamView({
     setServiceMode('pure-agent');
     setRegion('本地 anx-worker 私有节点');
     setProjectPriceUsd(1800);
-    setBio('我本地调优的私有 Agent，支持加密云工作空间挂载。默认私有自用，勾选上架即可进入专家市场接受外部雇主私聊并按项目签约。');
+    setBio('我本地调优的私有 Agent，支持加密云工作空间挂载。默认仅私有自用，勾选指定专区即可进入对应专家市场接受私聊并按项目签约。');
     setSkills(['接口契约联调', '边界单测补全', '安全基线审计', '自动化文档']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
-    setIsListedInMarket(defaultListToMarket);
+    setListedZoneIds(defaultZones);
     setAiAdvice(null);
     setAiError(null);
     setDrawerOpen(true);
@@ -119,7 +124,7 @@ export function MyTeamView({
     setBio(agent.bio);
     setSkills([...agent.skills]);
     setMcpTools([...agent.mcpTools]);
-    setIsListedInMarket(agent.isListedInMarket);
+    setListedZoneIds([...agent.listedZoneIds]);
     setAiAdvice(null);
     setAiError(null);
     setDrawerOpen(true);
@@ -127,9 +132,16 @@ export function MyTeamView({
 
   useEffect(() => {
     if (openMountDrawerSignal > 0) {
-      openCreateDrawer(true);
+      openCreateDrawer([activeZone.id]);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openMountDrawerSignal]);
+
+  const toggleDrawerZone = (zoneId: string) => {
+    setListedZoneIds((prev) =>
+      prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId],
+    );
+  };
 
   const handleAddSkill = () => {
     const cleaned = newSkillInput.trim();
@@ -142,6 +154,9 @@ export function MyTeamView({
     setAiOptimizing(true);
     setAiError(null);
     try {
+      const targetZoneNames = listedZoneIds
+        .map((id) => zones.find((z) => z.id === id)?.name)
+        .filter((v): v is string => Boolean(v));
       const res = await optimizeExpertProfile({
         name,
         title,
@@ -149,6 +164,7 @@ export function MyTeamView({
         serviceMode,
         skills,
         bio,
+        targetZoneNames,
       });
       setBio(res.optimizedBio || bio);
       if (res.recommendedSkills?.length) setSkills(res.recommendedSkills);
@@ -180,7 +196,8 @@ export function MyTeamView({
       nodeTier: 'idle-peer',
       serviceMode,
       ownership: 'private',
-      isListedInMarket,
+      listedZoneIds,
+      isListedInMarket: listedZoneIds.length > 0,
       engineModel:
         serviceMode === 'human-agent'
           ? '私有领域知识库 + 人工关键审批协同'
@@ -229,10 +246,13 @@ export function MyTeamView({
   };
 
   const activeTaskCount = tasks.filter((t) => t.status !== 'done').length;
-  const listedPrivateCount = privateAgents.filter((a) => a.isListedInMarket).length;
+  const listedPrivateCount = privateAgents.filter((a) => a.listedZoneIds.length > 0).length;
   const missingRoles = ROLE_SUGGESTIONS.filter(
     (r) => !hiredAgents.some((a) => a.category === r.category),
   );
+
+  const getZoneName = (zoneId?: string) =>
+    zoneId ? zones.find((z) => z.id === zoneId)?.name : undefined;
 
   return (
     <div className="h-full flex min-h-0 bg-white relative">
@@ -327,7 +347,9 @@ export function MyTeamView({
                             <span className="text-slate-500">· {agent.name}</span>
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span className="font-medium text-slate-700">
-                              {agent.ownership === 'private' ? '我的私有节点' : agent.performance.capabilityTier}
+                              {agent.ownership === 'private'
+                                ? '我的私有节点'
+                                : getZoneName(agent.primaryZoneId) || agent.performance.capabilityTier}
                             </span>
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span
@@ -391,7 +413,7 @@ export function MyTeamView({
                   我的私有挂载 Agent ({privateAgents.length})
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  私有挂载默认仅供自己项目使用；需要闲时对外接单变现时，可直接切换“上架到市场”同步曝光。
+                  归属个人账号全局管理：默认仅自己项目使用，可按需勾选上架至「开放空间」「DN 杭州」「张江 OPC 社区」等一个或多个空间。
                 </p>
               </div>
               <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
@@ -406,7 +428,7 @@ export function MyTeamView({
                 )}
                 <button
                   type="button"
-                  onClick={() => openCreateDrawer(false)}
+                  onClick={() => openCreateDrawer([])}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -418,6 +440,11 @@ export function MyTeamView({
             <div className="border border-slate-200 rounded-xl divide-y divide-slate-200 overflow-hidden">
               {privateAgents.map((agent) => {
                 const inCurrentProject = hiredIds.includes(agent.id);
+                const listedZoneNames = agent.listedZoneIds
+                  .map((zid) => getZoneName(zid))
+                  .filter((v): v is string => Boolean(v));
+                const isListedInActiveZone = agent.listedZoneIds.includes(activeZone.id);
+
                 return (
                   <div
                     key={agent.id}
@@ -441,18 +468,21 @@ export function MyTeamView({
                           <span aria-hidden="true" className="text-slate-300">·</span>
                           <span
                             className={`inline-flex items-center gap-1 font-semibold ${
-                              agent.isListedInMarket ? 'text-emerald-700' : 'text-slate-500'
+                              listedZoneNames.length > 0 ? 'text-emerald-700' : 'text-slate-500'
                             }`}
                           >
-                            {agent.isListedInMarket ? (
+                            {listedZoneNames.length > 0 ? (
                               <>
-                                <Globe className="w-3 h-3" />
-                                已上架市场 (${agent.projectPriceUsd.toLocaleString('en-US')}/项目)
+                                <Globe className="w-3 h-3 shrink-0" />
+                                <span>
+                                  已上架：{listedZoneNames.join(' · ')} ($
+                                  {agent.projectPriceUsd.toLocaleString('en-US')}/项目)
+                                </span>
                               </>
                             ) : (
                               <>
-                                <Lock className="w-3 h-3" />
-                                仅私有自用
+                                <Lock className="w-3 h-3 shrink-0" />
+                                <span>仅私有自用</span>
                               </>
                             )}
                           </span>
@@ -484,21 +514,25 @@ export function MyTeamView({
 
                       <button
                         type="button"
-                        onClick={() => onToggleMarketListing(agent.id)}
+                        onClick={() => onToggleMarketListing(agent.id, activeZone.id)}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap ${
-                          agent.isListedInMarket
+                          isListedInActiveZone
                             ? 'border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
                             : 'bg-blue-600 hover:bg-blue-700 text-white'
                         }`}
                       >
                         <Globe className="w-3.5 h-3.5" />
-                        <span>{agent.isListedInMarket ? '已上架 · 点击下架' : '上架到市场'}</span>
+                        <span>
+                          {isListedInActiveZone
+                            ? `已上架「${activeZone.name}」`
+                            : `上架至「${activeZone.name}」`}
+                        </span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => openEditDrawer(agent)}
-                        title="编辑能力标签与定价"
+                        title="配置多专区上架范围与定价"
                         className="p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer"
                       >
                         <Settings2 className="w-3.5 h-3.5" />
@@ -566,25 +600,52 @@ export function MyTeamView({
             className="flex-1 min-h-0 flex flex-col overflow-hidden"
           >
             <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4">
-              {/* Public Market Listing Switch */}
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between gap-3">
+              {/* Multi-Zone Market Listing Selector */}
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div>
-                  <div className="text-xs font-bold text-slate-900">是否对外上架到专家市场</div>
+                  <div className="text-xs font-bold text-slate-900">
+                    对外上架专区（可多选，不选则仅私有自用）
+                  </div>
                   <div className="text-[11px] text-slate-500 mt-0.5">
-                    关闭则仅自己私有使用；开启后外部雇主可私聊并按项目签约
+                    勾选后该节点将同步出现在对应专区的专家市场，接受外部雇主私聊签约
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsListedInMarket((v) => !v)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                    isListedInMarket
-                      ? 'bg-emerald-600 text-white'
-                      : 'bg-slate-200 text-slate-700'
-                  }`}
-                >
-                  {isListedInMarket ? '上架市场' : '仅私有'}
-                </button>
+                <div className="space-y-1.5">
+                  {zones.map((z) => {
+                    const checked = listedZoneIds.includes(z.id);
+                    return (
+                      <label
+                        key={z.id}
+                        className={`flex items-center justify-between gap-2.5 px-2.5 py-2 rounded-lg border cursor-pointer transition-colors ${
+                          checked
+                            ? 'bg-white border-blue-300'
+                            : 'bg-white/60 border-slate-200 hover:bg-white'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleDrawerZone(z.id)}
+                            className="rounded border-slate-300 text-blue-600 focus:ring-blue-600/20"
+                          />
+                          <span
+                            className="w-5 h-5 rounded text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
+                            style={{ backgroundColor: z.accentColor }}
+                          >
+                            {z.shortCode}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-900 truncate">
+                            {z.name}
+                          </span>
+                        </div>
+                        <span className="text-[11px] text-slate-500 shrink-0 whitespace-nowrap">
+                          {z.typeLabel}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -760,7 +821,9 @@ export function MyTeamView({
                 type="submit"
                 className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
               >
-                {isListedInMarket ? '保存并上架到市场' : '保存为私有节点'}
+                {listedZoneIds.length > 0
+                  ? `保存并上架 (${listedZoneIds.length} 个专区)`
+                  : '保存为仅私有节点'}
               </button>
             </div>
           </form>

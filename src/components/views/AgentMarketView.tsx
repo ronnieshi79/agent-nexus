@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
+  Briefcase,
   Check,
   MessageCircle,
   Search,
@@ -13,6 +14,7 @@ import {
 import { fetchMarketMatches, type MarketMatchResult } from '../../services/api';
 import type {
   AgentCategory,
+  CommunityZone,
   DemandStatus,
   DirectMessage,
   ExpertAgent,
@@ -28,6 +30,10 @@ const DEMAND_COLOR: Record<DemandStatus, string> = {
 
 interface AgentMarketViewProps {
   workspace: ProjectWorkspace;
+  zones: CommunityZone[];
+  activeZone: CommunityZone;
+  onSelectZone: (zoneId: string) => void;
+  allAgents: ExpertAgent[];
   agents: ExpertAgent[];
   hiredIds: string[];
   dmHistories: Record<string, DirectMessage[]>;
@@ -40,6 +46,7 @@ interface AgentMarketViewProps {
   onHire: (agentId: string) => void;
   onRelease: (agentId: string) => void;
   onJumpToMountPrivate: () => void;
+  onJumpToZoneProjects: (zoneId: string) => void;
 }
 
 const CATEGORY_TABS: { id: 'all' | AgentCategory; label: string }[] = [
@@ -64,6 +71,10 @@ const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
 
 export function AgentMarketView({
   workspace,
+  zones,
+  activeZone,
+  onSelectZone,
+  allAgents,
   agents,
   hiredIds,
   dmHistories,
@@ -76,6 +87,7 @@ export function AgentMarketView({
   onHire,
   onRelease,
   onJumpToMountPrivate,
+  onJumpToZoneProjects,
 }: AgentMarketViewProps) {
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [modeFilter, setModeFilter] = useState<'all' | ServiceMode>('all');
@@ -90,12 +102,29 @@ export function AgentMarketView({
   const [dmDraft, setDmDraft] = useState('');
   const dmEndRef = useRef<HTMLDivElement | null>(null);
 
+  const zoneMap = useMemo(() => {
+    const map = new Map<string, CommunityZone>();
+    zones.forEach((z) => map.set(z.id, z));
+    return map;
+  }, [zones]);
+
   useEffect(() => {
     if (categorySeed !== 'all') {
       setCategoryFilter(categorySeed);
       onClearCategorySeed();
     }
   }, [categorySeed, onClearCategorySeed]);
+
+  useEffect(() => {
+    setMatchResult(null);
+    setMatchError(null);
+  }, [activeZone.id]);
+
+  useEffect(() => {
+    if (drawerAgentId && !agents.some((a) => a.id === drawerAgentId)) {
+      setDrawerAgentId(null);
+    }
+  }, [agents, drawerAgentId]);
 
   const filteredAgents = useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -153,6 +182,8 @@ export function AgentMarketView({
         requirement: cleaned,
         agents,
         hiredIds,
+        zoneName: activeZone.name,
+        zoneTagline: activeZone.tagline,
       });
       setMatchResult(res);
     } catch (err) {
@@ -185,6 +216,77 @@ export function AgentMarketView({
       {/* Main Market Directory */}
       <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
         <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5">
+          {/* Open Space & Community Zones Directory (Open Space First) */}
+          <div className="mb-4 space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+              {zones.map((z) => {
+                const isSelectedZone = z.id === activeZone.id;
+                const count = allAgents.filter((a) => a.listedZoneIds.includes(z.id)).length;
+                return (
+                  <button
+                    key={z.id}
+                    type="button"
+                    onClick={() => onSelectZone(z.id)}
+                    className={`text-left rounded-xl p-3.5 border transition-colors cursor-pointer ${
+                      isSelectedZone
+                        ? 'bg-slate-900 border-slate-900 text-white'
+                        : 'bg-white border-slate-200 text-slate-900 hover:border-slate-300 hover:bg-slate-50/50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="w-6 h-6 rounded-md text-[11px] font-bold text-white inline-flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: z.accentColor }}
+                        >
+                          {z.shortCode}
+                        </span>
+                        <span className="text-sm font-bold truncate">{z.name}</span>
+                        <span
+                          className={`text-[11px] whitespace-nowrap shrink-0 ${
+                            isSelectedZone ? 'text-slate-300' : 'text-slate-400'
+                          }`}
+                        >
+                          · {z.typeLabel}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-xs font-mono tabular-nums font-semibold shrink-0 ${
+                          isSelectedZone ? 'text-sky-300' : 'text-slate-600'
+                        }`}
+                      >
+                        {count} 位专家
+                      </span>
+                    </div>
+                    <div
+                      className={`mt-1.5 text-[11px] truncate ${
+                        isSelectedZone ? 'text-slate-300' : 'text-slate-500'
+                      }`}
+                    >
+                      {z.focusDomains.join(' · ')}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1 text-xs text-slate-500">
+              <p className="truncate">
+                <span className="font-semibold text-slate-800">{activeZone.name}</span>
+                <span className="mx-1.5 text-slate-300">·</span>
+                <span>{activeZone.tagline}</span>
+              </p>
+              <button
+                type="button"
+                onClick={() => onJumpToZoneProjects(activeZone.id)}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 whitespace-nowrap shrink-0 cursor-pointer self-start sm:self-auto"
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>查看「{activeZone.name}」专区项目 / 发项目</span>
+              </button>
+            </div>
+          </div>
+
           {/* AI Talent Advisor Bar + Mount Entry */}
           <div className="flex flex-col lg:flex-row lg:items-center gap-2.5">
             <form
@@ -199,7 +301,7 @@ export function AgentMarketView({
                 type="text"
                 value={aiQuery}
                 onChange={(e) => setAiQuery(e.target.value)}
-                placeholder="输入项目难点（如：需要人+Agent 协同审高并发支付架构，再配一个自动化压测）..."
+                placeholder={`在「${activeZone.name}」描述项目难点，自动推荐最优专家组合...`}
                 className="flex-1 min-w-0 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               />
               <button
@@ -363,14 +465,26 @@ export function AgentMarketView({
                             {agent.avatarCode}
                           </div>
                           <div className="min-w-0">
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-1.5 min-w-0">
                               <h3 className="text-sm font-bold text-slate-900 truncate">
                                 {agent.handle}
                               </h3>
-                              {agent.ownership === 'private' && (
-                                <span className="text-[11px] font-medium text-indigo-600 whitespace-nowrap">
+                              {agent.ownership === 'private' ? (
+                                <span className="text-[11px] font-medium text-indigo-600 whitespace-nowrap shrink-0">
                                   · 我上架的
                                 </span>
+                              ) : (
+                                agent.primaryZoneId &&
+                                agent.primaryZoneId !== 'zone_public' && (
+                                  <span
+                                    className="text-[11px] font-semibold whitespace-nowrap shrink-0"
+                                    style={{
+                                      color: zoneMap.get(agent.primaryZoneId)?.accentColor || '#0f766e',
+                                    }}
+                                  >
+                                    · {zoneMap.get(agent.primaryZoneId)?.name}认证
+                                  </span>
+                                )
                               )}
                             </div>
                             <p className="text-xs text-slate-600 truncate">{agent.title}</p>

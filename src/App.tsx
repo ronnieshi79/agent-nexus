@@ -5,6 +5,7 @@ import { UnifiedChatView } from './components/chat/UnifiedChatView';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopHeader } from './components/layout/TopHeader';
 import { AgentMarketView } from './components/views/AgentMarketView';
+import { CommunityDiscoverView } from './components/views/CommunityDiscoverView';
 import { MyTeamView } from './components/views/MyTeamView';
 import { WorkflowKanbanView } from './components/views/WorkflowKanbanView';
 import { useAgentNexusStore } from './hooks/useAgentNexusStore';
@@ -16,6 +17,7 @@ export default function App() {
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-slate-50 text-slate-900">
       <Sidebar
+        zones={store.zones}
         activeView={store.activeView}
         activeChatChannel={store.activeChatChannel}
         workspaces={store.workspaces}
@@ -28,7 +30,8 @@ export default function App() {
         reviewTaskCount={store.reviewTaskCount}
         hiredCount={store.hiredAgents.length}
         privateCount={store.privateAgents.length}
-        marketCount={store.marketplaceAgents.length}
+        marketCount={store.totalMarketExpertsCount}
+        discoverCount={store.openZoneProjectsCount}
         account={store.account}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
@@ -47,6 +50,7 @@ export default function App() {
 
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
         <TopHeader
+          activeZone={store.activeZone}
           activeView={store.activeView}
           activeChatChannel={store.activeChatChannel}
           workspace={store.activeWorkspace}
@@ -111,9 +115,12 @@ export default function App() {
 
           {store.activeView === 'kanban' && (
             <WorkflowKanbanView
+              zones={store.zones}
               workspaces={store.workspaces}
               projectSeed={store.kanbanProjectSeed}
               onClearProjectSeed={store.clearKanbanProjectSeed}
+              tabSeed={store.kanbanTabSeed}
+              onClearTabSeed={store.clearKanbanTabSeed}
               allTasks={store.allTasks}
               agents={store.agents}
               negotiations={store.negotiations}
@@ -124,12 +131,16 @@ export default function App() {
               onUpdateStatus={store.updateTaskStatus}
               onConfirmHire={store.confirmHireFromNegotiation}
               onJumpToMarket={() => store.setActiveView('market')}
+              onJumpToZoneMarket={store.openMarketForZone}
+              onJumpToDiscover={() => store.openCommunityDiscover()}
               onReleaseAgent={store.releaseAgent}
             />
           )}
 
           {store.activeView === 'team' && (
             <MyTeamView
+              zones={store.zones}
+              activeZone={store.activeZone}
               workspace={store.activeWorkspace}
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
@@ -147,7 +158,10 @@ export default function App() {
 
           {store.activeView === 'market' && (
             <AgentMarketView
+              zones={store.zones}
+              activeZone={store.activeZone}
               workspace={store.activeWorkspace}
+              allAgents={store.agents}
               agents={store.marketplaceAgents}
               hiredIds={store.hiredIds}
               dmHistories={store.dmHistories}
@@ -157,9 +171,27 @@ export default function App() {
               onSendDm={store.sendDirectMessage}
               categorySeed={store.marketCategorySeed}
               onClearCategorySeed={store.clearMarketCategorySeed}
+              onSelectZone={store.setActiveZoneId}
               onHire={store.hireAgent}
               onRelease={store.releaseAgent}
               onJumpToMountPrivate={store.jumpToMountPrivateAgent}
+              onJumpToZoneProjects={store.openCommunityDiscover}
+            />
+          )}
+
+          {store.activeView === 'discover' && (
+            <CommunityDiscoverView
+              zones={store.zones}
+              joinedZoneIds={store.joinedZoneIds}
+              zoneProjects={store.zoneProjects}
+              allAgents={store.agents}
+              zoneSeed={store.discoverZoneSeed}
+              onClearZoneSeed={store.clearDiscoverZoneSeed}
+              onToggleJoinZone={store.toggleJoinZone}
+              onPublishZoneProject={store.publishZoneProject}
+              onClaimZoneProject={store.claimZoneProject}
+              onJumpToZoneMarket={store.openMarketForZone}
+              onJumpToKanban={store.openKanbanForProject}
             />
           )}
         </main>

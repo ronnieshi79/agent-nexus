@@ -1,12 +1,14 @@
 import { Menu, ShieldCheck } from 'lucide-react';
 import type {
   ActiveChatChannel,
+  CommunityZone,
   ExpertAgent,
   NavViewId,
   ProjectWorkspace,
 } from '../../types/agentnexus';
 
 interface TopHeaderProps {
+  activeZone: CommunityZone;
   activeView: NavViewId;
   activeChatChannel: ActiveChatChannel;
   workspace: ProjectWorkspace;
@@ -19,15 +21,17 @@ const VIEW_LABELS: Record<NavViewId, string> = {
   kanban: '工作看板',
   team: '我的团队',
   market: '专家市场',
+  discover: '社区发现',
 };
 
-const VIEW_DESCRIPTIONS: Record<Exclude<NavViewId, 'chat'>, string> = {
-  kanban: '统筹多项目概览、工作卡片任务流状态流转与专家雇佣协同',
+const VIEW_DESCRIPTIONS: Record<'kanban' | 'team' | 'discover', string> = {
+  kanban: '统筹我主管与参与的项目概览、多项目任务流看板与专家雇佣协同',
   team: '永久在线，按需持续交付的外部 / 内部 Agent 专家团队',
-  market: '按能力、信誉、稀缺度与供需项目制签约，支持先 1v1 私聊再拉入项目群',
+  discover: '发现开放空间与我加入的社区专区项目，一键承接或向专区发布需求',
 };
 
 export function TopHeader({
+  activeZone,
   activeView,
   activeChatChannel,
   workspace,
@@ -44,6 +48,8 @@ export function TopHeader({
     } else {
       subLabel = `项目群 · ${workspace.name}`;
     }
+  } else if (activeView === 'market') {
+    subLabel = `${activeZone.name} · ${activeZone.tagline}`;
   } else {
     subLabel = VIEW_DESCRIPTIONS[activeView];
   }

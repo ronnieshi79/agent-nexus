@@ -57,6 +57,8 @@ export function fetchMarketMatches(payload: {
   requirement: string;
   agents: ExpertAgent[];
   hiredIds: string[];
+  zoneName?: string;
+  zoneTagline?: string;
 }): Promise<MarketMatchResult> {
   return postJson<MarketMatchResult>('/api/market/match', payload);
 }
@@ -139,6 +141,7 @@ export function optimizeExpertProfile(payload: {
   serviceMode: string;
   skills: string[];
   bio: string;
+  targetZoneNames?: string[];
 }): Promise<ExpertOptimizeResult> {
   return postJson<ExpertOptimizeResult>('/api/expert/optimize', payload);
 }
