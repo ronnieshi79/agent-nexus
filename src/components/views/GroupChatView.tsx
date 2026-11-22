@@ -257,7 +257,7 @@ export function GroupChatView({
                       {!isEmployer && <AgentMark label={isButler ? '助理' : 'AI'} />}
                       {!isEmployer && !isButler && agentObj?.ownerHumanName && (
                         <span className="text-[11px] text-slate-400">
-                          · 主理人 {agentObj.ownerHumanName}
+                          · 归属专家 {agentObj.ownerHumanName}
                         </span>
                       )}
                       {isButler && (
@@ -809,7 +809,7 @@ export function GroupChatView({
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
                           {agent.ownerHumanName
-                            ? `主理人：${agent.ownerHumanName} · ${agent.title}`
+                            ? `归属专家：${agent.ownerHumanName} · ${agent.title}`
                             : agent.title}
                         </div>
                       </div>

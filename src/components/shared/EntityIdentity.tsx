@@ -40,7 +40,7 @@ export function AgentMark({
 export function HumanMark({ label = '真人专家' }: { label?: string }) {
   return (
     <span
-      title="人类专家 / 主理人"
+      title="人类专家"
       className="inline-flex items-center gap-0.5 px-1 py-[1px] rounded text-[10px] font-medium leading-tight whitespace-nowrap shrink-0 select-none bg-emerald-50 text-emerald-700 border border-emerald-200/80"
     >
       <User className="w-2.5 h-2.5 shrink-0" />

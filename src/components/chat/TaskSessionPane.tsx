@@ -510,7 +510,7 @@ export function TaskSessionPane({
                     </div>
                     <div className="text-[11px] text-slate-500 truncate">
                       {agent.ownerHumanName
-                        ? `归属主理人：${agent.ownerHumanName}`
+                        ? `归属专家：${agent.ownerHumanName}`
                         : agent.title}
                     </div>
                   </div>

@@ -7,12 +7,10 @@ import {
   FolderKanban,
   GitBranch,
   Handshake,
-  Layers,
   MessageSquareCode,
   Play,
   Plus,
   RotateCcw,
-  ShieldCheck,
   Store,
   UserMinus,
   UserPlus,
@@ -32,6 +30,12 @@ import type {
   WorkflowTask,
 } from '../../types/agentnexus';
 import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  ToolbarDivider,
+  ToolbarDropdown,
+  ToolbarSegment,
+  ViewToolbar,
+} from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
 
 export type WorkKanbanTab = 'my_projects' | 'kanban' | 'hiring';
@@ -194,12 +198,10 @@ export function WorkflowKanbanView({
     );
   }, [allTasks, kanbanProjectScope, workTypeFilter]);
 
-  // Global KPI stats
+  // Global compact metrics
   const doneCount = allTasks.filter((t) => t.status === 'done').length;
   const reviewCount = allTasks.filter((t) => t.status === 'review').length;
   const progressPct = allTasks.length > 0 ? Math.round((doneCount / allTasks.length) * 100) : 0;
-  const totalSpent = workspaces.reduce((sum, w) => sum + w.spentUsd, 0);
-  const totalCap = workspaces.reduce((sum, w) => sum + w.budgetCapUsd, 0);
   const pendingNegotiationCount = negotiations.filter((n) => n.status !== 'hired').length;
   const unsettledTotalUsd = settlements
     .filter((s) => s.status === 'unsettled')
@@ -250,154 +252,115 @@ export function WorkflowKanbanView({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-white">
-      {/* Top KPI + 3 Focused Work Kanban Tabs */}
-      <div className="shrink-0 px-5 sm:px-8 pt-4 pb-3.5 border-b border-slate-200">
-        {/* 4-Column Tabular KPI Strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 pb-3.5 border-b border-slate-100">
-          <div>
-            <div className="text-xs text-slate-500">我的项目（主管 / 参与）</div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-xl font-bold text-slate-900">{workspaces.length}</span>
-              <span className="text-xs font-sans text-slate-500">
-                {leadingCount} 主管 · {participatingCount} 参与
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-slate-500">工作卡片完成率</div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-xl font-bold text-slate-900">{progressPct}%</span>
-              <span className="text-xs text-slate-500">
-                {doneCount}/{allTasks.length} 卡 · {reviewCount} 待验收
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-slate-500">雇佣协商 / 待结项目款</div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-xl font-bold text-amber-700">{pendingNegotiationCount}</span>
-              <span className="text-xs font-sans text-slate-500">
-                洽谈 ·{' '}
-                <span className="font-mono text-slate-700">
-                  待结 ${Math.round(unsettledTotalUsd).toLocaleString('en-US')}
-                </span>
-              </span>
-            </div>
-          </div>
-
-          <div>
-            <div className="text-xs text-slate-500 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-              <span>项目签约总额</span>
-            </div>
-            <div className="mt-1 flex items-baseline gap-2 font-mono tabular-nums">
-              <span className="text-xl font-bold text-slate-900">
-                ${totalSpent.toLocaleString('en-US')}
-              </span>
-              <span className="text-xs text-slate-500">
-                / ${totalCap.toLocaleString('en-US')}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* 3 Clean Perspectives: My Projects -> Task Flow Kanban -> Hiring & Negotiations */}
-        <div className="mt-3.5 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start overflow-x-auto max-w-full">
-            {(
-              [
-                { id: 'my_projects', label: `我的项目 (${workspaces.length})` },
-                { id: 'kanban', label: `任务流看板 (${allTasks.length})` },
+      {/* Unified Single-Row Composable Widget Toolbar */}
+      <ViewToolbar
+        left={
+          <>
+            <ToolbarSegment
+              value={activeTab}
+              onChange={setActiveTab}
+              options={[
+                { id: 'my_projects', label: '我的项目', count: workspaces.length },
+                { id: 'kanban', label: '任务流看板', count: allTasks.length },
                 {
                   id: 'hiring',
-                  label:
-                    pendingNegotiationCount > 0
-                      ? `雇佣协商 (${pendingNegotiationCount} 待确认)`
-                      : `雇佣协商 (${hiredEngagements.length})`,
+                  label: '雇佣协商',
+                  count: pendingNegotiationCount || hiredEngagements.length,
                 },
-              ] as const
-            ).map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
-                  activeTab === tab.id
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+              ]}
+            />
 
-          {/* Right Context Controls per Tab */}
-          {activeTab === 'my_projects' && !focusedProject && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-1 p-0.5 bg-slate-100 rounded-lg">
-                {(
-                  [
-                    { id: 'all', label: '全部' },
-                    { id: 'leading', label: `我主管 (${leadingCount})` },
-                    { id: 'participating', label: `我参与 (${participatingCount})` },
-                  ] as const
-                ).map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => setRoleFilter(opt.id)}
-                    className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                      roleFilter === opt.id
-                        ? 'bg-white text-slate-900 shadow-2xs font-semibold'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+            {activeTab === 'my_projects' && !focusedProject && (
+              <>
+                <ToolbarDivider />
+                <ToolbarDropdown
+                  label="视角"
+                  value={roleFilter}
+                  defaultValue="all"
+                  onChange={setRoleFilter}
+                  options={[
+                    { id: 'all', label: '全部项目', hint: `${workspaces.length}` },
+                    { id: 'leading', label: '我主管', hint: `${leadingCount}` },
+                    { id: 'participating', label: '我参与', hint: `${participatingCount}` },
+                  ]}
+                />
+              </>
+            )}
+
+            {activeTab === 'kanban' && (
+              <>
+                <ToolbarDivider />
+                <ToolbarDropdown
+                  label="项目"
+                  value={kanbanProjectScope}
+                  defaultValue="all"
+                  onChange={setKanbanProjectScope}
+                  options={[
+                    { id: 'all', label: '全部项目', hint: `${allTasks.length}` },
+                    ...workspaces.map((ws) => ({
+                      id: ws.id,
+                      label: ws.name,
+                      hint: `${allTasks.filter((t) => t.sessionId === ws.id).length}`,
+                    })),
+                  ]}
+                />
+                <ToolbarDropdown
+                  label="类型"
+                  value={workTypeFilter}
+                  defaultValue="all"
+                  onChange={setWorkTypeFilter}
+                  options={[
+                    { id: 'all', label: '全部类型' },
+                    { id: 'planning', label: '产品策划' },
+                    { id: 'development', label: '功能开发' },
+                    { id: 'testing', label: '功能测试' },
+                    { id: 'review', label: '架构评审' },
+                  ]}
+                />
+              </>
+            )}
+          </>
+        }
+        right={
+          <>
+            <span className="hidden xl:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
+              <span>完成 {progressPct}%</span>
+              <span className="text-slate-300" aria-hidden="true">·</span>
+              <span>待验收 {reviewCount}</span>
+              {unsettledTotalUsd > 0 && (
+                <>
+                  <span className="text-slate-300" aria-hidden="true">·</span>
+                  <span className="text-amber-700 font-semibold">
+                    待结 ${Math.round(unsettledTotalUsd).toLocaleString('en-US')}
+                  </span>
+                </>
+              )}
+            </span>
+
+            {activeTab === 'my_projects' && !focusedProject && (
               <button
                 type="button"
                 onClick={() => setShowCreateProjectForm((v) => !v)}
-                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
+                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>新建项目</span>
               </button>
-            </div>
-          )}
+            )}
 
-          {activeTab === 'kanban' && (
-            <div className="flex items-center gap-1 overflow-x-auto">
-              {(
-                [
-                  { id: 'all', label: '全部卡片类型' },
-                  { id: 'planning', label: '产品策划' },
-                  { id: 'development', label: '功能开发' },
-                  { id: 'testing', label: '功能测试' },
-                  { id: 'review', label: '架构评审' },
-                ] as const
-              ).map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setWorkTypeFilter(opt.id)}
-                  className={`px-2.5 py-1 text-xs rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                    workTypeFilter === opt.id
-                      ? 'bg-slate-900 text-white font-semibold'
-                      : 'text-slate-600 hover:bg-slate-100'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
+            {activeTab === 'hiring' && (
+              <button
+                type="button"
+                onClick={onJumpToMarket}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+              >
+                <Store className="w-3.5 h-3.5" />
+                <span>去专家市场</span>
+              </button>
+            )}
+          </>
+        }
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 px-5 sm:px-8 py-5">
@@ -830,7 +793,7 @@ export function WorkflowKanbanView({
                                     <AgentMark />
                                   </div>
                                   <div className="text-[11px] text-slate-500 truncate">
-                                    {ag.ownerHumanName ? `主理人 ${ag.ownerHumanName} · ` : ''}
+                                    {ag.ownerHumanName ? `归属专家 ${ag.ownerHumanName} · ` : ''}
                                     <span className="font-mono tabular-nums">
                                       {ag.ownership === 'private'
                                         ? '我方私有节点'
@@ -854,46 +817,6 @@ export function WorkflowKanbanView({
         {/* ================= TAB 2: TASK FLOW KANBAN (Multi-Project 4-Column Board) ================= */}
         {activeTab === 'kanban' && (
           <div className="space-y-4">
-            {/* Multi-Project Scope Selector Strip */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              <button
-                type="button"
-                onClick={() => setKanbanProjectScope('all')}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                  kanbanProjectScope === 'all'
-                    ? 'bg-slate-900 text-white border-slate-900'
-                    : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <Layers className="w-3.5 h-3.5" />
-                <span>全部项目 ({allTasks.length})</span>
-              </button>
-
-              {workspaces.map((ws) => {
-                const active = kanbanProjectScope === ws.id;
-                const wsCount = allTasks.filter((t) => t.sessionId === ws.id).length;
-                return (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    onClick={() => setKanbanProjectScope(ws.id)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                      active
-                        ? 'bg-blue-50 text-blue-800 border-blue-300 font-semibold'
-                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <FolderKanban className="w-3.5 h-3.5 shrink-0" />
-                    <span>{ws.name}</span>
-                    <span className="text-[10px] opacity-65">
-                      {ws.role === 'participating' ? '参与' : '主管'}
-                    </span>
-                    <span className="font-mono tabular-nums text-[11px] opacity-70">{wsCount}</span>
-                  </button>
-                );
-              })}
-            </div>
-
             {/* 4-Column Unified Task Flow Board */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 min-h-full">
               {WORK_CARD_STAGES.map((col) => {
@@ -1125,7 +1048,7 @@ export function WorkflowKanbanView({
                               <AgentMark />
                               {agent.ownerHumanName && (
                                 <span className="text-xs text-emerald-700 font-medium">
-                                  主理人：{agent.ownerHumanName}
+                                  归属专家：{agent.ownerHumanName}
                                 </span>
                               )}
                               <span className="text-xs text-slate-500">{agent.title}</span>
@@ -1220,7 +1143,7 @@ export function WorkflowKanbanView({
                               </div>
                               <div className="text-[11px] text-slate-500 truncate">
                                 {row.agent.ownerHumanName
-                                  ? `主理人 ${row.agent.ownerHumanName} · `
+                                  ? `归属专家 ${row.agent.ownerHumanName} · `
                                   : ''}
                                 {row.agent.title} · {row.agent.performance.capabilityTier}
                               </div>

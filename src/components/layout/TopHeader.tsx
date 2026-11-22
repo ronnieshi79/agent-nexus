@@ -1,4 +1,4 @@
-import { Menu, ShieldCheck } from 'lucide-react';
+import { Menu, PanelLeftOpen, ShieldCheck } from 'lucide-react';
 import { displayEntityName } from '../shared/EntityIdentity';
 import type {
   ActiveChatChannel,
@@ -16,6 +16,8 @@ interface TopHeaderProps {
   workspace: ProjectWorkspace;
   agents: ExpertAgent[];
   allTasks: WorkflowTask[];
+  sidebarCollapsed?: boolean;
+  onToggleSidebarCollapse?: () => void;
   onOpenMobileMenu: () => void;
 }
 
@@ -32,6 +34,8 @@ export function TopHeader({
   workspace,
   agents,
   allTasks,
+  sidebarCollapsed = false,
+  onToggleSidebarCollapse,
   onOpenMobileMenu,
 }: TopHeaderProps) {
   let primaryLabel: string;
@@ -48,7 +52,7 @@ export function TopHeader({
       const dmAgent = agents.find((a) => a.id === activeChatChannel.agentId);
       primaryLabel = '单聊 · 专家协商';
       subLabel = dmAgent
-        ? `${displayEntityName(dmAgent.handle)}${dmAgent.ownerHumanName ? `（主理人 ${dmAgent.ownerHumanName}）` : ''} · ${dmAgent.name}`
+        ? `${displayEntityName(dmAgent.handle)}${dmAgent.ownerHumanName ? `（归属专家 ${dmAgent.ownerHumanName}）` : ''} · ${dmAgent.name}`
         : '1v1 专家私聊与报价协商';
     } else if (activeChatChannel.type === 'assistant') {
       primaryLabel = 'Nexa 助理';
@@ -73,7 +77,7 @@ export function TopHeader({
   return (
     <header className="h-14 shrink-0 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-4">
       {/* Left: Contextual Breadcrumb */}
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex items-center gap-2.5 min-w-0">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -82,6 +86,18 @@ export function TopHeader({
         >
           <Menu className="w-5 h-5" />
         </button>
+
+        {sidebarCollapsed && onToggleSidebarCollapse && (
+          <button
+            type="button"
+            onClick={onToggleSidebarCollapse}
+            title="展开左侧栏"
+            aria-label="展开左侧栏"
+            className="hidden lg:inline-flex items-center justify-center p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer shrink-0"
+          >
+            <PanelLeftOpen className="w-4 h-4" />
+          </button>
+        )}
 
         <div className="flex items-center gap-2.5 min-w-0 truncate">
           <span className="text-sm font-bold text-slate-900 whitespace-nowrap shrink-0">

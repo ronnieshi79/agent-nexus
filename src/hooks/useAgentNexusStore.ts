@@ -132,7 +132,7 @@ export function useAgentNexusStore() {
       id: `usr_${Date.now().toString().slice(-5)}`,
       name: derivedName,
       email: cleanEmail,
-      planLabel: 'Pro 节点主理人',
+      planLabel: 'Pro 节点专家',
       workspaceNodeId: 'anx-node-cn-01',
       avatarInitials: initials,
     });
@@ -488,7 +488,7 @@ export function useAgentNexusStore() {
         type: input.type,
         authorName: account ? account.name : '我（社区成员）',
         authorHandle: account ? `@${account.name}` : '@指挥官',
-        authorRole: input.type === 'showcase' ? '节点主理人' : 'OPC 成员',
+        authorRole: input.type === 'showcase' ? '认证专家' : 'OPC 成员',
         authorAccent: '#0f172a',
         authorCode: account ? account.avatarInitials : '我',
         title: cleanedTitle,

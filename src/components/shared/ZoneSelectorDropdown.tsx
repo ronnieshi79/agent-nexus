@@ -144,10 +144,10 @@ export function ZoneSelectorDropdown({
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`inline-flex items-center gap-2 pl-2 pr-2.5 py-1.5 rounded-lg border bg-white text-left transition-colors cursor-pointer ${
+        className={`inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2 rounded-lg border bg-white text-left transition-colors cursor-pointer ${
           open
             ? 'border-slate-900 ring-2 ring-slate-900/10'
-            : 'border-slate-300 hover:border-slate-400 hover:bg-slate-50/60'
+            : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
         }`}
       >
         <span
@@ -159,7 +159,7 @@ export function ZoneSelectorDropdown({
         <span className="text-xs font-bold text-slate-900 whitespace-nowrap">
           {activeZone.name}
         </span>
-        <span className="inline-flex items-center gap-0.5 text-[11px] text-slate-500 whitespace-nowrap">
+        <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-slate-400 whitespace-nowrap">
           {renderKindIcon(activeZone, 'w-3 h-3 text-slate-400 shrink-0')}
           <span>{activeZone.typeLabel}</span>
         </span>

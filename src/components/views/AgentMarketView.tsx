@@ -1,10 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  Briefcase,
   Check,
   Cpu,
   MessageCircle,
-  Search,
   Send,
   Sparkles,
   UploadCloud,
@@ -14,6 +12,14 @@ import {
   X,
 } from 'lucide-react';
 import { AgentMark, EntityAvatar, HumanMark, displayEntityName } from '../shared/EntityIdentity';
+import {
+  ToolbarDivider,
+  ToolbarDropdown,
+  ToolbarPopoverWidget,
+  ToolbarSearch,
+  ToolbarSegment,
+  ViewToolbar,
+} from '../shared/ViewToolbar';
 import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import { fetchMarketMatches, type MarketMatchResult } from '../../services/api';
 import type {
@@ -56,17 +62,19 @@ interface AgentMarketViewProps {
 }
 
 const CATEGORY_TABS: { id: 'all' | AgentCategory; label: string }[] = [
-  { id: 'all', label: '全部角色' },
+  { id: 'all', label: '全部类别' },
+  { id: 'engineering', label: '研发开发' },
+  { id: 'design', label: '设计体验' },
   { id: 'product', label: '产品策划' },
   { id: 'architecture', label: '架构审查' },
-  { id: 'engineering', label: '研发代码' },
   { id: 'qa', label: '测试质量' },
 ];
 
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
+  engineering: '研发开发',
+  design: '设计体验',
   product: '产品策划',
   architecture: '架构审查',
-  engineering: '研发代码',
   qa: '测试质量',
 };
 
@@ -102,6 +110,7 @@ export function AgentMarketView({
   const [modeFilter, setModeFilter] = useState<'all' | ServiceMode>('all');
   const [keyword, setKeyword] = useState('');
   const [aiQuery, setAiQuery] = useState('');
+  const [aiPopoverOpen, setAiPopoverOpen] = useState(false);
   const [aiMatching, setAiMatching] = useState(false);
   const [matchResult, setMatchResult] = useState<MarketMatchResult | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
@@ -146,6 +155,16 @@ export function AgentMarketView({
     return map;
   }, [allAgents]);
 
+  const zoneHumansAllCount = useMemo(
+    () =>
+      humanExperts.filter(
+        (human) =>
+          human.zoneIds.includes(activeZone.id) ||
+          agents.some((a) => a.ownerHumanId === human.id),
+      ).length,
+    [activeZone.id, agents, humanExperts],
+  );
+
   const zoneHumans = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     return humanExperts
@@ -160,10 +179,12 @@ export function AgentMarketView({
         const inZone =
           human.zoneIds.includes(activeZone.id) || ownedInZone.length > 0;
         if (!inZone) return false;
+        if (categoryFilter !== 'all' && human.category !== categoryFilter) return false;
         if (!q) return true;
         const haystack = [
           human.name,
           human.title,
+          CATEGORY_LABELS[human.category],
           human.bio,
           ...human.specialties,
           ...ownedInZone.map((a) => `${displayEntityName(a.handle)} ${a.name} ${a.title}`),
@@ -172,7 +193,7 @@ export function AgentMarketView({
           .toLowerCase();
         return haystack.includes(q);
       });
-  }, [activeZone.id, agents, allAgents, humanExperts, keyword]);
+  }, [activeZone.id, agents, allAgents, categoryFilter, humanExperts, keyword]);
 
   const activeOwnerFilter = useMemo(
     () => (ownerFilterId ? humanExperts.find((h) => h.id === ownerFilterId) || null : null),
@@ -241,6 +262,8 @@ export function AgentMarketView({
         zoneTagline: activeZone.tagline,
       });
       setMatchResult(res);
+      setEntityTab('agents');
+      setAiPopoverOpen(false);
     } catch (err) {
       setMatchError(err instanceof Error ? err.message : 'AI 选人匹配失败');
     } finally {
@@ -266,14 +289,16 @@ export function AgentMarketView({
       ]
     : [];
 
+  const hasActiveSubStrip = Boolean(activeOwnerFilter || matchResult || matchError);
+
   return (
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Market Directory */}
-      <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5">
-          {/* Compact Space / Community Selector Bar */}
-          <div className="mb-4 pb-3.5 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-            <div className="flex items-center gap-3 flex-wrap min-w-0">
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
+        {/* Unified Single-Row Composable Widget Toolbar */}
+        <ViewToolbar
+          left={
+            <>
               <ZoneSelectorDropdown
                 zones={zones}
                 activeZoneId={activeZone.id}
@@ -283,208 +308,208 @@ export function AgentMarketView({
                   return `${count} 位专家 · ${z.focusDomains.slice(0, 2).join(' / ')}`;
                 }}
               />
-              <span className="text-xs text-slate-500 truncate min-w-0">
-                {activeZone.tagline}
-              </span>
-            </div>
 
-            <button
-              type="button"
-              onClick={() => onJumpToZoneProjects(activeZone.id)}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 whitespace-nowrap shrink-0 cursor-pointer self-start md:self-auto"
-            >
-              <Briefcase className="w-3.5 h-3.5" />
-              <span>进入「{activeZone.name}」社区动态与项目</span>
-            </button>
-          </div>
+              <ToolbarDivider />
 
-          {/* AI Talent Advisor Bar + Mount Entry */}
-          <div className="flex flex-col lg:flex-row lg:items-center gap-2.5">
-            <form
-              onSubmit={handleAiMatch}
-              className="flex-1 min-w-0 p-1.5 rounded-xl bg-slate-50 border border-slate-200 flex flex-col sm:flex-row items-stretch sm:items-center gap-2"
-            >
-              <div className="flex items-center gap-1.5 px-2.5 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0">
-                <Sparkles className="w-4 h-4 text-blue-600" />
-                <span>AI 选人顾问</span>
-              </div>
-              <input
-                type="text"
-                value={aiQuery}
-                onChange={(e) => setAiQuery(e.target.value)}
-                placeholder={`在「${activeZone.name}」描述项目难点，自动推荐最优专家组合...`}
-                className="flex-1 min-w-0 bg-white rounded-lg px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              <ToolbarSegment
+                value={entityTab}
+                onChange={(next) => {
+                  setEntityTab(next);
+                  if (next === 'humans') setOwnerFilterId(null);
+                }}
+                options={[
+                  {
+                    id: 'agents',
+                    label: 'Agent',
+                    count: agents.length,
+                    icon: <Cpu className="w-3.5 h-3.5 text-indigo-600 shrink-0" />,
+                  },
+                  {
+                    id: 'humans',
+                    label: '专家',
+                    count: zoneHumansAllCount,
+                    icon: <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />,
+                  },
+                ]}
               />
-              <button
-                type="submit"
-                disabled={aiMatching || !aiQuery.trim()}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
-              >
-                {aiMatching ? '筛选中...' : '智能匹配组合'}
-              </button>
-            </form>
 
-            <button
-              type="button"
-              onClick={onJumpToMountPrivate}
-              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <UploadCloud className="w-3.5 h-3.5 text-blue-600" />
-              <span>挂载我的 Agent 上架</span>
-            </button>
-          </div>
+              <ToolbarDropdown
+                label="分类"
+                value={categoryFilter}
+                defaultValue="all"
+                onChange={setCategoryFilter}
+                options={CATEGORY_TABS.map((t) => ({ id: t.id, label: t.label }))}
+              />
 
-          {matchError && (
-            <div className="mt-3 px-4 py-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center justify-between gap-2">
-              <span>{matchError}</span>
-              <button
-                type="button"
-                onClick={() => setMatchError(null)}
-                className="text-red-500 hover:text-red-800 cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          {matchResult && (
-            <div className="mt-4 px-4 py-3 rounded-xl bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-xs font-semibold text-blue-900">
-                  <span>AI 组队推荐</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-mono tabular-nums">
-                    预估项目组合签约 ${Math.round(Number(matchResult.estimatedBudgetUsd || 0)).toLocaleString('en-US')}
-                  </span>
-                </div>
-                <p className="text-sm text-slate-800 mt-1">{matchResult.summary}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMatchResult(null)}
-                className="text-xs text-slate-500 hover:text-slate-900 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-center"
-              >
-                清除推荐
-              </button>
-            </div>
-          )}
-
-          {/* Entity Switcher (Agent Nodes vs Human Experts owning multiple Agents) + Filter Toolbar */}
-          <div className="mt-5 pb-4 mb-5 border-b border-slate-200 space-y-3">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-              <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
-                <button
-                  type="button"
-                  onClick={() => setEntityTab('agents')}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                    entityTab === 'agents'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Agent 节点 ({agents.length})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEntityTab('humans');
-                    setOwnerFilterId(null);
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap cursor-pointer ${
-                    entityTab === 'humans'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <User className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>人类主理人 ({zoneHumans.length})</span>
-                </button>
-              </div>
-
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  placeholder={
-                    entityTab === 'humans'
-                      ? '搜索人类专家、擅长领域或旗下 Agent...'
-                      : '搜索 Agent、主理人、技能或 MCP...'
-                  }
-                  className="w-full sm:w-64 bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              {entityTab === 'agents' && (
+                <ToolbarDropdown
+                  label="模式"
+                  value={modeFilter}
+                  defaultValue="all"
+                  onChange={setModeFilter}
+                  options={[
+                    { id: 'all', label: '全部模式' },
+                    { id: 'pure-agent', label: '纯 Agent 租用' },
+                    { id: 'human-agent', label: '人 + Agent 协同' },
+                  ]}
                 />
-              </div>
-            </div>
+              )}
+            </>
+          }
+          right={
+            <>
+              <ToolbarSearch
+                value={keyword}
+                onChange={setKeyword}
+                placeholder={
+                  entityTab === 'humans' ? '搜索专家、类别、专长...' : '搜索 Agent、技能、MCP...'
+                }
+              />
 
-            {entityTab === 'agents' && (
-              <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
-                <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg overflow-x-auto">
-                  {CATEGORY_TABS.map((tab) => (
+              <ToolbarPopoverWidget
+                open={aiPopoverOpen}
+                onOpenChange={setAiPopoverOpen}
+                triggerLabel="AI 选人"
+                triggerIcon={<Sparkles className="w-3.5 h-3.5 text-blue-600 shrink-0" />}
+                activeHighlight={Boolean(matchResult)}
+              >
+                <form onSubmit={handleAiMatch} className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                      <span>AI 选人顾问 · {activeZone.name}</span>
+                    </span>
                     <button
-                      key={tab.id}
                       type="button"
-                      onClick={() => setCategoryFilter(tab.id)}
-                      className={`px-3 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                        categoryFilter === tab.id
-                          ? 'bg-white text-slate-900 shadow-2xs'
-                          : 'text-slate-600 hover:text-slate-900'
-                      }`}
+                      onClick={() => setAiPopoverOpen(false)}
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                      aria-label="关闭 AI 选人弹窗"
                     >
-                      {tab.label}
+                      <X className="w-3.5 h-3.5" />
                     </button>
-                  ))}
-                </div>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    描述项目难点或目标交付周期，自动匹配最适合的 Agent 组合与预算预估。
+                  </p>
+                  <textarea
+                    rows={3}
+                    value={aiQuery}
+                    onChange={(e) => setAiQuery(e.target.value)}
+                    placeholder="例：需要搭建高并发支付清算模块，7天内完成接口研发与端到端回归测试..."
+                    className="w-full bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/15 resize-none"
+                  />
+                  <div className="flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onJumpToZoneProjects(activeZone.id)}
+                      className="text-[11px] font-medium text-slate-500 hover:text-blue-700 cursor-pointer"
+                    >
+                      逛「{activeZone.name}」社区动态 →
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={aiMatching || !aiQuery.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                    >
+                      {aiMatching ? '匹配中...' : '智能匹配组合'}
+                    </button>
+                  </div>
+                </form>
+              </ToolbarPopoverWidget>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                  {activeOwnerFilter && (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-800 font-medium">
-                      <span>主理人：{activeOwnerFilter.name}</span>
+              <button
+                type="button"
+                onClick={onJumpToMountPrivate}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap shrink-0 cursor-pointer transition-colors"
+              >
+                <UploadCloud className="w-3.5 h-3.5" />
+                <span>挂载上架</span>
+              </button>
+            </>
+          }
+          subStrip={
+            hasActiveSubStrip ? (
+              <div className="space-y-2">
+                {activeOwnerFilter && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 font-medium">
+                      <span>专家：{activeOwnerFilter.name}</span>
                       <button
                         type="button"
                         onClick={() => setOwnerFilterId(null)}
                         className="text-emerald-600 hover:text-emerald-900 cursor-pointer"
-                        aria-label="清除主理人筛选"
+                        aria-label="清除专家筛选"
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </span>
-                  )}
-
-                  <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
-                    {(
-                      [
-                        { id: 'all', label: '全部模式' },
-                        { id: 'pure-agent', label: '纯 Agent 租用' },
-                        { id: 'human-agent', label: '人 + Agent 协同' },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setModeFilter(opt.id)}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-                          modeFilter === opt.id
-                            ? 'bg-white text-slate-900 shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
                   </div>
-                </div>
+                )}
+
+                {matchError && (
+                  <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 flex items-center justify-between gap-2">
+                    <span>{matchError}</span>
+                    <button
+                      type="button"
+                      onClick={() => setMatchError(null)}
+                      className="text-red-500 hover:text-red-800 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                {matchResult && (
+                  <div className="px-3.5 py-2.5 rounded-lg bg-blue-50/70 border border-blue-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-xs font-semibold text-blue-900">
+                        <span>AI 组队推荐</span>
+                        <span aria-hidden="true">·</span>
+                        <span className="font-mono tabular-nums">
+                          预估签约 $
+                          {Math.round(Number(matchResult.estimatedBudgetUsd || 0)).toLocaleString(
+                            'en-US',
+                          )}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-700 mt-0.5">{matchResult.summary}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setMatchResult(null)}
+                      className="text-xs font-medium text-slate-500 hover:text-slate-900 cursor-pointer whitespace-nowrap shrink-0 self-start sm:self-center"
+                    >
+                      清除推荐
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            ) : undefined
+          }
+        />
+
+        {/* Scrollable Market Catalog Canvas */}
+        <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70">
+          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5">
 
           {/* Catalog Area: Agent Nodes OR Human Experts (1 Human -> Multiple External Agents) */}
           {entityTab === 'humans' ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {zoneHumans.length === 0 ? (
-                <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50">
-                  <p className="text-sm font-medium text-slate-700">当前社区暂无匹配的人类主理人</p>
+                <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
+                  <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配专家</p>
+                  {(categoryFilter !== 'all' || keyword.trim()) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCategoryFilter('all');
+                        setKeyword('');
+                      }}
+                      className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
+                    >
+                      重置筛选
+                    </button>
+                  )}
                 </div>
               ) : (
                 zoneHumans.map(({ human, ownedInZone, ownedAllListed }) => {
@@ -495,7 +520,7 @@ export function AgentMarketView({
                       className="rounded-xl border border-slate-200 bg-white p-5 flex flex-col justify-between space-y-4"
                     >
                       <div>
-                        {/* Human Expert Header (Circular Avatar + HumanMark) */}
+                        {/* Human Expert Header (Circular Avatar + HumanMark + Category) */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex items-center gap-3 min-w-0">
                             <EntityAvatar
@@ -509,7 +534,10 @@ export function AgentMarketView({
                                 <h3 className="text-sm font-bold text-slate-900">
                                   {human.name}
                                 </h3>
-                                <HumanMark label={human.isCurrentUser ? '本人主理' : '真人主理人'} />
+                                <HumanMark label={human.isCurrentUser ? '本人' : '真人专家'} />
+                                <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
+                                  · {CATEGORY_LABELS[human.category]}
+                                </span>
                               </div>
                               <p className="text-xs text-slate-600 mt-0.5 truncate">
                                 {human.title}
@@ -730,7 +758,7 @@ export function AgentMarketView({
                             <span className="inline-flex items-center gap-1.5 text-slate-600 truncate">
                               <User className="w-3 h-3 text-emerald-600 shrink-0" />
                               <span>
-                                归属主理人：
+                                归属专家：
                                 <strong className="font-semibold text-slate-900">
                                   {agent.ownerHumanName}
                                 </strong>
@@ -837,6 +865,7 @@ export function AgentMarketView({
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
 
@@ -862,7 +891,7 @@ export function AgentMarketView({
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
                     {drawerAgent.ownerHumanName
-                      ? `主理人：${drawerAgent.ownerHumanName} · `
+                      ? `归属专家：${drawerAgent.ownerHumanName} · `
                       : ''}
                     {SERVICE_MODE_LABELS[drawerAgent.serviceMode]}
                   </p>

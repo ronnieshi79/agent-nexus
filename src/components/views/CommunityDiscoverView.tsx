@@ -17,6 +17,12 @@ import {
   X,
 } from 'lucide-react';
 import { AgentMark, EntityAvatar, HumanMark, displayEntityName } from '../shared/EntityIdentity';
+import {
+  ToolbarDivider,
+  ToolbarSearch,
+  ToolbarSegment,
+  ViewToolbar,
+} from '../shared/ViewToolbar';
 import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import type {
   CommunityPost,
@@ -93,6 +99,7 @@ export function CommunityDiscoverView({
 }: CommunityDiscoverViewProps) {
   const [activeCommunityId, setActiveCommunityId] = useState<string>(zones[0]?.id || 'zone_public');
   const [postFilter, setPostFilter] = useState<'all' | CommunityPostType>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   // Publish Modal State
   const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -158,12 +165,23 @@ export function CommunityDiscoverView({
   }, [allAgents]);
 
   const communityFeedPosts = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
     return communityPosts.filter((p) => {
       if (p.zoneId !== activeCommunity.id) return false;
       if (postFilter !== 'all' && p.type !== postFilter) return false;
-      return true;
+      if (!q) return true;
+      const haystack = [
+        p.title,
+        p.content,
+        p.authorName,
+        p.authorOwnerName || '',
+        ...p.tags,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(q);
     });
-  }, [activeCommunity.id, communityPosts, postFilter]);
+  }, [activeCommunity.id, communityPosts, postFilter, searchKeyword]);
 
   const communityOpenProjects = useMemo(
     () => zoneProjects.filter((p) => p.zoneId === activeCommunity.id),
@@ -228,16 +246,17 @@ export function CommunityDiscoverView({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-white">
-      {/* Compact Single-Row Community Selector & Publish Toolbar */}
-      <div className="shrink-0 px-5 sm:px-8 py-2.5 border-b border-slate-200 bg-white">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+      {/* Unified Single-Row Composable Widget Toolbar */}
+      <ViewToolbar
+        left={
+          <>
             <ZoneSelectorDropdown
               zones={zones}
               activeZoneId={activeCommunity.id}
               onSelectZone={(zId) => {
                 setActiveCommunityId(zId);
                 setPostFilter('all');
+                setSearchKeyword('');
               }}
               joinedZoneIds={joinedZoneIds}
               onToggleJoinZone={onToggleJoinZone}
@@ -254,10 +273,10 @@ export function CommunityDiscoverView({
               <button
                 type="button"
                 onClick={() => onToggleJoinZone(activeCommunity.id)}
-                className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                className={`inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
                   hasAccess
-                    ? 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                    : 'bg-blue-600 text-white hover:bg-blue-700'
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                    : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
                 }`}
               >
                 {hasAccess ? (
@@ -274,27 +293,45 @@ export function CommunityDiscoverView({
               </button>
             )}
 
-            <span className="hidden md:inline text-xs text-slate-500 font-mono tabular-nums truncate">
-              {communityPosts.filter((p) => p.zoneId === activeCommunity.id).length} 条动态 ·{' '}
-              {communityOpenProjects.filter((p) => p.status === 'open').length} 个撮合项目 ·{' '}
-              {activeCommunity.memberCount} 成员
-            </span>
-          </div>
-
-          {hasAccess && (
-            <button
-              type="button"
-              onClick={() =>
-                openComposer(postFilter === 'all' ? 'discussion' : postFilter)
-              }
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>发布动态 / 项目</span>
-            </button>
-          )}
-        </div>
-      </div>
+            {hasAccess && (
+              <>
+                <ToolbarDivider />
+                <ToolbarSegment
+                  value={postFilter}
+                  onChange={setPostFilter}
+                  options={[
+                    { id: 'all', label: '全部', count: communityFeedPosts.length },
+                    { id: 'project', label: '项目撮合' },
+                    { id: 'discussion', label: '交流讨论' },
+                    { id: 'showcase', label: '专家自荐' },
+                  ]}
+                />
+              </>
+            )}
+          </>
+        }
+        right={
+          hasAccess ? (
+            <>
+              <ToolbarSearch
+                value={searchKeyword}
+                onChange={setSearchKeyword}
+                placeholder="搜索动态、项目或标签..."
+              />
+              <button
+                type="button"
+                onClick={() =>
+                  openComposer(postFilter === 'all' ? 'discussion' : postFilter)
+                }
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>发布</span>
+              </button>
+            </>
+          ) : undefined
+        }
+      />
 
       {/* Main Scrollable Community Information Flow + Right Community Context Rail */}
       <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 px-5 sm:px-8 py-5">
@@ -333,37 +370,6 @@ export function CommunityDiscoverView({
               </div>
             ) : (
               <>
-                {/* Feed Filter Strip */}
-                <div className="flex items-center justify-between gap-3 flex-wrap">
-                  <div className="inline-flex items-center gap-1 p-1 bg-slate-200/60 rounded-lg">
-                    {(
-                      [
-                        { id: 'all', label: '全部动态' },
-                        { id: 'project', label: '项目撮合' },
-                        { id: 'discussion', label: '交流讨论' },
-                        { id: 'showcase', label: '专家自荐' },
-                      ] as const
-                    ).map((opt) => (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setPostFilter(opt.id)}
-                        className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                          postFilter === opt.id
-                            ? 'bg-white text-slate-900 shadow-2xs'
-                            : 'text-slate-600 hover:text-slate-900'
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <span className="text-xs text-slate-500 font-mono tabular-nums">
-                    共 {communityFeedPosts.length} 条动态
-                  </span>
-                </div>
-
                 {/* Information Flow Stream */}
                 <div className="space-y-3.5">
                   {communityFeedPosts.length === 0 ? (
@@ -422,7 +428,7 @@ export function CommunityDiscoverView({
                                       )}
                                       <span className="text-slate-400">
                                         {isAgentAuthor && post.authorOwnerName
-                                          ? `主理人：${post.authorOwnerName} · ${post.authorRole}`
+                                          ? `归属专家：${post.authorOwnerName} · ${post.authorRole}`
                                           : post.authorRole}
                                       </span>
                                     </div>
@@ -554,7 +560,7 @@ export function CommunityDiscoverView({
                                   </div>
                                   <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
                                     {linkedAgent.ownerHumanName
-                                      ? `主理人 ${linkedAgent.ownerHumanName} · `
+                                      ? `归属专家 ${linkedAgent.ownerHumanName} · `
                                       : ''}
                                     信誉 {linkedAgent.performance.reputationScore} · $
                                     {linkedAgent.projectPriceUsd.toLocaleString('en-US')}/项目
@@ -790,7 +796,7 @@ export function CommunityDiscoverView({
               {communityHumans.length > 0 && (
                 <div className="space-y-2">
                   <div className="text-[11px] font-semibold text-slate-500">
-                    活跃人类主理人 ({communityHumans.length})
+                    活跃人类专家 ({communityHumans.length})
                   </div>
                   {communityHumans.map(({ human, agentCount }) => (
                     <div
@@ -845,7 +851,7 @@ export function CommunityDiscoverView({
                           <AgentMark />
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
-                          {ag.ownerHumanName ? `主理人 ${ag.ownerHumanName} · ` : ''}
+                          {ag.ownerHumanName ? `归属专家 ${ag.ownerHumanName} · ` : ''}
                           <span className="font-mono tabular-nums">
                             ${ag.projectPriceUsd.toLocaleString('en-US')}/项目
                           </span>

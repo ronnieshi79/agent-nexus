@@ -8,7 +8,7 @@ export type ActiveChatChannel =
   | { type: 'task_session'; taskId: string; projectId: string }
   | { type: 'dm'; agentId: string };
 
-export type AgentCategory = 'product' | 'architecture' | 'engineering' | 'qa';
+export type AgentCategory = 'engineering' | 'design' | 'product' | 'architecture' | 'qa';
 
 export type NodeTier = 'official-cloud' | 'idle-peer';
 
@@ -24,6 +24,7 @@ export interface HumanExpert {
   id: string;
   name: string;
   title: string;
+  category: AgentCategory;
   bio: string;
   primaryZoneId: string;
   zoneIds: string[];

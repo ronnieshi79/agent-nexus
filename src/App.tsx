@@ -13,6 +13,7 @@ import { useAgentNexusStore } from './hooks/useAgentNexusStore';
 export default function App() {
   const store = useAgentNexusStore();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-slate-50 text-slate-900">
@@ -34,6 +35,8 @@ export default function App() {
         marketCount={store.totalMarketExpertsCount}
         discoverCount={store.openZoneProjectsCount}
         account={store.account}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((v) => !v)}
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
         onSelectView={store.setActiveView}
@@ -57,6 +60,8 @@ export default function App() {
           workspace={store.activeWorkspace}
           agents={store.agents}
           allTasks={store.allTasks}
+          sidebarCollapsed={sidebarCollapsed}
+          onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
         />
 

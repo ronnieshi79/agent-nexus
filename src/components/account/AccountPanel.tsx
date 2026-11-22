@@ -137,7 +137,7 @@ export function AccountAuthModal({ open, onClose, onLogin }: AccountAuthModalPro
           {mode === 'register' && (
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                称呼 / 团队主理人名称
+                称呼 / 专家名称
               </label>
               <input
                 type="text"

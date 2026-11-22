@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Compass,
   KanbanSquare,
+  LogIn,
   MessageSquare,
   MessageSquareCode,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   Store,
   UserPlus,
@@ -44,6 +47,8 @@ interface SidebarProps {
   marketCount: number;
   discoverCount: number;
   account: AgentNexusAccount | null;
+  collapsed: boolean;
+  onToggleCollapse: () => void;
   mobileOpen: boolean;
   onCloseMobile: () => void;
   onSelectView: (v: NavViewId) => void;
@@ -82,6 +87,8 @@ export function Sidebar({
   marketCount,
   discoverCount,
   account,
+  collapsed,
+  onToggleCollapse,
   mobileOpen,
   onCloseMobile,
   onSelectView,
@@ -198,7 +205,7 @@ export function Sidebar({
   const sidebarContent = (
     <div className="h-full flex flex-col bg-slate-50 border-r border-slate-200 select-none">
       {/* Platform Brand Header */}
-      <div className="px-4 py-3.5 border-b border-slate-200/80 shrink-0 bg-white flex items-center justify-between gap-2">
+      <div className="h-14 px-4 border-b border-slate-200/80 shrink-0 bg-white flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="font-display text-lg font-extrabold tracking-tight text-slate-900 whitespace-nowrap leading-none">
             AgentNexus
@@ -207,14 +214,25 @@ export function Sidebar({
             Agents 协作网络
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onCloseMobile}
-          className="lg:hidden p-1 rounded-lg text-slate-500 hover:bg-slate-200/60 cursor-pointer"
-          aria-label="关闭侧边栏"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title="收起左侧栏"
+            aria-label="收起左侧栏"
+            className="hidden lg:inline-flex items-center justify-center p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="lg:hidden p-1 rounded-lg text-slate-500 hover:bg-slate-200/60 cursor-pointer"
+            aria-label="关闭侧边栏"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Top Workspace Navigation */}
@@ -431,7 +449,7 @@ export function Sidebar({
                         <AgentMark />
                       </span>
                       <span className="text-[11px] text-slate-500 truncate">
-                        {cand.ownerHumanName ? `主理人 ${cand.ownerHumanName}` : cand.title}
+                        {cand.ownerHumanName ? `归属专家 ${cand.ownerHumanName}` : cand.title}
                       </span>
                     </button>
                   ))}
@@ -579,7 +597,7 @@ export function Sidebar({
                           kind="agent"
                           code={dmAgent.avatarCode}
                           accent={dmAgent.avatarAccent}
-                          title={`Agent 节点 · 主理人 ${dmAgent.ownerHumanName || '社区认证'}`}
+                          title={`Agent 节点 · 归属专家 ${dmAgent.ownerHumanName || '社区认证'}`}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -597,7 +615,7 @@ export function Sidebar({
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
                           <span className="text-slate-500 truncate">
                             {dmAgent.ownerHumanName
-                              ? `主理人：${dmAgent.ownerHumanName}`
+                              ? `归属专家：${dmAgent.ownerHumanName}`
                               : dmAgent.name}
                           </span>
                           <span className={`shrink-0 whitespace-nowrap ${st.cls}`}>
@@ -698,10 +716,150 @@ export function Sidebar({
     </div>
   );
 
+  const handleRailRegularChat = () => {
+    setModeTab('regular');
+    if (activeChatChannel.type === 'group') {
+      onSelectProjectChat(activeChatChannel.projectId);
+    } else if (activeChatChannel.type === 'dm') {
+      onSelectDm(activeChatChannel.agentId);
+    } else if (activeChatChannel.type === 'assistant') {
+      onSelectAssistant();
+    } else if (workspaces[0]) {
+      onSelectProjectChat(workspaces[0].id);
+    } else {
+      onSelectAssistant();
+    }
+  };
+
+  const handleRailTaskSessions = () => {
+    setModeTab('task_session');
+    if (activeChatChannel.type === 'task_session') {
+      onSelectView('chat');
+      return;
+    }
+    const firstTask = sortedTaskSessions[0];
+    if (firstTask) {
+      onSelectTaskSession(firstTask.id);
+    } else {
+      onSelectView('chat');
+    }
+  };
+
+  const collapsedRail = (
+    <div className="h-full flex flex-col items-center bg-slate-50 border-r border-slate-200 select-none">
+      {/* Top Expand Toggle matching TopHeader height */}
+      <div className="h-14 w-full border-b border-slate-200/80 bg-white flex items-center justify-center shrink-0">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          title="展开左侧栏"
+          aria-label="展开左侧栏"
+          className="w-9 h-9 rounded-lg flex items-center justify-center text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+        >
+          <PanelLeftOpen className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Primary Workspace Nav Icons */}
+      <nav aria-label="快捷导航" className="py-3 flex flex-col items-center gap-1.5 w-full px-2">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const active = activeView === item.id;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => onSelectView(item.id)}
+              title={item.count ? `${item.label}（${item.count}）` : item.label}
+              aria-label={item.label}
+              className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+                active
+                  ? 'bg-slate-900 text-sky-300 shadow-2xs'
+                  : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
+              }`}
+            >
+              <Icon className="w-4 h-4" />
+              {item.highlight && !active && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-slate-50" />
+              )}
+            </button>
+          );
+        })}
+
+        <div className="w-6 h-px bg-slate-200 my-1.5" aria-hidden="true" />
+
+        {/* Chat Mode Shortcuts */}
+        <button
+          type="button"
+          onClick={handleRailRegularChat}
+          title={`消息会话（${regularTotalCount}）`}
+          aria-label="消息会话"
+          className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+            isChatView && activeChatChannel.type !== 'task_session'
+              ? 'bg-slate-900 text-sky-300 shadow-2xs'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
+          }`}
+        >
+          <MessageSquare className="w-4 h-4" />
+          {assistantPendingCount > 0 && !(isChatView && activeChatChannel.type !== 'task_session') && (
+            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-slate-50" />
+          )}
+        </button>
+
+        <button
+          type="button"
+          onClick={handleRailTaskSessions}
+          title={`Agent 任务（${allTasks.length} 个 Session）`}
+          aria-label="Agent 任务"
+          className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+            isChatView && activeChatChannel.type === 'task_session'
+              ? 'bg-slate-900 text-sky-300 shadow-2xs'
+              : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
+          }`}
+        >
+          <MessageSquareCode className="w-4 h-4" />
+          {awaitingTaskSessionCount > 0 &&
+            !(isChatView && activeChatChannel.type === 'task_session') && (
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-slate-50" />
+            )}
+        </button>
+      </nav>
+
+      {/* Bottom Compact Account Button */}
+      <div className="mt-auto w-full py-3 border-t border-slate-200 bg-white flex items-center justify-center shrink-0">
+        {account ? (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            title={`${account.name} · 点击展开左侧栏查看账号`}
+            aria-label="展开查看账号信息"
+            className="w-9 h-9 rounded-lg bg-slate-900 text-sky-300 flex items-center justify-center text-xs font-bold hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            {account.avatarInitials}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenLogin}
+            title="登录 AgentNexus 账号"
+            aria-label="登录账号"
+            className="w-9 h-9 rounded-lg bg-slate-900 text-white flex items-center justify-center hover:bg-slate-800 transition-colors cursor-pointer"
+          >
+            <LogIn className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
   return (
     <>
-      <aside className="hidden lg:block w-[276px] shrink-0 h-full">
-        {sidebarContent}
+      <aside
+        className={`hidden lg:block shrink-0 h-full transition-[width] duration-200 ease-out overflow-hidden ${
+          collapsed ? 'w-[60px]' : 'w-[276px]'
+        }`}
+      >
+        {collapsed ? collapsedRail : sidebarContent}
       </aside>
 
       {mobileOpen && (

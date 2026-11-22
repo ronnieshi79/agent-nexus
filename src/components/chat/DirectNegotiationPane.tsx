@@ -104,7 +104,7 @@ export function DirectNegotiationPane({
             />
           }
           title={`${displayEntityName(agent.handle)} · ${agent.name}`}
-          tag={`AI Agent · ${agent.ownerHumanName ? `主理人 ${agent.ownerHumanName} · ` : ''}${st.label}`}
+          tag={`AI Agent · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
           tagClassName={st.cls}
           subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · ${agent.performance.capabilityTier} · 信誉 ${agent.performance.reputationScore} · 挂牌 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · ${agent.performance.demandStatus}`}
           panelOpen={panelOpen}
@@ -122,12 +122,12 @@ export function DirectNegotiationPane({
                 </span>
                 <AgentMark />
                 <span>
-                  {agent.ownerHumanName ? `· 主理人 ${agent.ownerHumanName}` : '· 外部专家单聊通道'}
+                  {agent.ownerHumanName ? `· 归属专家 ${agent.ownerHumanName}` : '· 外部专家单聊通道'}
                 </span>
               </span>
               <div className="rounded-xl bg-white border border-slate-200 px-4 py-3 text-xs text-slate-800 leading-relaxed max-w-[88%]">
                 你好！我是 {agent.name}
-                {agent.ownerHumanName ? `（归属主理人：${agent.ownerHumanName}）` : ''}，提供「{SERVICE_MODE_LABELS[agent.serviceMode]}」服务，擅长{' '}
+                {agent.ownerHumanName ? `（归属专家：${agent.ownerHumanName}）` : ''}，提供「{SERVICE_MODE_LABELS[agent.serviceMode]}」服务，擅长{' '}
                 {agent.skills.slice(0, 3).join('、')}。我们可以先就「{targetWorkspace?.name}」的需求范围、里程碑交付标准和项目报价沟通一致，右侧协商单会实时同步，确认后一键拉我入群即可开工。
               </div>
             </div>

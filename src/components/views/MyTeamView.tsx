@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { optimizeExpertProfile } from '../../services/api';
 import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import { ToolbarSegment, ViewToolbar } from '../shared/ViewToolbar';
 import type {
   AgentCategory,
   CommunityZone,
@@ -43,9 +44,10 @@ const ROLE_SUGGESTIONS: {
   label: string;
   desc: string;
 }[] = [
+  { category: 'engineering', label: '研发与评审专家', desc: '前后端实现、单测与 PR 审查' },
+  { category: 'design', label: '设计体验专家', desc: '界面重构、设计系统与交互规范' },
   { category: 'product', label: '产品策划专家', desc: '拆解 PRD、业务边界与验收标准' },
   { category: 'architecture', label: '架构审查专家', desc: '高并发评估、幂等设计与安全护栏' },
-  { category: 'engineering', label: '研发与评审专家', desc: '前后端实现、单测与 PR 审查' },
   { category: 'qa', label: 'QA 自动化测试', desc: '边界压测、回归矩阵与缺陷定位' },
 ];
 
@@ -72,6 +74,7 @@ export function MyTeamView({
   onRecruitCategory,
   onJumpToMarket,
 }: MyTeamViewProps) {
+  const [teamTab, setTeamTab] = useState<'all' | 'hired' | 'private'>('all');
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | 'new'>('new');
 
@@ -199,7 +202,7 @@ export function MyTeamView({
       ownership: 'private',
       ownerHumanId: 'human_me',
       ownerHumanName: '林致远（我）',
-      ownerHumanTitle: '雇主 · OPC 主理人',
+      ownerHumanTitle: '雇主 · 全栈工程专家',
       listedZoneIds,
       isListedInMarket: listedZoneIds.length > 0,
       engineModel:
@@ -217,11 +220,13 @@ export function MyTeamView({
         existing?.avatarCode ||
         (category === 'product'
           ? 'PM'
-          : category === 'architecture'
-            ? 'AR'
-            : category === 'qa'
-              ? 'QA'
-              : 'PV'),
+          : category === 'design'
+            ? 'UI'
+            : category === 'architecture'
+              ? 'AR'
+              : category === 'qa'
+                ? 'QA'
+                : 'PV'),
       isOnlineForOrders: true,
       performance: existing?.performance || {
         completedProjects: 12,
@@ -261,59 +266,56 @@ export function MyTeamView({
   return (
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Team & Private Nodes Area */}
-      <div className="flex-1 min-w-0 overflow-y-auto clean-scroll">
-        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5 space-y-7">
-          {/* 4-Column Tabular Summary Strip */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-5 pb-5 border-b border-slate-200">
-            <div>
-              <div className="text-xs text-slate-500">当前项目在群专家</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
-                {hiredAgents.length}{' '}
-                <span className="text-xs font-sans font-normal text-slate-500">位</span>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">我的私有挂载节点</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
-                {privateAgents.length}{' '}
-                <span className="text-xs font-sans font-normal text-slate-500">
-                  个（{listedPrivateCount} 已上架市场）
-                </span>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">进行中 / 待办任务</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
-                {activeTaskCount}{' '}
-                <span className="text-xs font-sans font-normal text-slate-500">项</span>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500">当前项目签约总额</div>
-              <div className="text-2xl font-bold font-mono tabular-nums text-slate-900 mt-1">
-                ${workspace.spentUsd.toLocaleString('en-US')}
-                <span className="text-xs text-slate-400 font-normal">
-                  {' '}
-                  / ${workspace.budgetCapUsd.toLocaleString('en-US')}
-                </span>
-              </div>
-            </div>
-          </div>
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
+        {/* Unified Single-Row Composable Widget Toolbar */}
+        <ViewToolbar
+          left={
+            <ToolbarSegment
+              value={teamTab}
+              onChange={setTeamTab}
+              options={[
+                { id: 'all', label: '全部视图' },
+                { id: 'hired', label: '在群专家', count: hiredAgents.length },
+                { id: 'private', label: '我的私有 Agent', count: privateAgents.length },
+              ]}
+            />
+          }
+          right={
+            <>
+              <span className="hidden xl:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
+                <span>已上架 {listedPrivateCount}/{privateAgents.length}</span>
+                <span className="text-slate-300" aria-hidden="true">·</span>
+                <span>待办任务 {activeTaskCount}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => onRecruitCategory('all')}
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>去市场选人</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => openCreateDrawer([])}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>挂载私有 Agent</span>
+              </button>
+            </>
+          }
+        />
 
+        <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70">
+          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5 space-y-6">
           {/* Section 1: Active Project Group Members */}
+          {(teamTab === 'all' || teamTab === 'hired') && (
           <section>
             <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="text-sm font-bold text-slate-900">
                 当前项目在群专家 · {workspace.name} ({hiredAgents.length})
               </h2>
-              <button
-                type="button"
-                onClick={() => onRecruitCategory('all')}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>去市场选人</span>
-              </button>
             </div>
 
             {hiredAgents.length === 0 ? (
@@ -356,7 +358,7 @@ export function MyTeamView({
                               <>
                                 <span aria-hidden="true" className="text-slate-300">·</span>
                                 <span className="text-emerald-700 font-medium">
-                                  主理人：{agent.ownerHumanName}
+                                  归属专家：{agent.ownerHumanName}
                                 </span>
                               </>
                             )}
@@ -419,8 +421,10 @@ export function MyTeamView({
               </div>
             )}
           </section>
+          )}
 
           {/* Section 2: My Private Mounted Agents (Self-Use + Optional Public Market Listing) */}
+          {(teamTab === 'all' || teamTab === 'private') && (
           <section>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
               <div>
@@ -561,16 +565,17 @@ export function MyTeamView({
               })}
             </div>
           </section>
+          )}
 
           {/* Missing Role Recruitment Suggestions */}
-          {missingRoles.length > 0 && (
+          {teamTab !== 'private' && missingRoles.length > 0 && (
             <section className="pt-1">
               <h2 className="text-sm font-bold text-slate-900 mb-3">当前项目角色缺口建议</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
                 {missingRoles.map((role) => (
                   <div
                     key={role.category}
-                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-4"
+                    className="p-4 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-4"
                   >
                     <div>
                       <div className="text-sm font-semibold text-slate-900">{role.label}</div>
@@ -588,6 +593,7 @@ export function MyTeamView({
               </div>
             </section>
           )}
+          </div>
         </div>
       </div>
 
@@ -709,9 +715,10 @@ export function MyTeamView({
                     onChange={(e) => setCategory(e.target.value as AgentCategory)}
                     className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   >
+                    <option value="engineering">研发开发</option>
+                    <option value="design">设计体验</option>
                     <option value="product">产品策划</option>
                     <option value="architecture">架构审查</option>
-                    <option value="engineering">研发代码</option>
                     <option value="qa">测试质量</option>
                   </select>
                 </label>
