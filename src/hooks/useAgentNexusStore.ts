@@ -272,7 +272,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在专家市场招募社区专家进群协同。`,
+          content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在服务市场咨询与招募社区专家进群协同。`,
           timestamp: ts,
         },
       ]);
@@ -371,7 +371,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」专区项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「专家市场 → ${zoneName}」主动招募专家入群。`,
+          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」专区项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「服务市场 → ${zoneName}」主动咨询专家与 Agent 报价。`,
           timestamp: ts,
         },
       ]);
@@ -478,31 +478,60 @@ export function useAgentNexusStore() {
       title: string;
       content: string;
       tags?: string[];
+      pinned?: boolean;
+      pinnedBy?: string;
     }) => {
       const cleanedContent = input.content.trim();
       const cleanedTitle = input.title.trim() || cleanedContent.slice(0, 32);
       if (!cleanedContent) return;
+      const defaultTagMap: Record<Exclude<CommunityPostType, 'project'>, string> = {
+        tech: '技术讨论',
+        business: '商业分析',
+        agn_recommend: 'AGN 推荐',
+        announcement: '社区公告',
+      };
       const newPost: CommunityPost = {
         id: `post_${Date.now().toString().slice(-6)}`,
         zoneId: input.zoneId,
         type: input.type,
-        authorName: account ? account.name : '我（社区成员）',
-        authorHandle: account ? `@${account.name}` : '@指挥官',
-        authorRole: input.type === 'showcase' ? '认证专家' : 'OPC 成员',
+        authorName: account ? account.name : '林致远（我）',
+        authorHandle: account ? `@${account.name}` : '@zhiyuan_opc',
+        authorRole: input.type === 'announcement' ? '社区主理' : 'OPC 成员',
         authorAccent: '#0f172a',
-        authorCode: account ? account.avatarInitials : '我',
+        authorCode: account ? account.avatarInitials : '致远',
         title: cleanedTitle,
         content: cleanedContent,
         tags:
           input.tags && input.tags.length > 0
             ? input.tags
-            : [input.type === 'showcase' ? '专家自荐' : '社区交流'],
+            : [defaultTagMap[input.type]],
         createdAt: '刚刚',
         likes: 0,
         likedByMe: false,
+        pinned: Boolean(input.pinned),
+        pinnedBy: input.pinned ? input.pinnedBy || (account ? account.name : '林致远（我）') : undefined,
         comments: [],
       };
       setCommunityPosts((prev) => [newPost, ...prev]);
+    },
+    [account],
+  );
+
+  const togglePinPost = useCallback(
+    (postId: string, principalName?: string) => {
+      setCommunityPosts((prev) =>
+        prev.map((p) => {
+          if (p.id !== postId) return p;
+          const nextPinned = !p.pinned;
+          return {
+            ...p,
+            pinned: nextPinned,
+            pinnedBy: nextPinned
+              ? principalName || (account ? account.name : '林致远（我）')
+              : undefined,
+          };
+        }),
+      );
     },
     [account],
   );
@@ -1191,7 +1220,7 @@ export function useAgentNexusStore() {
             ? `私有节点 ${target.handle} 已上架「${zoneName}」`
             : `私有节点 ${target.handle} 已从「${zoneName}」下架`,
           detail: !isInZone
-            ? `已在「${zoneName}」专家市场曝光接单，平台助理将实时播报雇佣协商与收益结算。`
+            ? `已在「${zoneName}」服务市场曝光接单，平台助理将实时播报雇佣协商与收益结算。`
             : nextZones.length > 0
               ? `已撤回在「${zoneName}」的曝光，其余已勾选专区仍保持接单。`
               : '已撤回全部对外市场曝光，当前仅保留个人私有自用权限。',
@@ -1761,6 +1790,7 @@ export function useAgentNexusStore() {
     publishZoneProject,
     claimZoneProject,
     createCommunityPost,
+    togglePinPost,
     toggleLikePost,
     addPostComment,
     openAssistantChat,

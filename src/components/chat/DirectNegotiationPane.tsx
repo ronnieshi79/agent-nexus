@@ -8,7 +8,13 @@ import type {
   ProjectWorkspace,
   ServiceMode,
 } from '../../types/agentnexus';
-import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AgentIdentityName,
+  EntityAvatar,
+  displayEntityName,
+  formatAgentDisplayName,
+  formatShortModel,
+} from '../shared/EntityIdentity';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface DirectNegotiationPaneProps {
@@ -103,8 +109,8 @@ export function DirectNegotiationPane({
               accent={agent.avatarAccent}
             />
           }
-          title={`${displayEntityName(agent.handle)} · ${agent.name}`}
-          tag={`${agent.runtimeAgent} · ${agent.defaultModel} · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
+          title={`${formatAgentDisplayName(agent.handle, agent.runtimeAgent)} · ${agent.name}`}
+          tag={`${formatShortModel(agent.defaultModel)} · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
           tagClassName={st.cls}
           subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · ${agent.performance.capabilityTier} · 信誉 ${agent.performance.reputationScore} · 挂牌 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · ${agent.performance.demandStatus}`}
           panelOpen={panelOpen}
@@ -117,13 +123,12 @@ export function DirectNegotiationPane({
           <div className="max-w-3xl mx-auto space-y-4">
             <div className="flex flex-col items-start">
               <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
-                <span className="font-semibold text-slate-700">
-                  {displayEntityName(agent.handle)}
-                </span>
-                <AgentMark
+                <AgentIdentityName
+                  name={agent.handle}
                   runtime={agent.runtimeAgent}
                   model={agent.defaultModel}
                   showModel
+                  className="font-semibold text-slate-700"
                 />
                 <span>
                   {agent.ownerHumanName ? `· 归属专家 ${agent.ownerHumanName}` : '· 外部专家单聊通道'}
@@ -144,13 +149,16 @@ export function DirectNegotiationPane({
                   className={`flex flex-col ${isEmployer ? 'items-end' : 'items-start'}`}
                 >
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-400 mb-1 font-mono tabular-nums">
-                    <span className="font-sans font-medium text-slate-600">
-                      {isEmployer ? account?.name || '我（雇主）' : displayEntityName(agent.handle)}
-                    </span>
-                    {!isEmployer && (
-                      <AgentMark
+                    {isEmployer ? (
+                      <span className="font-sans font-medium text-slate-600">
+                        {account?.name || '我（雇主）'}
+                      </span>
+                    ) : (
+                      <AgentIdentityName
+                        name={agent.handle}
                         runtime={agent.runtimeAgent}
                         model={agent.defaultModel}
+                        className="font-sans font-medium text-slate-600"
                       />
                     )}
                     <span>{m.timestamp}</span>

@@ -8,15 +8,24 @@ import {
   Lock,
   MessageCircle,
   MessageSquare,
+  Pin,
+  PinOff,
   Plus,
   Send,
+  ShieldCheck,
   Sparkles,
   Store,
   UserPlus,
   Users,
   X,
 } from 'lucide-react';
-import { AgentMark, EntityAvatar, HumanMark, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AgentIdentityName,
+  EntityAvatar,
+  HumanMark,
+  displayEntityName,
+  evaluateAgentTierRating,
+} from '../shared/EntityIdentity';
 import {
   ToolbarDivider,
   ToolbarSearch,
@@ -50,7 +59,10 @@ interface CommunityDiscoverViewProps {
     title: string;
     content: string;
     tags?: string[];
+    pinned?: boolean;
+    pinnedBy?: string;
   }) => void;
+  onTogglePinPost: (postId: string, principalName?: string) => void;
   onToggleLikePost: (postId: string) => void;
   onAddPostComment: (postId: string, content: string) => void;
   onPublishZoneProject: (input: {
@@ -67,10 +79,35 @@ interface CommunityDiscoverViewProps {
   onJumpToKanban: (projectId?: string) => void;
 }
 
-const POST_TYPE_META: Record<CommunityPostType, { label: string; cls: string }> = {
-  project: { label: '项目撮合', cls: 'text-blue-700' },
-  discussion: { label: '交流讨论', cls: 'text-slate-600' },
-  showcase: { label: '专家自荐', cls: 'text-indigo-700' },
+const POST_TYPE_META: Record<
+  CommunityPostType,
+  { label: string; cls: string; badgeCls: string }
+> = {
+  tech: {
+    label: '技术讨论',
+    cls: 'text-sky-700',
+    badgeCls: 'bg-sky-50 text-sky-700 border-sky-200/80',
+  },
+  business: {
+    label: '商业分析',
+    cls: 'text-emerald-700',
+    badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+  },
+  project: {
+    label: '项目招募',
+    cls: 'text-blue-700',
+    badgeCls: 'bg-blue-50 text-blue-700 border-blue-200/80',
+  },
+  agn_recommend: {
+    label: 'AGN 推荐',
+    cls: 'text-indigo-700',
+    badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+  },
+  announcement: {
+    label: '社区公告',
+    cls: 'text-amber-800',
+    badgeCls: 'bg-amber-50 text-amber-800 border-amber-200/80',
+  },
 };
 
 const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
@@ -89,6 +126,7 @@ export function CommunityDiscoverView({
   onClearZoneSeed,
   onToggleJoinZone,
   onCreatePost,
+  onTogglePinPost,
   onToggleLikePost,
   onAddPostComment,
   onPublishZoneProject,
@@ -100,18 +138,21 @@ export function CommunityDiscoverView({
   const [activeCommunityId, setActiveCommunityId] = useState<string>(zones[0]?.id || 'zone_public');
   const [postFilter, setPostFilter] = useState<'all' | CommunityPostType>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [principalDemoZones, setPrincipalDemoZones] = useState<Record<string, boolean>>({});
 
   // Publish Modal State
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-  const [composerMode, setComposerMode] = useState<CommunityPostType>('discussion');
+  const [composerMode, setComposerMode] = useState<CommunityPostType>('tech');
+  const [composerPin, setComposerPin] = useState(false);
   const [postTitle, setPostTitle] = useState('');
   const [postBody, setPostBody] = useState('');
   const [projBudget, setProjBudget] = useState(3200);
   const [projDays, setProjDays] = useState(7);
   const [projRoles, setProjRoles] = useState('架构审查, 全栈研发');
 
-  const openComposer = (mode: CommunityPostType = 'discussion') => {
+  const openComposer = (mode: CommunityPostType = 'tech') => {
     setComposerMode(mode);
+    setComposerPin(mode === 'announcement');
     setIsComposerOpen(true);
   };
 
@@ -151,6 +192,9 @@ export function CommunityDiscoverView({
 
   const isPublicCommunity = activeCommunity.kind === 'public';
   const hasAccess = isPublicCommunity || joinedZoneIds.includes(activeCommunity.id);
+  const canManagePin = Boolean(
+    activeCommunity.isCurrentUserPrincipal || principalDemoZones[activeCommunity.id],
+  );
 
   const projectMap = useMemo(() => {
     const map = new Map<string, ZoneProjectOpportunity>();
@@ -164,9 +208,14 @@ export function CommunityDiscoverView({
     return map;
   }, [allAgents]);
 
+  const zoneAllPostsCount = useMemo(
+    () => communityPosts.filter((p) => p.zoneId === activeCommunity.id).length,
+    [activeCommunity.id, communityPosts],
+  );
+
   const communityFeedPosts = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase();
-    return communityPosts.filter((p) => {
+    const filtered = communityPosts.filter((p) => {
       if (p.zoneId !== activeCommunity.id) return false;
       if (postFilter !== 'all' && p.type !== postFilter) return false;
       if (!q) return true;
@@ -181,6 +230,7 @@ export function CommunityDiscoverView({
         .toLowerCase();
       return haystack.includes(q);
     });
+    return [...filtered].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
   }, [activeCommunity.id, communityPosts, postFilter, searchKeyword]);
 
   const communityOpenProjects = useMemo(
@@ -226,11 +276,14 @@ export function CommunityDiscoverView({
         type: composerMode,
         title: postTitle.trim() || postBody.trim().slice(0, 32),
         content: postBody.trim() || postTitle.trim(),
+        pinned: canManagePin && composerPin,
+        pinnedBy: canManagePin && composerPin ? activeCommunity.principalName : undefined,
       });
     }
 
     setPostTitle('');
     setPostBody('');
+    setComposerPin(false);
     setPostFilter('all');
     setIsComposerOpen(false);
   };
@@ -265,7 +318,7 @@ export function CommunityDiscoverView({
                 const openProjCnt = zoneProjects.filter(
                   (p) => p.zoneId === z.id && p.status === 'open',
                 ).length;
-                return `${postCnt} 动态 · ${openProjCnt} 撮合项目 · ${z.memberCount} 成员`;
+                return `${postCnt} 帖子 · ${openProjCnt} 招募项目 · 主理 ${z.principalName}`;
               }}
             />
 
@@ -300,10 +353,12 @@ export function CommunityDiscoverView({
                   value={postFilter}
                   onChange={setPostFilter}
                   options={[
-                    { id: 'all', label: '全部', count: communityFeedPosts.length },
-                    { id: 'project', label: '项目撮合' },
-                    { id: 'discussion', label: '交流讨论' },
-                    { id: 'showcase', label: '专家自荐' },
+                    { id: 'all', label: '全部', count: zoneAllPostsCount },
+                    { id: 'tech', label: '技术讨论' },
+                    { id: 'business', label: '商业分析' },
+                    { id: 'project', label: '项目招募' },
+                    { id: 'agn_recommend', label: 'AGN 推荐' },
+                    { id: 'announcement', label: '社区公告' },
                   ]}
                 />
               </>
@@ -316,17 +371,15 @@ export function CommunityDiscoverView({
               <ToolbarSearch
                 value={searchKeyword}
                 onChange={setSearchKeyword}
-                placeholder="搜索动态、项目或标签..."
+                placeholder="搜索帖子、标签或作者..."
               />
               <button
                 type="button"
-                onClick={() =>
-                  openComposer(postFilter === 'all' ? 'discussion' : postFilter)
-                }
+                onClick={() => openComposer(postFilter === 'all' ? 'tech' : postFilter)}
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>发布</span>
+                <span>发帖</span>
               </button>
             </>
           ) : undefined
@@ -364,7 +417,7 @@ export function CommunityDiscoverView({
                     onClick={() => onJumpToZoneMarket(activeCommunity.id)}
                     className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
                   >
-                    浏览该社区专家市场
+                    浏览该社区服务市场
                   </button>
                 </div>
               </div>
@@ -375,22 +428,20 @@ export function CommunityDiscoverView({
                   {communityFeedPosts.length === 0 ? (
                     <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center space-y-2.5">
                       <p className="text-xs text-slate-500">
-                        该分类下暂无动态，欢迎发布第一条社区交流或项目撮合。
+                        该分类下暂无内容，欢迎发起技术讨论、商业分析、AGN 推荐或项目招募。
                       </p>
                       <button
                         type="button"
-                        onClick={() =>
-                          openComposer(postFilter === 'all' ? 'discussion' : postFilter)
-                        }
+                        onClick={() => openComposer(postFilter === 'all' ? 'tech' : postFilter)}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
-                        <span>立即发布</span>
+                        <span>立即发帖</span>
                       </button>
                     </div>
                   ) : (
                     communityFeedPosts.map((post) => {
-                      const typeInfo = POST_TYPE_META[post.type];
+                      const typeInfo = POST_TYPE_META[post.type] || POST_TYPE_META.tech;
                       const linkedProj = post.linkedProjectId
                         ? projectMap.get(post.linkedProjectId)
                         : undefined;
@@ -402,9 +453,13 @@ export function CommunityDiscoverView({
                       return (
                         <article
                           key={post.id}
-                          className="bg-white rounded-xl border border-slate-200 p-5 space-y-3.5"
+                          className={`rounded-xl border p-5 space-y-3.5 transition-colors ${
+                            post.pinned
+                              ? 'bg-amber-50/20 border-amber-300/80'
+                              : 'bg-white border-slate-200'
+                          }`}
                         >
-                          {/* Author Header: Co-existing Human Member or Autonomous Agent */}
+                          {/* Author Header: Co-existing Human Member or Autonomous Agent + Principal Pin Control */}
                           {(() => {
                             const isAgentAuthor = post.authorEntityType === 'agent';
                             const authorAgent = isAgentAuthor
@@ -427,32 +482,77 @@ export function CommunityDiscoverView({
                                   />
                                   <div className="min-w-0">
                                     <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                                      <span className="font-bold text-slate-900">
-                                        {displayEntityName(post.authorName)}
-                                      </span>
                                       {isAgentAuthor ? (
-                                        <AgentMark
+                                        <AgentIdentityName
+                                          name={post.authorName}
                                           runtime={authorAgent?.runtimeAgent}
                                           model={authorAgent?.defaultModel}
+                                          className="font-bold text-slate-900"
                                         />
                                       ) : (
-                                        <HumanMark label="真人" />
+                                        <>
+                                          <span className="font-bold text-slate-900">
+                                            {displayEntityName(post.authorName)}
+                                          </span>
+                                          <HumanMark label="真人" />
+                                        </>
                                       )}
                                       <span className="text-slate-400">
                                         {isAgentAuthor && post.authorOwnerName
-                                          ? `归属专家：${post.authorOwnerName} · ${post.authorRole}`
+                                          ? `主理人：${post.authorOwnerName} · ${post.authorRole}`
                                           : post.authorRole}
                                       </span>
                                     </div>
-                                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                      <span>{post.createdAt}</span>
-                                      <span aria-hidden="true">·</span>
-                                      <span className={`font-semibold ${typeInfo.cls}`}>
+                                    <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-1.5 mt-1">
+                                      {post.pinned && (
+                                        <span
+                                          title={
+                                            post.pinnedBy
+                                              ? `由社区主理 ${post.pinnedBy} 置顶`
+                                              : '社区主理置顶'
+                                          }
+                                          className="inline-flex items-center gap-0.5 px-1.5 py-[1px] rounded text-[10px] font-semibold bg-amber-100/90 text-amber-800 border border-amber-300/80"
+                                        >
+                                          <Pin className="w-2.5 h-2.5" />
+                                          <span>主理置顶</span>
+                                        </span>
+                                      )}
+                                      <span
+                                        className={`inline-flex items-center px-1.5 py-[1px] rounded text-[10px] font-semibold border ${typeInfo.badgeCls}`}
+                                      >
                                         {typeInfo.label}
                                       </span>
+                                      <span>{post.createdAt}</span>
                                     </div>
                                   </div>
                                 </div>
+
+                                {canManagePin && (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onTogglePinPost(post.id, activeCommunity.principalName)
+                                    }
+                                    title={post.pinned ? '取消社区置顶' : '作为社区主理置顶此帖'}
+                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg border text-[11px] font-medium transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                                      post.pinned
+                                        ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                        : 'border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50'
+                                    }`}
+                                  >
+                                    {post.pinned ? (
+                                      <>
+                                        <PinOff className="w-3 h-3" />
+                                        <span>取消置顶</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Pin className="w-3 h-3" />
+                                        <span>置顶</span>
+                                      </>
+                                    )}
+                                  </button>
+                                )}
                               </div>
                             );
                           })()}
@@ -550,49 +650,59 @@ export function CommunityDiscoverView({
                             </div>
                           )}
 
-                          {/* Embedded Expert Showcase Card */}
-                          {linkedAgent && (
-                            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <EntityAvatar
-                                  kind="agent"
-                                  code={linkedAgent.avatarCode}
-                                  accent={linkedAgent.avatarAccent}
-                                  size="md"
-                                />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="text-xs font-bold text-slate-900 truncate">
-                                      {displayEntityName(linkedAgent.handle)}
-                                    </span>
-                                    <AgentMark
-                                      runtime={linkedAgent.runtimeAgent}
-                                      model={linkedAgent.defaultModel}
-                                      showModel
-                                    />
-                                    <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0">
-                                      · {linkedAgent.performance.capabilityTier}
-                                    </span>
-                                  </div>
-                                  <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
-                                    {linkedAgent.ownerHumanName
-                                      ? `归属专家 ${linkedAgent.ownerHumanName} · `
-                                      : ''}
-                                    信誉 {linkedAgent.performance.reputationScore} · $
-                                    {linkedAgent.projectPriceUsd.toLocaleString('en-US')}/项目
+                          {/* Embedded AGN Recommendation Card (No direct sticker price — tier/cost index + principal inquiry) */}
+                          {linkedAgent && (() => {
+                            const rating = evaluateAgentTierRating({
+                              runtimeAgent: linkedAgent.runtimeAgent,
+                              defaultModel: linkedAgent.defaultModel,
+                              capabilityTier: linkedAgent.performance.capabilityTier,
+                              ownership: linkedAgent.ownership,
+                              projectPriceUsd: linkedAgent.projectPriceUsd,
+                            });
+                            return (
+                              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <EntityAvatar
+                                    kind="agent"
+                                    code={linkedAgent.avatarCode}
+                                    accent={linkedAgent.avatarAccent}
+                                    size="md"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <AgentIdentityName
+                                        name={linkedAgent.handle}
+                                        runtime={linkedAgent.runtimeAgent}
+                                        model={linkedAgent.defaultModel}
+                                        showModel
+                                        className="text-xs font-bold text-slate-900"
+                                      />
+                                      <span className="px-1.5 py-[1px] rounded text-[10px] font-mono font-bold bg-slate-900 text-white shrink-0">
+                                        {rating.code}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                                      {linkedAgent.ownerHumanName
+                                        ? `主理人 ${linkedAgent.ownerHumanName} · `
+                                        : ''}
+                                      {rating.description} · 信誉{' '}
+                                      <span className="font-mono tabular-nums">
+                                        {linkedAgent.performance.reputationScore}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => onStartNegotiation(linkedAgent.id)}
+                                  className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                                >
+                                  <MessageCircle className="w-3.5 h-3.5" />
+                                  <span>咨询 / 询价</span>
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => onStartNegotiation(linkedAgent.id)}
-                                className="inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
-                              >
-                                <MessageCircle className="w-3.5 h-3.5" />
-                                <span>私聊对接</span>
-                              </button>
-                            </div>
-                          )}
+                            );
+                          })()}
 
                           {/* Feed Action Footer: Like & Toggle Comments */}
                           <div className="pt-2.5 border-t border-slate-100 flex items-center gap-5 text-xs">
@@ -648,15 +758,18 @@ export function CommunityDiscoverView({
                                         className="rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-0.5"
                                       >
                                         <div className="flex items-center justify-between gap-2 text-[11px]">
-                                          <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
-                                            <span>{displayEntityName(cmt.authorName)}</span>
-                                            {cmt.isAgent && (
-                                              <AgentMark
-                                                runtime={cmtAgent?.runtimeAgent}
-                                                model={cmtAgent?.defaultModel}
-                                              />
-                                            )}
-                                          </span>
+                                          {cmt.isAgent ? (
+                                            <AgentIdentityName
+                                              name={cmt.authorName}
+                                              runtime={cmtAgent?.runtimeAgent}
+                                              model={cmtAgent?.defaultModel}
+                                              className="font-semibold text-slate-800"
+                                            />
+                                          ) : (
+                                            <span className="font-semibold text-slate-800">
+                                              {displayEntityName(cmt.authorName)}
+                                            </span>
+                                          )}
                                           <span className="text-slate-400">{cmt.timestamp}</span>
                                         </div>
                                         <p className="text-slate-700 leading-relaxed">
@@ -739,22 +852,54 @@ export function CommunityDiscoverView({
                 聚焦方向：{activeCommunity.focusDomains.join(' · ')}
               </div>
 
+              {/* Community Principal & Pin Authority */}
+              <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
+                <div className="flex items-center gap-1.5 min-w-0 text-slate-600">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span className="truncate">
+                    社区主理：<strong className="text-slate-900">{activeCommunity.principalName}</strong>
+                  </span>
+                </div>
+                {activeCommunity.isCurrentUserPrincipal ? (
+                  <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-amber-800 font-semibold text-[10px] shrink-0">
+                    主理权限 · 可置顶
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPrincipalDemoZones((prev) => ({
+                        ...prev,
+                        [activeCommunity.id]: !prev[activeCommunity.id],
+                      }))
+                    }
+                    className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer transition-colors shrink-0 ${
+                      canManagePin
+                        ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {canManagePin ? '退出主理视角' : '切换主理视角'}
+                  </button>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => onJumpToZoneMarket(activeCommunity.id)}
                 className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
               >
                 <Store className="w-3.5 h-3.5 text-blue-600" />
-                <span>进入「{activeCommunity.name}」专家市场</span>
+                <span>进入「{activeCommunity.name}」服务市场</span>
               </button>
             </section>
 
-            {/* Open Matchmaking Projects in This Community */}
+            {/* Open Project Recruitment in This Community */}
             <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                  <span>正在撮合的项目 ({communityOpenProjects.length})</span>
+                  <span>正在招募的项目 ({communityOpenProjects.length})</span>
                 </h3>
                 {hasAccess && (
                   <button
@@ -762,13 +907,13 @@ export function CommunityDiscoverView({
                     onClick={() => openComposer('project')}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                   >
-                    + 发项目
+                    + 发招募
                   </button>
                 )}
               </div>
 
               {communityOpenProjects.length === 0 ? (
-                <p className="text-xs text-slate-500">该社区暂无撮合项目。</p>
+                <p className="text-xs text-slate-500">该社区暂无招募项目。</p>
               ) : (
                 <div className="space-y-2.5">
                   {communityOpenProjects.map((proj) => (
@@ -860,44 +1005,56 @@ export function CommunityDiscoverView({
 
               <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
                 <div className="text-[11px] font-semibold text-slate-500">
-                  社区对外工作 Agent ({communityExperts.length})
+                  社区推荐 AGN 服务 ({communityExperts.length})
                 </div>
-                {communityExperts.map((ag) => (
-                  <div
-                    key={ag.id}
-                    className="flex items-center justify-between gap-2 text-xs"
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <EntityAvatar
-                        kind="agent"
-                        code={ag.avatarCode}
-                        accent={ag.avatarAccent}
-                        size="sm"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="font-semibold text-slate-900 truncate">
-                            {displayEntityName(ag.handle)}
-                          </span>
-                          <AgentMark runtime={ag.runtimeAgent} model={ag.defaultModel} />
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate">
-                          {ag.ownerHumanName ? `归属专家 ${ag.ownerHumanName} · ` : ''}
-                          <span className="font-mono tabular-nums">
-                            ${ag.projectPriceUsd.toLocaleString('en-US')}/项目
-                          </span>
+                {communityExperts.map((ag) => {
+                  const rating = evaluateAgentTierRating({
+                    runtimeAgent: ag.runtimeAgent,
+                    defaultModel: ag.defaultModel,
+                    capabilityTier: ag.performance.capabilityTier,
+                    ownership: ag.ownership,
+                    projectPriceUsd: ag.projectPriceUsd,
+                  });
+                  return (
+                    <div
+                      key={ag.id}
+                      className="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <EntityAvatar
+                          kind="agent"
+                          code={ag.avatarCode}
+                          accent={ag.avatarAccent}
+                          size="sm"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <AgentIdentityName
+                              name={ag.handle}
+                              runtime={ag.runtimeAgent}
+                              model={ag.defaultModel}
+                              className="font-semibold text-slate-900"
+                            />
+                            <span className="px-1 py-[0.5px] rounded text-[9px] font-mono font-bold bg-slate-100 text-slate-700 shrink-0">
+                              {rating.code}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {ag.ownerHumanName ? `主理人 ${ag.ownerHumanName} · ` : ''}
+                            {rating.costIndexLabel}
+                          </div>
                         </div>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => onStartNegotiation(ag.id)}
+                        className="px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer shrink-0 whitespace-nowrap"
+                      >
+                        咨询
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => onStartNegotiation(ag.id)}
-                      className="px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer shrink-0 whitespace-nowrap"
-                    >
-                      私聊
-                    </button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </aside>
@@ -947,19 +1104,26 @@ export function CommunityDiscoverView({
 
             {/* Modal Body */}
             <div className="p-5 space-y-3.5">
-              <div className="inline-flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+              <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
                 {(
                   [
-                    { id: 'discussion', label: '交流发言' },
-                    { id: 'project', label: '发布项目撮合' },
-                    { id: 'showcase', label: '自荐能力' },
+                    { id: 'tech', label: '技术讨论' },
+                    { id: 'business', label: '商业分析' },
+                    { id: 'project', label: '项目招募' },
+                    { id: 'agn_recommend', label: 'AGN 推荐' },
+                    { id: 'announcement', label: '社区公告' },
                   ] as const
                 ).map((tab) => (
                   <button
                     key={tab.id}
                     type="button"
-                    onClick={() => setComposerMode(tab.id)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
+                    onClick={() => {
+                      setComposerMode(tab.id);
+                      if (tab.id === 'announcement' && canManagePin) {
+                        setComposerPin(true);
+                      }
+                    }}
+                    className={`px-2.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
                       composerMode === tab.id
                         ? 'bg-white text-slate-900 shadow-2xs'
                         : 'text-slate-600 hover:text-slate-900'
@@ -982,9 +1146,13 @@ export function CommunityDiscoverView({
                   placeholder={
                     composerMode === 'project'
                       ? '一句话标题：如「寻东南亚支付网关架构与全栈协同交付，7 天上线」'
-                      : composerMode === 'showcase'
-                        ? '能力标题：如「开放本月 1 个高并发风控审查档期，支持人+Agent 协同」'
-                        : `在「${activeCommunity.name}」发起讨论、复盘或求助`
+                      : composerMode === 'agn_recommend'
+                        ? '推荐标题：如「推荐 Codex-架构审查员 + Qoder-并发引擎组合，含实测基准」'
+                        : composerMode === 'business'
+                          ? '分析标题：如「2026 多 Agent 外包交付毛利与定价模型复盘」'
+                          : composerMode === 'announcement'
+                            ? '公告标题：如「【社区公告】本月 AGN 协作规范与项目招募须知」'
+                            : `在「${activeCommunity.name}」发起技术讨论、架构复盘或求助`
                   }
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                 />
@@ -1001,7 +1169,13 @@ export function CommunityDiscoverView({
                   placeholder={
                     composerMode === 'project'
                       ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作看板 → 我主管」）...'
-                      : '写下你的实战经验、踩坑复盘或具体问题...'
+                      : composerMode === 'business'
+                        ? '分享商业洞察、ROI 测算、行业趋势或定价复盘...'
+                        : composerMode === 'agn_recommend'
+                          ? '介绍推荐的 Agent 底座、已挂载 Skills/MCP 与适用项目场景...'
+                          : composerMode === 'announcement'
+                            ? '撰写社区公告、规则更新或活动通知...'
+                            : '写下你的技术实践、多 Agent 编排经验或踩坑复盘...'
                   }
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
                 />
@@ -1048,13 +1222,28 @@ export function CommunityDiscoverView({
                   </div>
                 </div>
               )}
+
+              {composerMode !== 'project' && canManagePin && (
+                <label className="flex items-center gap-2 pt-0.5 text-xs text-amber-900 bg-amber-50/70 border border-amber-200/80 rounded-lg px-3 py-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={composerPin}
+                    onChange={(e) => setComposerPin(e.target.checked)}
+                    className="rounded border-amber-300 text-amber-700 focus:ring-amber-600"
+                  />
+                  <Pin className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span className="font-medium">
+                    发布并置顶到社区顶部（社区主理：{activeCommunity.principalName}）
+                  </span>
+                </label>
+              )}
             </div>
 
             {/* Modal Footer */}
             <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
               <span className="text-[11px] text-slate-500">
                 {composerMode === 'project'
-                  ? '发布后将同时进入社区信息流与工作看板'
+                  ? '发布后将同时进入交流社区与工作看板'
                   : '发布后支持社区成员与专家节点评论交流'}
               </span>
               <div className="flex items-center gap-2 shrink-0">
@@ -1071,7 +1260,11 @@ export function CommunityDiscoverView({
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
                 >
                   <Send className="w-3.5 h-3.5" />
-                  <span>{composerMode === 'project' ? '发布项目撮合' : '发布动态'}</span>
+                  <span>
+                    {composerMode === 'project'
+                      ? '发布项目招募'
+                      : `发布${POST_TYPE_META[composerMode].label}`}
+                  </span>
                 </button>
               </div>
             </div>

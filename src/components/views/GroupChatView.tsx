@@ -24,7 +24,13 @@ import type {
   WorkflowTask,
 } from '../../types/agentnexus';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
-import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AgentIdentityName,
+  EntityAvatar,
+  displayEntityName,
+  formatAgentDisplayName,
+  formatShortModel,
+} from '../shared/EntityIdentity';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
@@ -249,15 +255,16 @@ export function GroupChatView({
                     } flex flex-col`}
                   >
                     <div className="flex items-center gap-1.5 text-xs mb-1 flex-wrap">
-                      <span className="font-semibold text-slate-900">
-                        {isEmployer
-                          ? account?.name || displayEntityName(msg.senderHandle)
-                          : displayEntityName(msg.senderHandle)}
-                      </span>
-                      {!isEmployer && (
-                        <AgentMark
+                      {isEmployer ? (
+                        <span className="font-semibold text-slate-900">
+                          {account?.name || displayEntityName(msg.senderHandle)}
+                        </span>
+                      ) : (
+                        <AgentIdentityName
+                          name={isButler ? '平台助理' : msg.senderHandle}
                           runtime={isButler ? 'Nexa' : agentObj?.runtimeAgent}
                           model={agentObj?.defaultModel}
+                          className="font-semibold text-slate-900"
                         />
                       )}
                       {!isEmployer && !isButler && agentObj?.ownerHumanName && (
@@ -465,7 +472,7 @@ export function GroupChatView({
                   >
                     {hiredAgents.map((a) => (
                       <option key={a.id} value={a.id}>
-                        指派：{displayEntityName(a.handle)}（{a.runtimeAgent} · {a.defaultModel}）
+                        指派：{formatAgentDisplayName(a.handle, a.runtimeAgent)} ({formatShortModel(a.defaultModel)})
                       </option>
                     ))}
                   </select>
@@ -693,17 +700,17 @@ export function GroupChatView({
 
                             <div className="flex items-center justify-between text-[11px] text-slate-500">
                               <span className="inline-flex items-center gap-1 min-w-0">
-                                <span className="font-medium text-slate-700 truncate">
-                                  {displayEntityName(task.assigneeHandle)}
-                                </span>
                                 {(() => {
                                   const assigneeAgent = hiredAgents.find(
                                     (a) => a.id === task.assigneeId,
                                   );
                                   return (
-                                    <AgentMark
+                                    <AgentIdentityName
+                                      name={task.assigneeHandle}
                                       runtime={assigneeAgent?.runtimeAgent}
                                       model={assigneeAgent?.defaultModel}
+                                      showModel
+                                      className="font-medium text-slate-700"
                                     />
                                   );
                                 })()}
@@ -813,13 +820,12 @@ export function GroupChatView({
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-xs font-bold text-slate-900 truncate">
-                            {displayEntityName(agent.handle)}
-                          </span>
-                          <AgentMark
+                          <AgentIdentityName
+                            name={agent.handle}
                             runtime={agent.runtimeAgent}
                             model={agent.defaultModel}
                             showModel
+                            className="text-xs font-bold text-slate-900"
                           />
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
@@ -865,7 +871,7 @@ export function GroupChatView({
                     onClick={onJumpToTeam}
                     className="py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer"
                   >
-                    我的团队
+                    AGN 团队
                   </button>
                 </div>
               </>

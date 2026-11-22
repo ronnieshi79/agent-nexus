@@ -160,6 +160,8 @@ export default function App() {
               zones={store.zones}
               activeZone={store.activeZone}
               workspace={store.activeWorkspace}
+              workspaces={store.workspaces}
+              allAgents={store.agents}
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
               hiredIds={store.hiredIds}
@@ -179,8 +181,10 @@ export default function App() {
               zones={store.zones}
               activeZone={store.activeZone}
               workspace={store.activeWorkspace}
+              workspaces={store.workspaces}
               allAgents={store.agents}
               agents={store.marketplaceAgents}
+              privateAgents={store.privateAgents}
               humanExperts={store.humanExperts}
               hiredIds={store.hiredIds}
               dmHistories={store.dmHistories}
@@ -188,6 +192,8 @@ export default function App() {
               dmError={store.dmError}
               onClearDmError={store.clearDmError}
               onSendDm={store.sendDirectMessage}
+              onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+              onSavePrivateAgent={store.savePrivateAgent}
               categorySeed={store.marketCategorySeed}
               onClearCategorySeed={store.clearMarketCategorySeed}
               onSelectZone={store.setActiveZoneId}
@@ -210,6 +216,7 @@ export default function App() {
               onClearZoneSeed={store.clearDiscoverZoneSeed}
               onToggleJoinZone={store.toggleJoinZone}
               onCreatePost={store.createCommunityPost}
+              onTogglePinPost={store.togglePinPost}
               onToggleLikePost={store.toggleLikePost}
               onAddPostComment={store.addPostComment}
               onPublishZoneProject={store.publishZoneProject}

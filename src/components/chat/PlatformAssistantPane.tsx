@@ -17,7 +17,7 @@ import type {
   PlatformServiceCategory,
   SettlementRecord,
 } from '../../types/agentnexus';
-import { AgentMark, displayEntityName } from '../shared/EntityIdentity';
+import { AgentIdentityName, displayEntityName } from '../shared/EntityIdentity';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface PlatformAssistantPaneProps {
@@ -360,13 +360,12 @@ export function PlatformAssistantPane({
                       className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5"
                     >
                       <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
-                          <span className="truncate">{displayEntityName(s.agentHandle)}</span>
-                          <AgentMark
-                            runtime={matchedAgent?.runtimeAgent}
-                            model={matchedAgent?.defaultModel}
-                          />
-                        </span>
+                        <AgentIdentityName
+                          name={s.agentHandle}
+                          runtime={matchedAgent?.runtimeAgent}
+                          model={matchedAgent?.defaultModel}
+                          className="font-semibold text-slate-900"
+                        />
                         <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
                           ${Math.round(s.amountUsd).toLocaleString('en-US')}
                         </span>
@@ -405,7 +404,7 @@ export function PlatformAssistantPane({
                     onClick={onOpenTeam}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                   >
-                    去我的团队
+                    去 AGN 团队
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">

@@ -26,7 +26,12 @@ import type {
   WorkflowTask,
 } from '../../types/agentnexus';
 import { AccountFooter } from '../account/AccountPanel';
-import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AgentIdentityName,
+  EntityAvatar,
+  displayEntityName,
+  formatShortModel,
+} from '../shared/EntityIdentity';
 import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 
 interface SidebarProps {
@@ -182,19 +187,19 @@ export function Sidebar({
     },
     {
       id: 'team',
-      label: '我的团队',
+      label: 'AGN 团队',
       icon: Users,
       count: `${hiredCount}+${privateCount}`,
     },
     {
       id: 'market',
-      label: '专家市场',
+      label: '服务市场',
       icon: Store,
       count: `${marketCount}`,
     },
     {
       id: 'discover',
-      label: '社区发现',
+      label: '交流社区',
       icon: Compass,
       count: `${discoverCount} 项目`,
     },
@@ -442,12 +447,12 @@ export function Sidebar({
                       }}
                       className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-100 flex items-center justify-between gap-2 text-xs cursor-pointer"
                     >
-                      <span className="inline-flex items-center gap-1.5 min-w-0">
-                        <span className="font-medium text-slate-800 truncate">
-                          {displayEntityName(cand.handle)}
-                        </span>
-                        <AgentMark runtime={cand.runtimeAgent} model={cand.defaultModel} />
-                      </span>
+                      <AgentIdentityName
+                        name={cand.handle}
+                        runtime={cand.runtimeAgent}
+                        model={cand.defaultModel}
+                        className="font-medium text-slate-800"
+                      />
                       <span className="text-[11px] text-slate-500 truncate">
                         {cand.ownerHumanName ? `归属专家 ${cand.ownerHumanName}` : cand.title}
                       </span>
@@ -482,10 +487,11 @@ export function Sidebar({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-1.5">
-                      <span className="inline-flex items-center gap-1.5 min-w-0">
-                        <span className="text-xs font-bold text-slate-900 truncate">Nexa 助理</span>
-                        <AgentMark runtime="Nexa" />
-                      </span>
+                      <AgentIdentityName
+                        name="平台助理"
+                        runtime="Nexa"
+                        className="text-xs font-bold text-slate-900"
+                      />
                       <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                         {lastAssistantMsg?.timestamp || '在线'}
                       </span>
@@ -602,15 +608,12 @@ export function Sidebar({
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1.5">
-                          <span className="inline-flex items-center gap-1.5 min-w-0">
-                            <span className="text-xs font-bold text-slate-900 truncate">
-                              {displayEntityName(dmAgent.handle)}
-                            </span>
-                            <AgentMark
-                              runtime={dmAgent.runtimeAgent}
-                              model={dmAgent.defaultModel}
-                            />
-                          </span>
+                          <AgentIdentityName
+                            name={dmAgent.handle}
+                            runtime={dmAgent.runtimeAgent}
+                            model={dmAgent.defaultModel}
+                            className="text-xs font-bold text-slate-900"
+                          />
                           <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                             {lastDm?.timestamp || thread.updatedAt}
                           </span>
@@ -676,18 +679,12 @@ export function Sidebar({
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5">
-                        <span className="inline-flex items-center gap-1 min-w-0">
-                          <span className="text-xs font-bold text-slate-900 truncate">
-                            {displayEntityName(task.assigneeHandle)}
-                          </span>
-                          <AgentMark
-                            runtime={agent?.runtimeAgent}
-                            model={agent?.defaultModel}
-                          />
-                          <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                            #{task.id}
-                          </span>
-                        </span>
+                        <AgentIdentityName
+                          name={task.assigneeHandle}
+                          runtime={agent?.runtimeAgent}
+                          model={agent?.defaultModel}
+                          className="text-xs font-bold text-slate-900"
+                        />
                         <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                           {lastTurn?.timestamp || task.updatedAt}
                         </span>
@@ -704,10 +701,23 @@ export function Sidebar({
                           {isWaiting ? '待确认' : st.label}
                         </span>
                       </div>
-                      <p className="mt-1 text-[11px] text-slate-500 truncate">
-                        {proj ? `${proj.name} · ` : ''}
-                        {lastTurn ? lastTurn.content : task.description}
-                      </p>
+                      <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 min-w-0">
+                        <span className="font-mono text-slate-400 shrink-0">#{task.id}</span>
+                        {agent?.defaultModel && (
+                          <>
+                            <span className="text-slate-300 shrink-0" aria-hidden="true">·</span>
+                            <span className="font-mono text-slate-500 shrink-0">
+                              {formatShortModel(agent.defaultModel)}
+                            </span>
+                          </>
+                        )}
+                        {proj && (
+                          <>
+                            <span className="text-slate-300 shrink-0" aria-hidden="true">·</span>
+                            <span className="truncate">{proj.name}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </button>

@@ -3,9 +3,11 @@ import { Bot, Cpu, FolderKanban, Terminal, User, Users } from 'lucide-react';
 export interface AgentRuntimePreset {
   id: string;
   label: string;
+  shortCode: string;
   defaultModel: string;
   models: string[];
   badgeCls: string;
+  prefixCls: string;
 }
 
 /**
@@ -15,58 +17,83 @@ export const AGENT_RUNTIME_PRESETS: AgentRuntimePreset[] = [
   {
     id: 'Codex',
     label: 'Codex',
+    shortCode: 'Codex',
     defaultModel: 'GPT-6.2',
     models: ['GPT-6.2', 'GPT-5.4-Codex', 'o3-pro'],
     badgeCls: 'bg-emerald-50 text-emerald-700 border-emerald-200/80',
+    prefixCls: 'text-emerald-700',
   },
   {
     id: 'Claude Code',
     label: 'Claude Code',
+    shortCode: 'CC',
     defaultModel: 'Claude 4.5 Sonnet',
     models: ['Claude 4.5 Sonnet', 'Claude 4.5 Opus', 'Claude 4.5 Haiku'],
     badgeCls: 'bg-amber-50 text-amber-800 border-amber-200/80',
+    prefixCls: 'text-amber-700',
   },
   {
     id: 'Gemini CLI',
     label: 'Gemini CLI',
+    shortCode: 'Gemini',
     defaultModel: 'Gemini 3.1 Pro',
     models: ['Gemini 3.1 Pro', 'Gemini 3.0 Flash', 'Gemini 2.5 Pro'],
     badgeCls: 'bg-sky-50 text-sky-700 border-sky-200/80',
+    prefixCls: 'text-sky-700',
+  },
+  {
+    id: 'Qoder',
+    label: 'Qoder',
+    shortCode: 'Qoder',
+    defaultModel: 'Qwen3-Coder-Max',
+    models: ['Qwen3-Coder-Max', 'Claude 4.5 Sonnet', 'GPT-6.2'],
+    badgeCls: 'bg-teal-50 text-teal-700 border-teal-200/80',
+    prefixCls: 'text-teal-700',
   },
   {
     id: 'Cursor',
     label: 'Cursor',
+    shortCode: 'Cursor',
     defaultModel: 'Claude 4.5 Sonnet',
     models: ['Claude 4.5 Sonnet', 'GPT-6.2', 'Gemini 3.1 Pro'],
     badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+    prefixCls: 'text-indigo-700',
   },
   {
     id: 'OpenHands',
     label: 'OpenHands',
+    shortCode: 'OH',
     defaultModel: 'DeepSeek-R2',
     models: ['DeepSeek-R2', 'GPT-6.2', 'Claude 4.5 Sonnet'],
     badgeCls: 'bg-cyan-50 text-cyan-800 border-cyan-200/80',
+    prefixCls: 'text-cyan-700',
   },
   {
     id: 'Playwright',
     label: 'Playwright',
+    shortCode: 'PW',
     defaultModel: 'GPT-6.2',
     models: ['GPT-6.2', 'Gemini 3.0 Flash', 'Claude 4.5 Haiku'],
     badgeCls: 'bg-violet-50 text-violet-700 border-violet-200/80',
+    prefixCls: 'text-violet-700',
   },
   {
     id: 'Figma AI',
     label: 'Figma AI',
+    shortCode: 'Figma',
     defaultModel: 'Gemini 3.1 Pro',
     models: ['Gemini 3.1 Pro', 'Claude 4.5 Sonnet', 'GPT-6.2'],
     badgeCls: 'bg-pink-50 text-pink-700 border-pink-200/80',
+    prefixCls: 'text-pink-700',
   },
   {
     id: 'ROS2 Agent',
     label: 'ROS2 Agent',
+    shortCode: 'ROS2',
     defaultModel: 'GPT-6.2',
     models: ['GPT-6.2', 'Gemini 3.1 Pro', 'o3-pro'],
     badgeCls: 'bg-purple-50 text-purple-700 border-purple-200/80',
+    prefixCls: 'text-purple-700',
   },
 ];
 
@@ -74,17 +101,125 @@ const RUNTIME_PRESET_MAP = new Map<string, AgentRuntimePreset>(
   AGENT_RUNTIME_PRESETS.map((p) => [p.id.toLowerCase(), p]),
 );
 
+const MODEL_SHORT_MAP: Record<string, string> = {
+  'GPT-6.2': 'GPT-6.2',
+  'GPT-5.4-Codex': 'GPT-5.4',
+  'o3-pro': 'o3-pro',
+  'Claude 4.5 Sonnet': 'Sonnet4.5',
+  'Claude 4.5 Opus': 'Opus4.5',
+  'Claude 4.5 Haiku': 'Haiku4.5',
+  'Gemini 3.1 Pro': 'G3.1-Pro',
+  'Gemini 3.0 Flash': 'G3.0-Flash',
+  'Gemini 2.5 Pro': 'G2.5-Pro',
+  'Qwen3-Coder-Max': 'Qwen3-Max',
+  'DeepSeek-R2': 'DS-R2',
+};
+
 export function getRuntimePreset(runtime?: string): AgentRuntimePreset {
   if (!runtime) return AGENT_RUNTIME_PRESETS[0];
   return (
     RUNTIME_PRESET_MAP.get(runtime.toLowerCase()) || {
       id: runtime,
       label: runtime,
+      shortCode: runtime,
       defaultModel: 'GPT-6.2',
       models: ['GPT-6.2', 'Claude 4.5 Sonnet', 'Gemini 3.1 Pro'],
       badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
+      prefixCls: 'text-indigo-700',
     }
   );
+}
+
+/**
+ * Compact runtime prefix used before agent role names (e.g. "Claude Code" -> "CC", "Codex" -> "Codex").
+ */
+export function formatShortRuntime(runtime?: string): string {
+  if (!runtime) return '';
+  if (runtime === 'Nexa' || runtime === '助理') return 'Nexa';
+  const preset = RUNTIME_PRESET_MAP.get(runtime.toLowerCase());
+  return preset ? preset.shortCode : runtime;
+}
+
+/**
+ * Compact model abbreviation for tight card/list layouts (e.g. "Claude 4.5 Sonnet" -> "Sonnet4.5").
+ */
+export function formatShortModel(model?: string): string {
+  if (!model) return '';
+  if (MODEL_SHORT_MAP[model]) return MODEL_SHORT_MAP[model];
+  return model
+    .replace(/^Claude\s+/i, 'C')
+    .replace(/^Gemini\s+/i, 'G')
+    .replace(/^DeepSeek-/i, 'DS-');
+}
+
+export type CapabilityGrade = 'S' | 'A+' | 'A';
+export type CostGrade = 'H' | 'M' | 'L';
+
+export interface AgentTierRating {
+  capability: CapabilityGrade;
+  capabilityLabel: string;
+  cost: CostGrade;
+  costLabel: string;
+  costIndexLabel: string;
+  code: string;
+  description: string;
+}
+
+/**
+ * Evaluate unified Agent Capability Grade (S / A+ / A) and Non-Token Cost Index (H / M / L)
+ * from runtime base, default model, ownership, and market capability profile.
+ */
+export function evaluateAgentTierRating(params: {
+  runtimeAgent?: string;
+  defaultModel?: string;
+  capabilityTier?: string;
+  ownership?: 'private' | 'marketplace';
+  projectPriceUsd?: number;
+}): AgentTierRating {
+  const runtime = (params.runtimeAgent || '').toLowerCase();
+  const model = (params.defaultModel || '').toLowerCase();
+  const tierHint = params.capabilityTier || '';
+  const isExternal = params.ownership === 'marketplace';
+  const price = params.projectPriceUsd ?? 0;
+
+  const isLightweightModel = /flash|haiku|mini|deepseek/.test(model);
+  const isFlagshipModel =
+    /opus|sonnet|gpt-6\.2|o3-pro/.test(model) ||
+    (runtime === 'claude code' && !isLightweightModel);
+
+  let capability: CapabilityGrade;
+  if (isFlagshipModel || tierHint.startsWith('S')) {
+    capability = 'S';
+  } else if (isLightweightModel && !/deepseek-r2/.test(model) && !tierHint.startsWith('A+')) {
+    capability = 'A';
+  } else {
+    capability = 'A+';
+  }
+
+  let cost: CostGrade;
+  if (isLightweightModel) {
+    cost = isExternal && price >= 2200 ? 'M' : 'L';
+  } else if (isFlagshipModel || (isExternal && price >= 2400)) {
+    cost = 'H';
+  } else {
+    cost = 'M';
+  }
+
+  const capabilityLabel =
+    capability === 'S' ? '旗舰能力' : capability === 'A+' ? '资深能力' : '标准高效';
+  const costLabel = cost === 'H' ? '高成本' : cost === 'M' ? '中成本' : '低成本';
+  const costIndexLabel =
+    cost === 'H' ? '成本指数 H（高）' : cost === 'M' ? '成本指数 M（中）' : '成本指数 L（低）';
+
+  return {
+    capability,
+    capabilityLabel,
+    cost,
+    costLabel,
+    costIndexLabel,
+    code: `${capability}/${cost}`,
+    description: `${capabilityLabel} · ${costIndexLabel}`,
+  };
 }
 
 /**
@@ -96,9 +231,92 @@ export function displayEntityName(handleOrName: string): string {
 }
 
 /**
- * Unified Agent Runtime Identity Mark:
- * Displays the underlying host Agent runtime (e.g. Codex, Claude Code, Gemini CLI)
- * instead of a generic "AI" tag, optionally accompanied by its orchestrated default model.
+ * Plain-text prefixed Agent display name (e.g. "CC-全栈开发员", "Codex-架构审查员").
+ */
+export function formatAgentDisplayName(handleOrName: string, runtime?: string): string {
+  const clean = displayEntityName(handleOrName);
+  const shortRt = formatShortRuntime(runtime);
+  if (!shortRt) return clean;
+  if (clean.toLowerCase().startsWith(`${shortRt.toLowerCase()}-`)) return clean;
+  if (shortRt === 'Nexa' && clean.startsWith('Nexa')) return clean;
+  return `${shortRt}-${clean}`;
+}
+
+/**
+ * Unified Prefix-First Agent Identity Name:
+ * Renders e.g. `Codex-架构审查员` or `CC-全栈开发员` without middle icon clutter,
+ * optionally followed by a compact abbreviated model label (e.g. `GPT-6.2` / `Sonnet4.5`).
+ */
+export function AgentIdentityName({
+  name,
+  runtime,
+  model,
+  showModel = false,
+  inverted = false,
+  className = '',
+}: {
+  name: string;
+  runtime?: string;
+  model?: string;
+  showModel?: boolean;
+  inverted?: boolean;
+  className?: string;
+}) {
+  const cleanName = displayEntityName(name);
+  const shortRt = formatShortRuntime(runtime);
+  const shortModel = formatShortModel(model);
+  const preset = runtime ? RUNTIME_PRESET_MAP.get(runtime.toLowerCase()) : undefined;
+
+  const prefixColorCls = inverted
+    ? 'text-sky-300'
+    : preset
+      ? preset.prefixCls
+      : shortRt === 'Nexa'
+        ? 'text-blue-700'
+        : 'text-indigo-700';
+
+  const alreadyHasPrefix =
+    Boolean(shortRt) &&
+    (cleanName.toLowerCase().startsWith(`${shortRt.toLowerCase()}-`) ||
+      (shortRt === 'Nexa' && cleanName.startsWith('Nexa')));
+
+  const tooltip = runtime
+    ? model
+      ? `${cleanName} · 本体：${runtime} · 模型：${model}`
+      : `${cleanName} · 本体：${runtime}`
+    : cleanName;
+
+  return (
+    <span
+      title={tooltip}
+      className={`inline-flex items-baseline gap-1.5 min-w-0 max-w-full ${className}`}
+    >
+      <span className="truncate">
+        {shortRt && !alreadyHasPrefix && (
+          <>
+            <span className={`font-mono font-semibold ${prefixColorCls}`}>{shortRt}</span>
+            <span className={inverted ? 'text-slate-500 mx-[1px]' : 'text-slate-300 mx-[1px]'}>
+              -
+            </span>
+          </>
+        )}
+        <span>{cleanName}</span>
+      </span>
+      {showModel && shortModel && (
+        <span
+          className={`text-[10px] font-mono font-medium shrink-0 whitespace-nowrap ${
+            inverted ? 'text-sky-200/80' : 'text-slate-400'
+          }`}
+        >
+          {shortModel}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Compact standalone runtime/model text pill (icon-free, abbreviated).
  */
 export function AgentMark({
   runtime,
@@ -113,13 +331,14 @@ export function AgentMark({
   showModel?: boolean;
   inverted?: boolean;
 }) {
-  const displayRuntime = runtime || label || 'Agent';
+  const displayRuntime = formatShortRuntime(runtime || label) || 'Agent';
+  const shortModel = formatShortModel(model);
   const preset = runtime ? RUNTIME_PRESET_MAP.get(runtime.toLowerCase()) : undefined;
   const colorCls = inverted
     ? 'bg-sky-400/20 text-sky-200 border border-sky-300/30'
     : preset
       ? `${preset.badgeCls} border`
-      : displayRuntime === 'Nexa' || displayRuntime === '助理'
+      : displayRuntime === 'Nexa'
         ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
         : 'bg-indigo-50 text-indigo-700 border border-indigo-200/80';
 
@@ -127,16 +346,15 @@ export function AgentMark({
     <span
       title={
         model
-          ? `本体 Agent：${displayRuntime} · 默认模型：${model}`
-          : `本体 Agent：${displayRuntime}`
+          ? `本体 Agent：${runtime || displayRuntime} · 默认模型：${model}`
+          : `本体 Agent：${runtime || displayRuntime}`
       }
       className={`inline-flex items-center gap-1 px-1.5 py-[1px] rounded text-[10px] font-mono font-semibold leading-tight whitespace-nowrap shrink-0 select-none ${colorCls}`}
     >
-      <Cpu className="w-2.5 h-2.5 shrink-0 opacity-85" />
       <span>{displayRuntime}</span>
-      {showModel && model && (
+      {showModel && shortModel && (
         <span className={inverted ? 'text-sky-200/80 font-normal' : 'opacity-75 font-normal'}>
-          · {model}
+          · {shortModel}
         </span>
       )}
     </span>

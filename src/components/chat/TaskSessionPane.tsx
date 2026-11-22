@@ -22,7 +22,11 @@ import type {
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
-import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AgentIdentityName,
+  EntityAvatar,
+  displayEntityName,
+} from '../shared/EntityIdentity';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface TaskSessionPaneProps {
@@ -146,17 +150,16 @@ export function TaskSessionPane({
                 </span>
               </div>
               <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5 truncate">
-                <span className="font-semibold text-slate-700 shrink-0">
-                  {displayEntityName(agent?.handle || task.assigneeHandle)}
-                </span>
-                <AgentMark
+                <AgentIdentityName
+                  name={agent?.handle || task.assigneeHandle}
                   runtime={agent?.runtimeAgent}
                   model={agent?.defaultModel}
                   showModel
+                  className="font-semibold text-slate-700"
                 />
-                <span aria-hidden="true">·</span>
-                <span className="font-mono text-slate-600 shrink-0">Session #{task.id}</span>
-                <span aria-hidden="true">·</span>
+                <span aria-hidden="true" className="shrink-0">·</span>
+                <span className="font-mono text-slate-600 shrink-0">#{task.id}</span>
+                <span aria-hidden="true" className="shrink-0">·</span>
                 <span className="truncate text-slate-400">{workspace.name}</span>
               </div>
             </div>
@@ -247,15 +250,16 @@ export function TaskSessionPane({
                     }`}
                   >
                     <div className="flex items-center gap-1.5 text-xs mb-1">
-                      <span className="font-semibold text-slate-900">
-                        {isEmployer
-                          ? account?.name || '我（雇主）'
-                          : displayEntityName(agent?.handle || task.assigneeHandle)}
-                      </span>
-                      {!isEmployer && (
-                        <AgentMark
+                      {isEmployer ? (
+                        <span className="font-semibold text-slate-900">
+                          {account?.name || '我（雇主）'}
+                        </span>
+                      ) : (
+                        <AgentIdentityName
+                          name={agent?.handle || task.assigneeHandle}
                           runtime={agent?.runtimeAgent}
                           model={agent?.defaultModel}
+                          className="font-semibold text-slate-900"
                         />
                       )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
@@ -516,14 +520,13 @@ export function TaskSessionPane({
                     accent={agent.avatarAccent}
                   />
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
-                      <span className="truncate">{displayEntityName(agent.handle)}</span>
-                      <AgentMark
-                        runtime={agent.runtimeAgent}
-                        model={agent.defaultModel}
-                        showModel
-                      />
-                    </div>
+                    <AgentIdentityName
+                      name={agent.handle}
+                      runtime={agent.runtimeAgent}
+                      model={agent.defaultModel}
+                      showModel
+                      className="text-xs font-bold text-slate-900"
+                    />
                     <div className="text-[11px] text-slate-500 truncate">
                       {agent.ownerHumanName
                         ? `归属专家：${agent.ownerHumanName}`
@@ -567,16 +570,13 @@ export function TaskSessionPane({
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="inline-flex items-center gap-1.5 min-w-0">
-                          <span className={`truncate ${active ? 'text-slate-200' : 'text-slate-600'}`}>
-                            {displayEntityName(t.assigneeHandle)}
-                          </span>
-                          <AgentMark
-                            runtime={siblingAgent?.runtimeAgent}
-                            model={siblingAgent?.defaultModel}
-                            inverted={active}
-                          />
-                        </span>
+                        <AgentIdentityName
+                          name={t.assigneeHandle}
+                          runtime={siblingAgent?.runtimeAgent}
+                          model={siblingAgent?.defaultModel}
+                          inverted={active}
+                          className={active ? 'text-slate-200 font-medium' : 'text-slate-700 font-medium'}
+                        />
                         <span
                           className={`font-semibold shrink-0 ${
                             active

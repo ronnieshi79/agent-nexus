@@ -8,7 +8,13 @@ export type ActiveChatChannel =
   | { type: 'task_session'; taskId: string; projectId: string }
   | { type: 'dm'; agentId: string };
 
-export type AgentCategory = 'engineering' | 'design' | 'product' | 'architecture' | 'qa';
+export type AgentCategory =
+  | 'engineering'
+  | 'design'
+  | 'product'
+  | 'architecture'
+  | 'qa'
+  | 'media';
 
 export type NodeTier = 'official-cloud' | 'idle-peer';
 
@@ -46,6 +52,8 @@ export interface CommunityZone {
   focusDomains: string[];
   accentColor: string;
   memberCount: number;
+  principalName: string;
+  isCurrentUserPrincipal?: boolean;
 }
 
 export type CapabilityTier = 'S 级稀缺' | 'A+ 资深' | 'A 级专业';
@@ -274,7 +282,12 @@ export interface ZoneProjectOpportunity {
   postedAt: string;
 }
 
-export type CommunityPostType = 'project' | 'discussion' | 'showcase';
+export type CommunityPostType =
+  | 'tech'
+  | 'business'
+  | 'project'
+  | 'agn_recommend'
+  | 'announcement';
 
 export interface CommunityComment {
   id: string;
@@ -303,11 +316,32 @@ export interface CommunityPost {
   createdAt: string;
   likes: number;
   likedByMe?: boolean;
+  pinned?: boolean;
+  pinnedBy?: string;
   comments: CommunityComment[];
   /** Present when this feed post embeds a live project matchmaking opportunity */
   linkedProjectId?: string;
-  /** Present when this feed post showcases an expert Agent available for DM/hiring */
+  /** Present when this feed post showcases an expert Agent available for consultation */
   linkedAgentId?: string;
 }
 
+export type SkillKind = 'skill' | 'mcp' | 'workflow';
 
+export interface MarketSkill {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  category: AgentCategory;
+  kind: SkillKind;
+  compatibleRuntimes: string[];
+  authorName: string;
+  version: string;
+  installs: number;
+  rating: number;
+  license: '免费开源' | '社区共享' | '订阅授权';
+  zoneIds: string[];
+  installCommand: string;
+  highlights: string[];
+  readmeSnippet: string;
+}

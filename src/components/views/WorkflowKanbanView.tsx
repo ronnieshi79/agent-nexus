@@ -37,9 +37,11 @@ import type {
 } from '../../types/agentnexus';
 import {
   AGENT_RUNTIME_PRESETS,
-  AgentMark,
+  AgentIdentityName,
   EntityAvatar,
   displayEntityName,
+  formatAgentDisplayName,
+  formatShortModel,
   getRuntimePreset,
 } from '../shared/EntityIdentity';
 import {
@@ -497,7 +499,7 @@ export function WorkflowKanbanView({
                     { id: 'all', label: '全部 Agent' },
                     ...kanbanAssignableAgents.map((a) => ({
                       id: a.id,
-                      label: displayEntityName(a.handle),
+                      label: formatAgentDisplayName(a.handle, a.runtimeAgent),
                       hint: `${allTasks.filter((t) => t.assigneeId === a.id).length}`,
                     })),
                   ]}
@@ -582,7 +584,7 @@ export function WorkflowKanbanView({
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
               >
                 <Store className="w-3.5 h-3.5" />
-                <span>去专家市场</span>
+                <span>去服务市场</span>
               </button>
             )}
           </>
@@ -928,12 +930,12 @@ export function WorkflowKanbanView({
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-xs font-bold text-slate-900 truncate">
-                              {displayEntityName(snap.agent.handle)}
-                            </span>
-                            <AgentMark
+                            <AgentIdentityName
+                              name={snap.agent.handle}
                               runtime={snap.agent.runtimeAgent}
                               model={snap.agent.defaultModel}
+                              showModel
+                              className="text-xs font-bold text-slate-900"
                             />
                             <span className="text-[10px] font-medium text-slate-400 whitespace-nowrap shrink-0">
                               {snap.agent.ownership === 'private' ? '自有' : '外部'}
@@ -1043,7 +1045,7 @@ export function WorkflowKanbanView({
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    <span>前往社区发现承接或发布项目</span>
+                    <span>前往交流社区承接或发布项目</span>
                   </button>
                 </div>
               ) : (
@@ -1183,8 +1185,11 @@ export function WorkflowKanbanView({
                                   className="inline-flex items-center gap-1"
                                 >
                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
-                                  <span>{displayEntityName(m.handle)}</span>
-                                  <AgentMark runtime={m.runtimeAgent} model={m.defaultModel} />
+                                  <AgentIdentityName
+                                    name={m.handle}
+                                    runtime={m.runtimeAgent}
+                                    model={m.defaultModel}
+                                  />
                                 </span>
                               );
                             })}
@@ -1300,8 +1305,8 @@ export function WorkflowKanbanView({
                                               size="xs"
                                               showCornerMark={false}
                                             />
-                                            <span>{displayEntityName(task.assigneeHandle)}</span>
-                                            <AgentMark
+                                            <AgentIdentityName
+                                              name={task.assigneeHandle}
                                               runtime={ag?.runtimeAgent}
                                               model={ag?.defaultModel}
                                             />
@@ -1394,10 +1399,13 @@ export function WorkflowKanbanView({
                                 />
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5 min-w-0">
-                                    <span className="font-semibold text-slate-900 truncate">
-                                      {displayEntityName(ag.handle)}
-                                    </span>
-                                    <AgentMark runtime={ag.runtimeAgent} model={ag.defaultModel} />
+                                    <AgentIdentityName
+                                      name={ag.handle}
+                                      runtime={ag.runtimeAgent}
+                                      model={ag.defaultModel}
+                                      showModel
+                                      className="font-semibold text-slate-900"
+                                    />
                                   </div>
                                   <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
                                     {snap && renderAvailabilityIndicator(snap)}
@@ -1518,13 +1526,12 @@ export function WorkflowKanbanView({
                                   size="xs"
                                   showCornerMark={false}
                                 />
-                                <span className="font-semibold text-slate-900 truncate">
-                                  {displayEntityName(task.assigneeHandle)}
-                                </span>
-                                <AgentMark
+                                <AgentIdentityName
+                                  name={task.assigneeHandle}
                                   runtime={agent?.runtimeAgent}
                                   model={agent?.defaultModel}
                                   showModel
+                                  className="font-semibold text-slate-900"
                                 />
                               </div>
                               <div className="flex items-center gap-1.5 shrink-0">
@@ -1768,18 +1775,17 @@ export function WorkflowKanbanView({
                                     size="xs"
                                     showCornerMark={false}
                                   />
-                                  <span className="text-xs font-bold text-slate-900 truncate">
-                                    {displayEntityName(boundAgent.handle)}
-                                  </span>
-                                  <AgentMark
+                                  <AgentIdentityName
+                                    name={boundAgent.handle}
                                     runtime={boundAgent.runtimeAgent}
                                     model={boundAgent.defaultModel}
+                                    className="text-xs font-bold text-slate-900"
                                   />
                                 </div>
                                 <div className="flex items-center justify-between gap-1.5 text-[11px]">
                                   {snap ? renderAvailabilityIndicator(snap) : <span className="text-slate-400">待命</span>}
                                   <span className="text-slate-400 font-mono truncate">
-                                    {boundAgent.defaultModel}
+                                    {formatShortModel(boundAgent.defaultModel)}
                                   </span>
                                 </div>
                               </div>
@@ -1893,15 +1899,14 @@ export function WorkflowKanbanView({
                                 />
                                 <div className="min-w-0">
                                   <div className="flex items-center gap-1.5">
-                                    <span className="font-semibold text-slate-900">
-                                      {displayEntityName(agent.handle)}
-                                    </span>
-                                    <AgentMark
+                                    <AgentIdentityName
+                                      name={agent.handle}
                                       runtime={agent.runtimeAgent}
                                       model={agent.defaultModel}
+                                      className="font-semibold text-slate-900"
                                     />
                                     <span
-                                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${
                                         agent.ownership === 'private'
                                           ? 'bg-sky-50 text-sky-700'
                                           : 'bg-slate-100 text-slate-600'
@@ -2082,7 +2087,7 @@ export function WorkflowKanbanView({
 
               {negotiations.length === 0 ? (
                 <div className="p-8 text-center text-xs text-slate-500">
-                  暂无外部雇佣协商，可前往专家市场发掘各社区认证专家。
+                  暂无外部雇佣协商，可前往服务市场发掘各社区认证 Agent 与专家。
                 </div>
               ) : (
                 <div className="divide-y divide-slate-100">
@@ -2109,13 +2114,12 @@ export function WorkflowKanbanView({
                           />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
-                              <span className="font-bold text-slate-900">
-                                {displayEntityName(agent.handle)}
-                              </span>
-                              <AgentMark
+                              <AgentIdentityName
+                                name={agent.handle}
                                 runtime={agent.runtimeAgent}
                                 model={agent.defaultModel}
                                 showModel
+                                className="font-bold text-slate-900"
                               />
                               {agent.ownerHumanName && (
                                 <span className="text-xs text-emerald-700 font-medium">
