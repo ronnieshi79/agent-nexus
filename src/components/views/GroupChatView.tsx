@@ -25,7 +25,7 @@ import type {
 } from '../../types/agentnexus';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
 import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
-import { WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
+import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
   workspace: ProjectWorkspace;
@@ -254,7 +254,12 @@ export function GroupChatView({
                           ? account?.name || displayEntityName(msg.senderHandle)
                           : displayEntityName(msg.senderHandle)}
                       </span>
-                      {!isEmployer && <AgentMark label={isButler ? '助理' : 'AI'} />}
+                      {!isEmployer && (
+                        <AgentMark
+                          runtime={isButler ? 'Nexa' : agentObj?.runtimeAgent}
+                          model={agentObj?.defaultModel}
+                        />
+                      )}
                       {!isEmployer && !isButler && agentObj?.ownerHumanName && (
                         <span className="text-[11px] text-slate-400">
                           · 归属专家 {agentObj.ownerHumanName}
@@ -306,7 +311,7 @@ export function GroupChatView({
 
                                 <div className="flex items-center gap-2.5 shrink-0 whitespace-nowrap text-[11px]">
                                   <span className={`font-medium ${st.textCls}`}>
-                                    {isExec ? '正在执行' : st.label}
+                                    {isExec ? '执行中' : st.label}
                                   </span>
                                   <button
                                     type="button"
@@ -342,7 +347,7 @@ export function GroupChatView({
                                       onClick={() => onApproveTask(task.id)}
                                       className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer"
                                     >
-                                      验收通过
+                                      验证通过
                                     </button>
                                   )}
                                 </div>
@@ -460,7 +465,7 @@ export function GroupChatView({
                   >
                     {hiredAgents.map((a) => (
                       <option key={a.id} value={a.id}>
-                        指派：{displayEntityName(a.handle)}（AI）
+                        指派：{displayEntityName(a.handle)}（{a.runtimeAgent} · {a.defaultModel}）
                       </option>
                     ))}
                   </select>
@@ -675,9 +680,7 @@ export function GroupChatView({
                               <span className="text-slate-500 font-medium">
                                 {WORK_TYPE_LABELS[task.workType]} · <span className="font-mono">{task.id}</span>
                               </span>
-                              <span className={`font-semibold ${st.textCls}`}>
-                                {st.label}
-                              </span>
+                              <WorkStatusBadge status={task.status} executing={isExec} />
                             </div>
 
                             <button
@@ -688,14 +691,22 @@ export function GroupChatView({
                               {task.title}
                             </button>
 
-                            <WorkCardStageBar status={task.status} />
-
                             <div className="flex items-center justify-between text-[11px] text-slate-500">
                               <span className="inline-flex items-center gap-1 min-w-0">
                                 <span className="font-medium text-slate-700 truncate">
                                   {displayEntityName(task.assigneeHandle)}
                                 </span>
-                                <AgentMark />
+                                {(() => {
+                                  const assigneeAgent = hiredAgents.find(
+                                    (a) => a.id === task.assigneeId,
+                                  );
+                                  return (
+                                    <AgentMark
+                                      runtime={assigneeAgent?.runtimeAgent}
+                                      model={assigneeAgent?.defaultModel}
+                                    />
+                                  );
+                                })()}
                               </span>
                               <span className="font-mono tabular-nums shrink-0">
                                 {task.priority}优 · {task.updatedAt}
@@ -748,14 +759,14 @@ export function GroupChatView({
                                   className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>验收通过</span>
+                                  <span>验证通过</span>
                                 </button>
                               )}
                             </div>
 
                             {task.status === 'in_progress' && (
                               <div className="w-full text-center py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50">
-                                正在执行中 · 可进入 Agent Session 多轮调试
+                                执行中 · 可进入 Agent Session 多轮调试
                               </div>
                             )}
 
@@ -805,7 +816,11 @@ export function GroupChatView({
                           <span className="text-xs font-bold text-slate-900 truncate">
                             {displayEntityName(agent.handle)}
                           </span>
-                          <AgentMark />
+                          <AgentMark
+                            runtime={agent.runtimeAgent}
+                            model={agent.defaultModel}
+                            showModel
+                          />
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
                           {agent.ownerHumanName

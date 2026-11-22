@@ -104,7 +104,7 @@ export function DirectNegotiationPane({
             />
           }
           title={`${displayEntityName(agent.handle)} · ${agent.name}`}
-          tag={`AI Agent · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
+          tag={`${agent.runtimeAgent} · ${agent.defaultModel} · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
           tagClassName={st.cls}
           subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · ${agent.performance.capabilityTier} · 信誉 ${agent.performance.reputationScore} · 挂牌 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · ${agent.performance.demandStatus}`}
           panelOpen={panelOpen}
@@ -120,7 +120,11 @@ export function DirectNegotiationPane({
                 <span className="font-semibold text-slate-700">
                   {displayEntityName(agent.handle)}
                 </span>
-                <AgentMark />
+                <AgentMark
+                  runtime={agent.runtimeAgent}
+                  model={agent.defaultModel}
+                  showModel
+                />
                 <span>
                   {agent.ownerHumanName ? `· 归属专家 ${agent.ownerHumanName}` : '· 外部专家单聊通道'}
                 </span>
@@ -143,7 +147,12 @@ export function DirectNegotiationPane({
                     <span className="font-sans font-medium text-slate-600">
                       {isEmployer ? account?.name || '我（雇主）' : displayEntityName(agent.handle)}
                     </span>
-                    {!isEmployer && <AgentMark />}
+                    {!isEmployer && (
+                      <AgentMark
+                        runtime={agent.runtimeAgent}
+                        model={agent.defaultModel}
+                      />
+                    )}
                     <span>{m.timestamp}</span>
                     {typeof m.quotedPriceUsd === 'number' && !isEmployer && (
                       <span className="text-amber-700 font-semibold">

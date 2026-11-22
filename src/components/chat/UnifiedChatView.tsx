@@ -170,6 +170,7 @@ export function UnifiedChatView({
           task={activeTask}
           workspace={activeTaskWorkspace}
           agent={activeTaskAgent}
+          agents={agents}
           siblingTasks={activeTaskSiblings}
           messages={taskSessions[activeTask.id] || []}
           allTaskSessions={taskSessions}
@@ -207,6 +208,7 @@ export function UnifiedChatView({
           messages={assistantMessages}
           settlements={settlements}
           auditLogs={auditLogs}
+          agents={agents}
           privateAgents={privateAgents}
           account={account}
           isBusy={isAssistantBusy}

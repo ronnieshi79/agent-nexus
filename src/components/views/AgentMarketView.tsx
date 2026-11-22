@@ -211,6 +211,8 @@ export function AgentMarketView({
         displayEntityName(agent.handle),
         agent.name,
         agent.title,
+        agent.runtimeAgent,
+        agent.defaultModel,
         agent.ownerHumanName || '',
         agent.region,
         SERVICE_MODE_LABELS[agent.serviceMode],
@@ -362,7 +364,9 @@ export function AgentMarketView({
                 value={keyword}
                 onChange={setKeyword}
                 placeholder={
-                  entityTab === 'humans' ? '搜索专家、类别、专长...' : '搜索 Agent、技能、MCP...'
+                  entityTab === 'humans'
+                    ? '搜索专家、类别、专长...'
+                    : '搜索 Agent、本体、模型、技能...'
                 }
               />
 
@@ -610,7 +614,11 @@ export function AgentMarketView({
                                           <span className="text-xs font-bold text-slate-900 truncate">
                                             {displayEntityName(ag.handle)}
                                           </span>
-                                          <AgentMark />
+                                          <AgentMark
+                                            runtime={ag.runtimeAgent}
+                                            model={ag.defaultModel}
+                                            showModel
+                                          />
                                         </div>
                                         <div className="text-[11px] text-slate-500 truncate mt-0.5">
                                           {SERVICE_MODE_LABELS[ag.serviceMode]} ·{' '}
@@ -715,7 +723,11 @@ export function AgentMarketView({
                                 <h3 className="text-sm font-bold text-slate-900 truncate">
                                   {displayEntityName(agent.handle)}
                                 </h3>
-                                <AgentMark />
+                                <AgentMark
+                                  runtime={agent.runtimeAgent}
+                                  model={agent.defaultModel}
+                                  showModel
+                                />
                                 {agent.ownership === 'private' ? (
                                   <span className="text-[11px] font-medium text-indigo-600 whitespace-nowrap shrink-0">
                                     · 我上架
@@ -887,7 +899,11 @@ export function AgentMarketView({
                     <h2 className="text-sm font-bold text-slate-900 truncate">
                       {displayEntityName(drawerAgent.handle)} · {drawerAgent.name}
                     </h2>
-                    <AgentMark />
+                    <AgentMark
+                      runtime={drawerAgent.runtimeAgent}
+                      model={drawerAgent.defaultModel}
+                      showModel
+                    />
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
                     {drawerAgent.ownerHumanName
@@ -945,7 +961,10 @@ export function AgentMarketView({
                     <span className="font-semibold text-slate-700">
                       {displayEntityName(drawerAgent.handle)}
                     </span>
-                    <AgentMark />
+                    <AgentMark
+                      runtime={drawerAgent.runtimeAgent}
+                      model={drawerAgent.defaultModel}
+                    />
                     <span>· 雇前私聊沟通</span>
                   </span>
                   <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">

@@ -407,6 +407,15 @@ export function CommunityDiscoverView({
                           {/* Author Header: Co-existing Human Member or Autonomous Agent */}
                           {(() => {
                             const isAgentAuthor = post.authorEntityType === 'agent';
+                            const authorAgent = isAgentAuthor
+                              ? linkedAgent ||
+                                allAgents.find(
+                                  (a) =>
+                                    a.handle === post.authorHandle ||
+                                    displayEntityName(a.handle) ===
+                                      displayEntityName(post.authorName),
+                                )
+                              : undefined;
                             return (
                               <div className="flex items-start justify-between gap-3">
                                 <div className="flex items-center gap-2.5 min-w-0">
@@ -422,7 +431,10 @@ export function CommunityDiscoverView({
                                         {displayEntityName(post.authorName)}
                                       </span>
                                       {isAgentAuthor ? (
-                                        <AgentMark />
+                                        <AgentMark
+                                          runtime={authorAgent?.runtimeAgent}
+                                          model={authorAgent?.defaultModel}
+                                        />
                                       ) : (
                                         <HumanMark label="真人" />
                                       )}
@@ -553,7 +565,11 @@ export function CommunityDiscoverView({
                                     <span className="text-xs font-bold text-slate-900 truncate">
                                       {displayEntityName(linkedAgent.handle)}
                                     </span>
-                                    <AgentMark />
+                                    <AgentMark
+                                      runtime={linkedAgent.runtimeAgent}
+                                      model={linkedAgent.defaultModel}
+                                      showModel
+                                    />
                                     <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0">
                                       · {linkedAgent.performance.capabilityTier}
                                     </span>
@@ -617,23 +633,38 @@ export function CommunityDiscoverView({
                             <div className="pt-2 border-t border-slate-100 space-y-2.5">
                               {post.comments.length > 0 && (
                                 <div className="space-y-2">
-                                  {post.comments.map((cmt) => (
-                                    <div
-                                      key={cmt.id}
-                                      className="rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-0.5"
-                                    >
-                                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
-                                          <span>{displayEntityName(cmt.authorName)}</span>
-                                          {cmt.isAgent && <AgentMark />}
-                                        </span>
-                                        <span className="text-slate-400">{cmt.timestamp}</span>
+                                  {post.comments.map((cmt) => {
+                                    const cmtAgent = cmt.isAgent
+                                      ? allAgents.find(
+                                          (a) =>
+                                            a.handle === cmt.authorHandle ||
+                                            displayEntityName(a.handle) ===
+                                              displayEntityName(cmt.authorName),
+                                        )
+                                      : undefined;
+                                    return (
+                                      <div
+                                        key={cmt.id}
+                                        className="rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-0.5"
+                                      >
+                                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                                          <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                                            <span>{displayEntityName(cmt.authorName)}</span>
+                                            {cmt.isAgent && (
+                                              <AgentMark
+                                                runtime={cmtAgent?.runtimeAgent}
+                                                model={cmtAgent?.defaultModel}
+                                              />
+                                            )}
+                                          </span>
+                                          <span className="text-slate-400">{cmt.timestamp}</span>
+                                        </div>
+                                        <p className="text-slate-700 leading-relaxed">
+                                          {cmt.content}
+                                        </p>
                                       </div>
-                                      <p className="text-slate-700 leading-relaxed">
-                                        {cmt.content}
-                                      </p>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
                               )}
 
@@ -848,7 +879,7 @@ export function CommunityDiscoverView({
                           <span className="font-semibold text-slate-900 truncate">
                             {displayEntityName(ag.handle)}
                           </span>
-                          <AgentMark />
+                          <AgentMark runtime={ag.runtimeAgent} model={ag.defaultModel} />
                         </div>
                         <div className="text-[11px] text-slate-500 truncate">
                           {ag.ownerHumanName ? `归属专家 ${ag.ownerHumanName} · ` : ''}

@@ -24,6 +24,7 @@ interface PlatformAssistantPaneProps {
   messages: AssistantMessage[];
   settlements: SettlementRecord[];
   auditLogs: PlatformAuditLog[];
+  agents: ExpertAgent[];
   privateAgents: ExpertAgent[];
   account: AgentNexusAccount | null;
   isBusy: boolean;
@@ -52,6 +53,7 @@ export function PlatformAssistantPane({
   messages,
   settlements,
   auditLogs,
+  agents,
   privateAgents,
   account,
   isBusy,
@@ -129,7 +131,7 @@ export function PlatformAssistantPane({
             </div>
           }
           title="Nexa 平台助理"
-          tag="官方助理 Agent"
+          tag="Nexa · 官方助理 Agent"
           tagClassName="text-blue-700"
           subtitle="提供全平台项目签约结算、接单与协商提醒、交付审计与预算风控护栏服务"
           panelOpen={panelOpen}
@@ -346,20 +348,29 @@ export function PlatformAssistantPane({
               </div>
 
               <div className="space-y-2.5">
-                {settlements.map((s) => (
-                  <div
-                    key={s.id}
-                    className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
-                        <span className="truncate">{displayEntityName(s.agentHandle)}</span>
-                        <AgentMark />
-                      </span>
-                      <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
-                        ${Math.round(s.amountUsd).toLocaleString('en-US')}
-                      </span>
-                    </div>
+                {settlements.map((s) => {
+                  const matchedAgent = agents.find(
+                    (a) =>
+                      a.handle === s.agentHandle ||
+                      displayEntityName(a.handle) === displayEntityName(s.agentHandle),
+                  );
+                  return (
+                    <div
+                      key={s.id}
+                      className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
+                          <span className="truncate">{displayEntityName(s.agentHandle)}</span>
+                          <AgentMark
+                            runtime={matchedAgent?.runtimeAgent}
+                            model={matchedAgent?.defaultModel}
+                          />
+                        </span>
+                        <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
+                          ${Math.round(s.amountUsd).toLocaleString('en-US')}
+                        </span>
+                      </div>
                     <div className="text-[11px] text-slate-500 truncate">{s.projectName}</div>
                     <div className="text-xs text-slate-700 line-clamp-2">{s.milestoneLabel}</div>
                     <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
@@ -378,9 +389,10 @@ export function PlatformAssistantPane({
                           <span>确认结算</span>
                         </button>
                       )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ) : (

@@ -111,9 +111,9 @@ export function useAgentNexusStore() {
   const [marketCategorySeed, setMarketCategorySeed] = useState<'all' | AgentCategory>('all');
   const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
   const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
-  const [kanbanTabSeed, setKanbanTabSeed] = useState<'my_projects' | 'kanban' | 'hiring' | null>(
-    null,
-  );
+  const [kanbanTabSeed, setKanbanTabSeed] = useState<
+    'overview' | 'my_projects' | 'kanban' | 'agents' | null
+  >(null);
   const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
   const [account, setAccount] = useState<AgentNexusAccount | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -1204,6 +1204,17 @@ export function useAgentNexusStore() {
     [activeZone.id, agents, zones],
   );
 
+  const updateAgentRuntimeConfig = useCallback(
+    (agentId: string, runtimeAgent: string, defaultModel: string) => {
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId ? { ...a, runtimeAgent, defaultModel } : a,
+        ),
+      );
+    },
+    [],
+  );
+
   const sendGroupMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -1322,7 +1333,7 @@ export function useAgentNexusStore() {
                 id: `tsm_done_${Date.now()}`,
                 taskId,
                 sender: 'system',
-                content: `雇主已验收通过「${target.title}」，产物归档完成，验收结论已自动摘要回写至项目群聊。`,
+                content: `雇主已验证通过「${target.title}」，产物归档完成，结论已自动摘要回写至项目群聊。`,
                 timestamp: ts,
                 milestoneSynced: true,
               },
@@ -1333,7 +1344,7 @@ export function useAgentNexusStore() {
           {
             id: `aud_ok_${Date.now()}`,
             category: 'audit',
-            title: `交付验收通过：${target.title}`,
+            title: `交付验证通过：${target.title}`,
             detail: `${proj?.name || '项目'} · ${target.assigneeHandle} 产物已合并归档。`,
             severity: 'success',
             timestamp: ts,
@@ -1441,7 +1452,7 @@ export function useAgentNexusStore() {
             senderId: 'system',
             senderName: 'Agent 任务里程碑同步',
             senderHandle: '里程碑同步',
-            content: `${assignedAgent?.handle || task.assigneeHandle} 已在 Agent 任务 Session #${task.id} 启动执行「${task.title}」（过程细节保留在 Session 内，待验收时自动回写结论）。`,
+            content: `${assignedAgent?.handle || task.assigneeHandle} 已在 Agent 任务 Session #${task.id} 启动执行「${task.title}」（过程细节保留在 Session 内，待验证时自动回写结论）。`,
             timestamp: ts,
             linkedTaskIds: [taskId],
           },
@@ -1484,7 +1495,7 @@ export function useAgentNexusStore() {
             result.artifactPath?.trim() || task.deliverableArtifact || `artifacts/${task.id}_deliverable.md`;
           const milestoneText =
             result.groupMilestoneSummary?.trim() ||
-            `已完成「${task.title}」本轮 Agent Session 迭代并提交待验收（产物：${finalArtifact}）。`;
+            `已完成「${task.title}」本轮 Agent Session 迭代并提交待验证（产物：${finalArtifact}）。`;
 
           setAllTasks((prev) =>
             prev.map((t) =>
@@ -1519,7 +1530,7 @@ export function useAgentNexusStore() {
             {
               id: `aud_ts_${Date.now()}`,
               category: 'audit',
-              title: `Agent 任务交付就绪待验收：${task.title}`,
+              title: `Agent 任务交付就绪待验证：${task.title}`,
               detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已在 Session #${task.id} 完成迭代并回写群聊摘要。`,
               severity: 'warning',
               timestamp: replyTs,
@@ -1644,12 +1655,12 @@ export function useAgentNexusStore() {
               id: `tsm_exec_${Date.now()}`,
               taskId,
               sender: 'agent',
-              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验收」并自动回写摘要至项目群。如需继续修改细节或追加边界测试，可直接在当前 Agent 任务 Session 向我提出。`,
+              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验证」并自动回写摘要至项目群。如需继续修改细节或追加边界测试，可直接在当前 Agent 任务 Session 向我提出。`,
               timestamp: ts,
               artifactPath: result.deliverableArtifact,
               suggestedActions: [
                 '补充高并发边界单测后再定稿',
-                '已复核产物，确认验收通过',
+                '已复核产物，确认验证通过',
               ],
               awaitingConfirmation: true,
               milestoneSynced: true,
@@ -1661,8 +1672,8 @@ export function useAgentNexusStore() {
           {
             id: `aud_exec_${Date.now()}`,
             category: 'audit',
-            title: `新交付物待验收：${task.title}`,
-            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已提交产物 ${result.deliverableArtifact}，请雇主复核验收。`,
+            title: `新交付物待验证：${task.title}`,
+            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已提交产物 ${result.deliverableArtifact}，请雇主复核验证。`,
             severity: 'warning',
             timestamp: ts,
           },
@@ -1822,6 +1833,7 @@ export function useAgentNexusStore() {
     releaseAgent,
     savePrivateAgent,
     toggleMarketListing,
+    updateAgentRuntimeConfig,
     sendGroupMessage,
     updateTaskStatus,
     runAutonomousTask,

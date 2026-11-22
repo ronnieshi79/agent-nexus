@@ -107,6 +107,10 @@ export interface ExpertAgent {
   /** Zone IDs where this agent is publicly/privately listed in that zone's expert market */
   listedZoneIds: string[];
   isListedInMarket: boolean;
+  /** Host Agent runtime identity (e.g. Codex, Claude Code, Gemini CLI, Cursor, Playwright) */
+  runtimeAgent: string;
+  /** Default orchestrated model for this runtime agent (e.g. GPT-6.2, Claude 4.5 Sonnet, Gemini 3.1 Pro) */
+  defaultModel: string;
   engineModel: string;
   skills: string[];
   mcpTools: string[];

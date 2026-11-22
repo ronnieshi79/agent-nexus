@@ -23,12 +23,13 @@ import type {
   WorkflowTask,
 } from '../../types/agentnexus';
 import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
-import { WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
+import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface TaskSessionPaneProps {
   task: WorkflowTask;
   workspace: ProjectWorkspace;
   agent: ExpertAgent | null;
+  agents: ExpertAgent[];
   siblingTasks: WorkflowTask[];
   messages: TaskSessionMessage[];
   allTaskSessions: Record<string, TaskSessionMessage[]>;
@@ -56,6 +57,7 @@ export function TaskSessionPane({
   task,
   workspace,
   agent,
+  agents,
   siblingTasks,
   messages,
   allTaskSessions,
@@ -109,7 +111,7 @@ export function TaskSessionPane({
       : [
           '请输出当前实现的核心边界测试用例',
           '检查并发异常与降级兜底逻辑',
-          '当前方案已确认，请收尾定稿并提交待验收',
+          '当前方案已确认，请收尾定稿并提交待验证',
         ];
 
   return (
@@ -147,7 +149,11 @@ export function TaskSessionPane({
                 <span className="font-semibold text-slate-700 shrink-0">
                   {displayEntityName(agent?.handle || task.assigneeHandle)}
                 </span>
-                <AgentMark />
+                <AgentMark
+                  runtime={agent?.runtimeAgent}
+                  model={agent?.defaultModel}
+                  showModel
+                />
                 <span aria-hidden="true">·</span>
                 <span className="font-mono text-slate-600 shrink-0">Session #{task.id}</span>
                 <span aria-hidden="true">·</span>
@@ -183,13 +189,15 @@ export function TaskSessionPane({
                   <span className="mx-1.5 text-slate-300" aria-hidden="true">·</span>
                   <span className="font-mono">{task.id}</span>
                 </span>
-                <span className="font-mono tabular-nums shrink-0 text-[11px] text-slate-400">
-                  {messages.length} 轮 Session · 里程碑自动同步群聊
-                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <WorkStatusBadge status={task.status} />
+                  <span className="font-mono tabular-nums text-[11px] text-slate-400">
+                    {messages.length} 轮 Session
+                  </span>
+                </div>
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">{task.description}</p>
-              <WorkCardStageBar status={task.status} />
             </div>
 
             {/* Multi-Turn Message Thread */}
@@ -244,7 +252,12 @@ export function TaskSessionPane({
                           ? account?.name || '我（雇主）'
                           : displayEntityName(agent?.handle || task.assigneeHandle)}
                       </span>
-                      {!isEmployer && <AgentMark />}
+                      {!isEmployer && (
+                        <AgentMark
+                          runtime={agent?.runtimeAgent}
+                          model={agent?.defaultModel}
+                        />
+                      )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
                       {msg.milestoneSynced && (
                         <span className="text-[11px] font-medium text-emerald-700">
@@ -399,7 +412,7 @@ export function TaskSessionPane({
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
                   >
                     <CheckCircle2 className="w-3 h-3" />
-                    <span>验收通过并回写群聊</span>
+                    <span>验证通过并回写群聊</span>
                   </button>
                 )}
 
@@ -462,12 +475,11 @@ export function TaskSessionPane({
             {/* Sync Mechanism Notice */}
             <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-2">
               <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-900">当前阶段与同步机制</span>
-                <span className={`font-semibold ${st.textCls}`}>{st.label}</span>
+                <span className="font-bold text-slate-900">当前状态与同步机制</span>
+                <WorkStatusBadge status={task.status} />
               </div>
-              <WorkCardStageBar status={task.status} compact />
               <p className="text-[11px] text-slate-500 leading-relaxed">
-                当前 Agent Session 内的多轮执行调试与方案确认仅保留于此；进入启动、提审或验收里程碑时，系统自动回写精炼摘要至「{workspace.name}」项目群。
+                当前 Agent Session 内的多轮执行调试与方案确认仅保留于此；进入启动、提审或验证里程碑时，系统自动回写精炼摘要至「{workspace.name}」项目群。
               </p>
               {isWaitingReply && (
                 <div className="text-[11px] font-semibold text-blue-700">
@@ -506,7 +518,11 @@ export function TaskSessionPane({
                   <div className="min-w-0">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
                       <span className="truncate">{displayEntityName(agent.handle)}</span>
-                      <AgentMark />
+                      <AgentMark
+                        runtime={agent.runtimeAgent}
+                        model={agent.defaultModel}
+                        showModel
+                      />
                     </div>
                     <div className="text-[11px] text-slate-500 truncate">
                       {agent.ownerHumanName
@@ -537,6 +553,8 @@ export function TaskSessionPane({
                     t.status !== 'done' && tMsgs[tMsgs.length - 1]?.awaitingConfirmation,
                   );
 
+                  const siblingAgent = agents.find((a) => a.id === t.assigneeId);
+
                   return (
                     <button
                       key={t.id}
@@ -553,7 +571,11 @@ export function TaskSessionPane({
                           <span className={`truncate ${active ? 'text-slate-200' : 'text-slate-600'}`}>
                             {displayEntityName(t.assigneeHandle)}
                           </span>
-                          <AgentMark inverted={active} />
+                          <AgentMark
+                            runtime={siblingAgent?.runtimeAgent}
+                            model={siblingAgent?.defaultModel}
+                            inverted={active}
+                          />
                         </span>
                         <span
                           className={`font-semibold shrink-0 ${

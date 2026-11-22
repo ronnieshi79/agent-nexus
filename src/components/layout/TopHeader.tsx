@@ -22,7 +22,7 @@ interface TopHeaderProps {
 }
 
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team' | 'discover', string> = {
-  kanban: '统筹我主管与参与的项目概览、多项目任务流看板与专家雇佣协同',
+  kanban: '项目总览、费用与 Token 消耗洞察、多 Agent 任务流看板与实时闲忙状态',
   team: '永久在线，按需持续交付的外部 / 内部 Agent 专家团队',
   discover: '公共社区与私有社区信息流交流、实战复盘分享与项目撮合对接',
 };

@@ -11,7 +11,13 @@ import {
   X,
 } from 'lucide-react';
 import { optimizeExpertProfile } from '../../services/api';
-import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
+import {
+  AGENT_RUNTIME_PRESETS,
+  AgentMark,
+  EntityAvatar,
+  displayEntityName,
+  getRuntimePreset,
+} from '../shared/EntityIdentity';
 import { ToolbarSegment, ViewToolbar } from '../shared/ViewToolbar';
 import type {
   AgentCategory,
@@ -84,6 +90,8 @@ export function MyTeamView({
   const [title, setTitle] = useState('私有工作流自动化执行与专项审计');
   const [category, setCategory] = useState<AgentCategory>('engineering');
   const [serviceMode, setServiceMode] = useState<ServiceMode>('pure-agent');
+  const [runtimeAgent, setRuntimeAgent] = useState<string>('Claude Code');
+  const [defaultModel, setDefaultModel] = useState<string>('Claude 4.5 Sonnet');
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
@@ -105,6 +113,8 @@ export function MyTeamView({
     setTitle('自动化接口联调、安全基线校验与文档生成');
     setCategory('engineering');
     setServiceMode('pure-agent');
+    setRuntimeAgent('Claude Code');
+    setDefaultModel('Claude 4.5 Sonnet');
     setRegion('本地 anx-worker 私有节点');
     setProjectPriceUsd(1800);
     setBio('我本地调优的私有 Agent，支持加密云工作空间挂载。默认仅私有自用，勾选指定专区即可进入对应专家市场接受私聊并按项目签约。');
@@ -123,6 +133,8 @@ export function MyTeamView({
     setTitle(agent.title);
     setCategory(agent.category);
     setServiceMode(agent.serviceMode);
+    setRuntimeAgent(agent.runtimeAgent);
+    setDefaultModel(agent.defaultModel);
     setRegion(agent.region);
     setProjectPriceUsd(agent.projectPriceUsd);
     setBio(agent.bio);
@@ -205,6 +217,8 @@ export function MyTeamView({
       ownerHumanTitle: '雇主 · 全栈工程专家',
       listedZoneIds,
       isListedInMarket: listedZoneIds.length > 0,
+      runtimeAgent,
+      defaultModel,
       engineModel:
         serviceMode === 'human-agent'
           ? '私有领域知识库 + 人工关键审批协同'
@@ -352,7 +366,11 @@ export function MyTeamView({
                             <span className="text-sm font-bold text-slate-900">
                               {displayEntityName(agent.handle)}
                             </span>
-                            <AgentMark />
+                            <AgentMark
+                              runtime={agent.runtimeAgent}
+                              model={agent.defaultModel}
+                              showModel
+                            />
                             <span className="text-slate-500">· {agent.name}</span>
                             {agent.ownerHumanName && (
                               <>
@@ -481,7 +499,11 @@ export function MyTeamView({
                           <span className="text-sm font-bold text-slate-900">
                             {displayEntityName(agent.handle)}
                           </span>
-                          <AgentMark />
+                          <AgentMark
+                            runtime={agent.runtimeAgent}
+                            model={agent.defaultModel}
+                            showModel
+                          />
                           <span className="text-slate-500">· {agent.name}</span>
                           <span aria-hidden="true" className="text-slate-300">·</span>
                           <span className="text-slate-700 font-medium">
@@ -732,6 +754,42 @@ export function MyTeamView({
                   >
                     <option value="pure-agent">纯 Agent 租用</option>
                     <option value="human-agent">人 + Agent 协同</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-700">本体 Agent 引擎</span>
+                  <select
+                    value={runtimeAgent}
+                    onChange={(e) => {
+                      const nextRuntime = e.target.value;
+                      setRuntimeAgent(nextRuntime);
+                      setDefaultModel(getRuntimePreset(nextRuntime).defaultModel);
+                    }}
+                    className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    {AGENT_RUNTIME_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-700">默认底层模型</span>
+                  <select
+                    value={defaultModel}
+                    onChange={(e) => setDefaultModel(e.target.value)}
+                    className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    {Array.from(
+                      new Set([defaultModel, ...getRuntimePreset(runtimeAgent).models]),
+                    ).map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
                   </select>
                 </label>
 

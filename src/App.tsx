@@ -151,6 +151,7 @@ export default function App() {
               onJumpToZoneMarket={store.openMarketForZone}
               onJumpToDiscover={() => store.openCommunityDiscover()}
               onReleaseAgent={store.releaseAgent}
+              onUpdateAgentRuntimeConfig={store.updateAgentRuntimeConfig}
             />
           )}
 

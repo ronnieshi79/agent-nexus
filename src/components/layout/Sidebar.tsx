@@ -177,7 +177,7 @@ export function Sidebar({
       id: 'kanban',
       label: '工作看板',
       icon: KanbanSquare,
-      count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验收` : `${workspaces.length} 项目`,
+      count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : `${workspaces.length} 项目`,
       highlight: reviewTaskCount > 0,
     },
     {
@@ -446,7 +446,7 @@ export function Sidebar({
                         <span className="font-medium text-slate-800 truncate">
                           {displayEntityName(cand.handle)}
                         </span>
-                        <AgentMark />
+                        <AgentMark runtime={cand.runtimeAgent} model={cand.defaultModel} />
                       </span>
                       <span className="text-[11px] text-slate-500 truncate">
                         {cand.ownerHumanName ? `归属专家 ${cand.ownerHumanName}` : cand.title}
@@ -484,7 +484,7 @@ export function Sidebar({
                     <div className="flex items-center justify-between gap-1.5">
                       <span className="inline-flex items-center gap-1.5 min-w-0">
                         <span className="text-xs font-bold text-slate-900 truncate">Nexa 助理</span>
-                        <AgentMark label="助理" />
+                        <AgentMark runtime="Nexa" />
                       </span>
                       <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                         {lastAssistantMsg?.timestamp || '在线'}
@@ -551,7 +551,7 @@ export function Sidebar({
                           </span>
                           {reviewCount > 0 && (
                             <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
-                              {reviewCount} 待验收
+                              {reviewCount} 待验证
                             </span>
                           )}
                         </div>
@@ -606,7 +606,10 @@ export function Sidebar({
                             <span className="text-xs font-bold text-slate-900 truncate">
                               {displayEntityName(dmAgent.handle)}
                             </span>
-                            <AgentMark />
+                            <AgentMark
+                              runtime={dmAgent.runtimeAgent}
+                              model={dmAgent.defaultModel}
+                            />
                           </span>
                           <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                             {lastDm?.timestamp || thread.updatedAt}
@@ -677,7 +680,10 @@ export function Sidebar({
                           <span className="text-xs font-bold text-slate-900 truncate">
                             {displayEntityName(task.assigneeHandle)}
                           </span>
-                          <AgentMark />
+                          <AgentMark
+                            runtime={agent?.runtimeAgent}
+                            model={agent?.defaultModel}
+                          />
                           <span className="text-[10px] font-mono text-slate-400 shrink-0">
                             #{task.id}
                           </span>
