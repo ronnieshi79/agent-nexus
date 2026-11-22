@@ -17,16 +17,17 @@ export default function App() {
   return (
     <div className="h-screen w-screen overflow-hidden flex bg-slate-50 text-slate-900">
       <Sidebar
-        zones={store.zones}
         activeView={store.activeView}
         activeChatChannel={store.activeChatChannel}
         workspaces={store.workspaces}
         agents={store.agents}
         allMessages={store.allMessages}
         allTasks={store.allTasks}
+        taskSessions={store.taskSessions}
         negotiations={store.negotiations}
         assistantMessages={store.assistantMessages}
         assistantPendingCount={store.assistantPendingCount}
+        awaitingTaskSessionCount={store.awaitingTaskSessionCount}
         reviewTaskCount={store.reviewTaskCount}
         hiredCount={store.hiredAgents.length}
         privateCount={store.privateAgents.length}
@@ -36,14 +37,14 @@ export default function App() {
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
         onSelectView={store.setActiveView}
-        onOpenAssistant={store.openAssistantChat}
         onSelectProjectChat={store.selectSession}
-        onSelectDmChat={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+        onSelectDm={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+        onSelectAssistant={store.openAssistantChat}
+        onSelectTaskSession={store.openTaskSession}
         onCreateProject={(name, goal) => {
           store.createSession(name, goal);
           store.setActiveView('chat');
         }}
-        onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
         onOpenLogin={() => store.setAuthModalOpen(true)}
         onLogout={store.logoutAccount}
       />
@@ -55,6 +56,7 @@ export default function App() {
           activeChatChannel={store.activeChatChannel}
           workspace={store.activeWorkspace}
           agents={store.agents}
+          allTasks={store.allTasks}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
         />
 
@@ -81,8 +83,12 @@ export default function App() {
               agents={store.agents}
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
+              allTasks={store.allTasks}
               sessionMessages={store.sessionMessages}
               sessionTasks={store.sessionTasks}
+              taskSessions={store.taskSessions}
+              taskSessionBusyId={store.taskSessionBusyId}
+              taskSessionError={store.taskSessionError}
               negotiations={store.negotiations}
               assistantMessages={store.assistantMessages}
               settlements={store.settlements}
@@ -96,6 +102,11 @@ export default function App() {
               draftSeed={store.chatDraftSeed}
               onClearDraftSeed={store.clearChatDraftSeed}
               onClearDmError={store.clearDmError}
+              onClearTaskSessionError={store.clearTaskSessionError}
+              onSelectProjectChat={store.selectSession}
+              onOpenTaskSession={store.openTaskSession}
+              onSendTaskSessionTurn={store.sendTaskSessionTurn}
+              onSyncTaskSummaryToGroup={store.syncTaskSummaryToGroup}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
               onSendGroupMessage={store.sendGroupMessage}
               onCreateWorkCard={store.createWorkCard}
@@ -129,6 +140,7 @@ export default function App() {
               onCreateProject={store.createSession}
               onRunTask={store.runAutonomousTask}
               onUpdateStatus={store.updateTaskStatus}
+              onOpenTaskSession={store.openTaskSession}
               onConfirmHire={store.confirmHireFromNegotiation}
               onJumpToMarket={() => store.setActiveView('market')}
               onJumpToZoneMarket={store.openMarketForZone}
@@ -163,6 +175,7 @@ export default function App() {
               workspace={store.activeWorkspace}
               allAgents={store.agents}
               agents={store.marketplaceAgents}
+              humanExperts={store.humanExperts}
               hiredIds={store.hiredIds}
               dmHistories={store.dmHistories}
               dmBusyAgentId={store.dmBusyAgentId}
@@ -186,6 +199,7 @@ export default function App() {
               zoneProjects={store.zoneProjects}
               communityPosts={store.communityPosts}
               allAgents={store.agents}
+              humanExperts={store.humanExperts}
               zoneSeed={store.discoverZoneSeed}
               onClearZoneSeed={store.clearDiscoverZoneSeed}
               onToggleJoinZone={store.toggleJoinZone}

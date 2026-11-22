@@ -7,6 +7,7 @@ import type {
   PlatformServiceCategory,
   ProjectWorkspace,
   SettlementRecord,
+  TaskSessionMessage,
   WorkCardType,
   WorkflowTask,
 } from '../types/agentnexus';
@@ -144,4 +145,25 @@ export function optimizeExpertProfile(payload: {
   targetZoneNames?: string[];
 }): Promise<ExpertOptimizeResult> {
   return postJson<ExpertOptimizeResult>('/api/expert/optimize', payload);
+}
+
+export interface TaskSessionReplyResult {
+  reply: string;
+  executionSteps: string[];
+  artifactPath: string;
+  artifactSnippet: string;
+  suggestedActions: string[];
+  awaitingConfirmation: boolean;
+  readyForReview: boolean;
+  groupMilestoneSummary: string;
+}
+
+export function sendTaskSessionMessage(payload: {
+  task: WorkflowTask;
+  agent?: ExpertAgent;
+  workspace: ProjectWorkspace;
+  history: TaskSessionMessage[];
+  message: string;
+}): Promise<TaskSessionReplyResult> {
+  return postJson<TaskSessionReplyResult>('/api/chat/task-session', payload);
 }

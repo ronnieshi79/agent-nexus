@@ -11,6 +11,7 @@ import {
   X,
 } from 'lucide-react';
 import { optimizeExpertProfile } from '../../services/api';
+import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
 import type {
   AgentCategory,
   CommunityZone,
@@ -196,6 +197,9 @@ export function MyTeamView({
       nodeTier: 'idle-peer',
       serviceMode,
       ownership: 'private',
+      ownerHumanId: 'human_me',
+      ownerHumanName: '林致远（我）',
+      ownerHumanTitle: '雇主 · OPC 主理人',
       listedZoneIds,
       isListedInMarket: listedZoneIds.length > 0,
       engineModel:
@@ -335,16 +339,27 @@ export function MyTeamView({
                       className="p-4 sm:p-5 bg-white hover:bg-slate-50/70 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                     >
                       <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                        <div
-                          className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
-                          style={{ backgroundColor: agent.avatarAccent }}
-                        >
-                          {agent.avatarCode}
-                        </div>
+                        <EntityAvatar
+                          kind="agent"
+                          code={agent.avatarCode}
+                          accent={agent.avatarAccent}
+                          size="lg"
+                        />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                            <span className="text-sm font-bold text-slate-900">{agent.handle}</span>
+                            <span className="text-sm font-bold text-slate-900">
+                              {displayEntityName(agent.handle)}
+                            </span>
+                            <AgentMark />
                             <span className="text-slate-500">· {agent.name}</span>
+                            {agent.ownerHumanName && (
+                              <>
+                                <span aria-hidden="true" className="text-slate-300">·</span>
+                                <span className="text-emerald-700 font-medium">
+                                  主理人：{agent.ownerHumanName}
+                                </span>
+                              </>
+                            )}
                             <span aria-hidden="true" className="text-slate-300">·</span>
                             <span className="font-medium text-slate-700">
                               {agent.ownership === 'private'
@@ -410,10 +425,10 @@ export function MyTeamView({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
               <div>
                 <h2 className="text-sm font-bold text-slate-900">
-                  我的私有挂载 Agent ({privateAgents.length})
+                  我名下管理的私有 Agent ({privateAgents.length})
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  归属个人账号全局管理：默认仅自己项目使用，可按需勾选上架至「开放空间」「DN 杭州」「张江 OPC 社区」等一个或多个空间。
+                  一人可同时拥有并运营多个 Agent：默认在自己项目零成本自用，按需上架至一个或多个社区市场对外接单工作。
                 </p>
               </div>
               <div className="flex items-center gap-2.5 shrink-0 self-start sm:self-auto">
@@ -451,15 +466,18 @@ export function MyTeamView({
                     className="p-4 sm:p-5 bg-slate-50/40 hover:bg-slate-50 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4"
                   >
                     <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                      <div
-                        className="w-10 h-10 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
-                        style={{ backgroundColor: agent.avatarAccent }}
-                      >
-                        {agent.avatarCode}
-                      </div>
+                      <EntityAvatar
+                        kind="agent"
+                        code={agent.avatarCode}
+                        accent={agent.avatarAccent}
+                        size="lg"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-                          <span className="text-sm font-bold text-slate-900">{agent.handle}</span>
+                          <span className="text-sm font-bold text-slate-900">
+                            {displayEntityName(agent.handle)}
+                          </span>
+                          <AgentMark />
                           <span className="text-slate-500">· {agent.name}</span>
                           <span aria-hidden="true" className="text-slate-300">·</span>
                           <span className="text-slate-700 font-medium">
@@ -579,7 +597,9 @@ export function MyTeamView({
           <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-sm font-bold text-slate-900">
-                {editingId === 'new' ? '挂载我的私有 Agent 节点' : `配置私有节点 · ${handle}`}
+                {editingId === 'new'
+                  ? '挂载我的私有 Agent 节点'
+                  : `配置私有节点 · ${displayEntityName(handle)}`}
               </h2>
               <p className="text-xs text-slate-500 mt-0.5">
                 私有挂载可随时自用；开启对外上架即可同步曝光至专家市场。

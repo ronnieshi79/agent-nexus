@@ -8,6 +8,7 @@ import {
   GitBranch,
   Handshake,
   Layers,
+  MessageSquareCode,
   Play,
   Plus,
   RotateCcw,
@@ -30,6 +31,7 @@ import type {
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
+import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
 import { WORK_CARD_STAGES, WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
 
 export type WorkKanbanTab = 'my_projects' | 'kanban' | 'hiring';
@@ -49,6 +51,7 @@ interface WorkflowKanbanViewProps {
   onCreateProject: (name: string, goal: string, sourceZoneId?: string) => string;
   onRunTask: (taskId: string) => Promise<void>;
   onUpdateStatus: (taskId: string, status: TaskStatus) => void;
+  onOpenTaskSession: (taskId: string) => void;
   onConfirmHire: (agentId: string, createFirstCard: boolean) => void;
   onJumpToMarket: () => void;
   onJumpToZoneMarket: (zoneId: string) => void;
@@ -101,6 +104,7 @@ export function WorkflowKanbanView({
   onCreateProject,
   onRunTask,
   onUpdateStatus,
+  onOpenTaskSession,
   onConfirmHire,
   onJumpToMarket,
   onJumpToZoneMarket,
@@ -592,13 +596,15 @@ export function WorkflowKanbanView({
                           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-700">
                             {projMembers.map((m) => (
                               <span key={m.id} className="inline-flex items-center gap-1">
-                                <span
-                                  className="w-4 h-4 rounded text-[9px] font-bold text-white inline-flex items-center justify-center"
-                                  style={{ backgroundColor: m.avatarAccent }}
-                                >
-                                  {m.avatarCode}
-                                </span>
-                                <span>{m.handle}</span>
+                                <EntityAvatar
+                                  kind="agent"
+                                  code={m.avatarCode}
+                                  accent={m.avatarAccent}
+                                  size="xs"
+                                  showCornerMark={false}
+                                />
+                                <span>{displayEntityName(m.handle)}</span>
+                                <AgentMark />
                               </span>
                             ))}
                           </div>
@@ -714,7 +720,10 @@ export function WorkflowKanbanView({
                                               {st.label}
                                             </span>
                                             <span className="text-slate-300" aria-hidden="true">·</span>
-                                            <span className="text-slate-600">{task.assigneeHandle}</span>
+                                            <span className="inline-flex items-center gap-1 text-slate-600">
+                                              <span>{displayEntityName(task.assigneeHandle)}</span>
+                                              <AgentMark />
+                                            </span>
                                           </div>
                                           <div className="text-xs font-semibold text-slate-900 mt-0.5">
                                             {task.title}
@@ -722,6 +731,14 @@ export function WorkflowKanbanView({
                                         </div>
 
                                         <div className="flex items-center gap-1.5 shrink-0">
+                                          <button
+                                            type="button"
+                                            onClick={() => onOpenTaskSession(task.id)}
+                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                                          >
+                                            <MessageSquareCode className="w-3 h-3 text-indigo-600" />
+                                            <span>Agent 任务</span>
+                                          </button>
                                           {task.status === 'pending' && (
                                             <button
                                               type="button"
@@ -799,20 +816,26 @@ export function WorkflowKanbanView({
                               className="flex items-center justify-between gap-2 text-xs"
                             >
                               <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                  className="w-6 h-6 rounded text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                                  style={{ backgroundColor: ag.avatarAccent }}
-                                >
-                                  {ag.avatarCode}
-                                </span>
+                                <EntityAvatar
+                                  kind="agent"
+                                  code={ag.avatarCode}
+                                  accent={ag.avatarAccent}
+                                  size="sm"
+                                />
                                 <div className="min-w-0">
-                                  <div className="font-semibold text-slate-900 truncate">
-                                    {ag.handle}
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="font-semibold text-slate-900 truncate">
+                                      {displayEntityName(ag.handle)}
+                                    </span>
+                                    <AgentMark />
                                   </div>
-                                  <div className="text-[11px] text-slate-500 font-mono tabular-nums">
-                                    {ag.ownership === 'private'
-                                      ? '我方私有节点'
-                                      : `$${ag.projectPriceUsd.toLocaleString('en-US')}/项目`}
+                                  <div className="text-[11px] text-slate-500 truncate">
+                                    {ag.ownerHumanName ? `主理人 ${ag.ownerHumanName} · ` : ''}
+                                    <span className="font-mono tabular-nums">
+                                      {ag.ownership === 'private'
+                                        ? '我方私有节点'
+                                        : `$${ag.projectPriceUsd.toLocaleString('en-US')}/项目`}
+                                    </span>
                                   </div>
                                 </div>
                               </div>
@@ -956,15 +979,17 @@ export function WorkflowKanbanView({
 
                               <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
                                 <div className="flex items-center gap-1.5 min-w-0">
-                                  <span
-                                    className="w-5 h-5 rounded text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                                    style={{ backgroundColor: agent?.avatarAccent || '#334155' }}
-                                  >
-                                    {agent?.avatarCode || 'AI'}
-                                  </span>
+                                  <EntityAvatar
+                                    kind="agent"
+                                    code={agent?.avatarCode || 'AI'}
+                                    accent={agent?.avatarAccent || '#334155'}
+                                    size="xs"
+                                    showCornerMark={false}
+                                  />
                                   <span className="font-medium text-slate-800 truncate">
-                                    {task.assigneeHandle}
+                                    {displayEntityName(task.assigneeHandle)}
                                   </span>
+                                  <AgentMark />
                                 </div>
                                 {agent && (
                                   <span className="text-[11px] text-slate-400 shrink-0 whitespace-nowrap">
@@ -973,22 +998,31 @@ export function WorkflowKanbanView({
                                 )}
                               </div>
 
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTaskSession(task.id)}
+                                  className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer shrink-0"
+                                >
+                                  <MessageSquareCode className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>Agent 任务</span>
+                                </button>
+
                                 {task.status === 'pending' && (
                                   <button
                                     type="button"
                                     disabled={Boolean(executingTaskId)}
                                     onClick={() => onRunTask(task.id)}
-                                    className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45"
+                                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
                                   >
                                     <Play className="w-3 h-3" />
-                                    <span>{isExecuting ? '正在执行中...' : '批准执行'}</span>
+                                    <span>{isExecuting ? '执行中...' : '批准执行'}</span>
                                   </button>
                                 )}
 
                                 {task.status === 'in_progress' && (
-                                  <div className="w-full text-center py-1.5 text-xs font-medium text-blue-700 bg-blue-50 rounded-md">
-                                    正在执行中 · 沙箱运行并同步产物...
+                                  <div className="flex-1 text-center py-1.5 px-2 text-xs font-medium text-blue-700 bg-blue-50 rounded-md truncate">
+                                    正在执行中...
                                   </div>
                                 )}
 
@@ -997,7 +1031,7 @@ export function WorkflowKanbanView({
                                     <button
                                       type="button"
                                       onClick={() => onUpdateStatus(task.id, 'done')}
-                                      className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                                      className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
                                     >
                                       <CheckCircle2 className="w-3.5 h-3.5" />
                                       <span>验收通过</span>
@@ -1006,7 +1040,7 @@ export function WorkflowKanbanView({
                                       type="button"
                                       onClick={() => onUpdateStatus(task.id, 'pending')}
                                       title="打回重做"
-                                      className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer"
+                                      className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer shrink-0"
                                     >
                                       <RotateCcw className="w-3.5 h-3.5" />
                                     </button>
@@ -1014,14 +1048,9 @@ export function WorkflowKanbanView({
                                 )}
 
                                 {task.status === 'done' && (
-                                  <div className="w-full flex items-center justify-between text-[11px] text-emerald-700 font-semibold">
-                                    <span className="inline-flex items-center gap-1">
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>已经完成 · 产物已归档</span>
-                                    </span>
-                                    <span className="font-mono tabular-nums text-slate-400 font-normal">
-                                      {task.updatedAt}
-                                    </span>
+                                  <div className="flex-1 flex items-center justify-end gap-1 text-[11px] text-emerald-700 font-semibold whitespace-nowrap">
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>已经完成</span>
                                   </div>
                                 )}
                               </div>
@@ -1082,15 +1111,23 @@ export function WorkflowKanbanView({
                         className="px-5 py-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
                       >
                         <div className="flex items-start gap-3 min-w-0">
-                          <div
-                            className="w-9 h-9 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0 mt-0.5"
-                            style={{ backgroundColor: agent.avatarAccent }}
-                          >
-                            {agent.avatarCode}
-                          </div>
+                          <EntityAvatar
+                            kind="agent"
+                            code={agent.avatarCode}
+                            accent={agent.avatarAccent}
+                            size="md"
+                          />
                           <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm">
-                              <span className="font-bold text-slate-900">{agent.handle}</span>
+                              <span className="font-bold text-slate-900">
+                                {displayEntityName(agent.handle)}
+                              </span>
+                              <AgentMark />
+                              {agent.ownerHumanName && (
+                                <span className="text-xs text-emerald-700 font-medium">
+                                  主理人：{agent.ownerHumanName}
+                                </span>
+                              )}
                               <span className="text-xs text-slate-500">{agent.title}</span>
                               <span className="text-slate-300" aria-hidden="true">·</span>
                               <span className={`text-xs font-semibold ${st.cls}`}>{st.label}</span>
@@ -1168,19 +1205,24 @@ export function WorkflowKanbanView({
                       >
                         <td className="py-3 px-5">
                           <div className="flex items-center gap-2.5">
-                            <span
-                              className="w-7 h-7 rounded-md text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                              style={{ backgroundColor: row.agent.avatarAccent }}
-                            >
-                              {row.agent.avatarCode}
-                            </span>
+                            <EntityAvatar
+                              kind="agent"
+                              code={row.agent.avatarCode}
+                              accent={row.agent.avatarAccent}
+                              size="sm"
+                            />
                             <div className="min-w-0">
-                              <div className="font-semibold text-slate-900">
-                                {row.agent.handle}
+                              <div className="flex items-center gap-1.5">
+                                <span className="font-semibold text-slate-900">
+                                  {displayEntityName(row.agent.handle)}
+                                </span>
+                                <AgentMark />
                               </div>
                               <div className="text-[11px] text-slate-500 truncate">
-                                {row.agent.title} · {row.agent.performance.capabilityTier} · 信誉{' '}
-                                {row.agent.performance.reputationScore}
+                                {row.agent.ownerHumanName
+                                  ? `主理人 ${row.agent.ownerHumanName} · `
+                                  : ''}
+                                {row.agent.title} · {row.agent.performance.capabilityTier}
                               </div>
                             </div>
                           </div>

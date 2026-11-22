@@ -16,12 +16,14 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import { AgentMark, EntityAvatar, HumanMark, displayEntityName } from '../shared/EntityIdentity';
 import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import type {
   CommunityPost,
   CommunityPostType,
   CommunityZone,
   ExpertAgent,
+  HumanExpert,
   ServiceMode,
   ZoneProjectOpportunity,
 } from '../../types/agentnexus';
@@ -32,6 +34,7 @@ interface CommunityDiscoverViewProps {
   zoneProjects: ZoneProjectOpportunity[];
   communityPosts: CommunityPost[];
   allAgents: ExpertAgent[];
+  humanExperts: HumanExpert[];
   zoneSeed: string | null;
   onClearZoneSeed: () => void;
   onToggleJoinZone: (zoneId: string) => void;
@@ -75,6 +78,7 @@ export function CommunityDiscoverView({
   zoneProjects,
   communityPosts,
   allAgents,
+  humanExperts,
   zoneSeed,
   onClearZoneSeed,
   onToggleJoinZone,
@@ -170,6 +174,16 @@ export function CommunityDiscoverView({
     () => allAgents.filter((a) => a.listedZoneIds.includes(activeCommunity.id)).slice(0, 4),
     [activeCommunity.id, allAgents],
   );
+
+  const communityHumans = useMemo(() => {
+    return humanExperts
+      .map((h) => ({
+        human: h,
+        agentCount: allAgents.filter((a) => a.ownerHumanId === h.id && a.isListedInMarket).length,
+      }))
+      .filter(({ human }) => human.zoneIds.includes(activeCommunity.id))
+      .slice(0, 4);
+  }, [activeCommunity.id, allAgents, humanExperts]);
 
   const handleComposerSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -384,32 +398,46 @@ export function CommunityDiscoverView({
                           key={post.id}
                           className="bg-white rounded-xl border border-slate-200 p-5 space-y-3.5"
                         >
-                          {/* Author Header */}
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-2.5 min-w-0">
-                              <span
-                                className="w-8 h-8 rounded-lg text-xs font-bold text-white inline-flex items-center justify-center shrink-0"
-                                style={{ backgroundColor: post.authorAccent }}
-                              >
-                                {post.authorCode}
-                              </span>
-                              <div className="min-w-0">
-                                <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
-                                  <span className="font-bold text-slate-900">
-                                    {post.authorName}
-                                  </span>
-                                  <span className="text-slate-400">{post.authorRole}</span>
-                                </div>
-                                <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
-                                  <span>{post.createdAt}</span>
-                                  <span aria-hidden="true">·</span>
-                                  <span className={`font-semibold ${typeInfo.cls}`}>
-                                    {typeInfo.label}
-                                  </span>
+                          {/* Author Header: Co-existing Human Member or Autonomous Agent */}
+                          {(() => {
+                            const isAgentAuthor = post.authorEntityType === 'agent';
+                            return (
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <EntityAvatar
+                                    kind={isAgentAuthor ? 'agent' : 'human'}
+                                    code={post.authorCode}
+                                    accent={post.authorAccent}
+                                    size="md"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                                      <span className="font-bold text-slate-900">
+                                        {displayEntityName(post.authorName)}
+                                      </span>
+                                      {isAgentAuthor ? (
+                                        <AgentMark />
+                                      ) : (
+                                        <HumanMark label="真人" />
+                                      )}
+                                      <span className="text-slate-400">
+                                        {isAgentAuthor && post.authorOwnerName
+                                          ? `主理人：${post.authorOwnerName} · ${post.authorRole}`
+                                          : post.authorRole}
+                                      </span>
+                                    </div>
+                                    <div className="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5">
+                                      <span>{post.createdAt}</span>
+                                      <span aria-hidden="true">·</span>
+                                      <span className={`font-semibold ${typeInfo.cls}`}>
+                                        {typeInfo.label}
+                                      </span>
+                                    </div>
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </div>
+                            );
+                          })()}
 
                           {/* Post Title & Natural Conversational Body */}
                           <div>
@@ -508,19 +536,27 @@ export function CommunityDiscoverView({
                           {linkedAgent && (
                             <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                               <div className="flex items-center gap-2.5 min-w-0">
-                                <span
-                                  className="w-9 h-9 rounded-lg text-xs font-bold text-white inline-flex items-center justify-center shrink-0"
-                                  style={{ backgroundColor: linkedAgent.avatarAccent }}
-                                >
-                                  {linkedAgent.avatarCode}
-                                </span>
+                                <EntityAvatar
+                                  kind="agent"
+                                  code={linkedAgent.avatarCode}
+                                  accent={linkedAgent.avatarAccent}
+                                  size="md"
+                                />
                                 <div className="min-w-0">
-                                  <div className="text-xs font-bold text-slate-900 truncate">
-                                    {linkedAgent.handle} · {linkedAgent.performance.capabilityTier}
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <span className="text-xs font-bold text-slate-900 truncate">
+                                      {displayEntityName(linkedAgent.handle)}
+                                    </span>
+                                    <AgentMark />
+                                    <span className="text-[11px] font-medium text-slate-500 whitespace-nowrap shrink-0">
+                                      · {linkedAgent.performance.capabilityTier}
+                                    </span>
                                   </div>
                                   <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
-                                    信誉 {linkedAgent.performance.reputationScore} · 复购{' '}
-                                    {linkedAgent.performance.repeatHireRate}% · $
+                                    {linkedAgent.ownerHumanName
+                                      ? `主理人 ${linkedAgent.ownerHumanName} · `
+                                      : ''}
+                                    信誉 {linkedAgent.performance.reputationScore} · $
                                     {linkedAgent.projectPriceUsd.toLocaleString('en-US')}/项目
                                   </div>
                                 </div>
@@ -581,13 +617,9 @@ export function CommunityDiscoverView({
                                       className="rounded-lg bg-slate-50 px-3 py-2 text-xs space-y-0.5"
                                     >
                                       <div className="flex items-center justify-between gap-2 text-[11px]">
-                                        <span className="font-semibold text-slate-800">
-                                          {cmt.authorName}
-                                          {cmt.isAgent && (
-                                            <span className="text-blue-700 font-medium ml-1.5">
-                                              · 专家节点
-                                            </span>
-                                          )}
+                                        <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800">
+                                          <span>{displayEntityName(cmt.authorName)}</span>
+                                          {cmt.isAgent && <AgentMark />}
                                         </span>
                                         <span className="text-slate-400">{cmt.timestamp}</span>
                                       </div>
@@ -740,11 +772,11 @@ export function CommunityDiscoverView({
               )}
             </section>
 
-            {/* Active Experts in This Community */}
-            <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+            {/* Co-existing Human Operators & Certified External Agents in This Community */}
+            <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3.5">
               <div className="flex items-center justify-between gap-2">
                 <h3 className="text-xs font-bold text-slate-900">
-                  社区活跃专家 ({communityExperts.length})
+                  社区专家 · 真人与 Agent 共存
                 </h3>
                 <button
                   type="button"
@@ -755,24 +787,68 @@ export function CommunityDiscoverView({
                 </button>
               </div>
 
-              <div className="space-y-2.5">
+              {communityHumans.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-[11px] font-semibold text-slate-500">
+                    活跃人类主理人 ({communityHumans.length})
+                  </div>
+                  {communityHumans.map(({ human, agentCount }) => (
+                    <div
+                      key={human.id}
+                      className="flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <EntityAvatar
+                          kind="human"
+                          code={human.avatarInitials}
+                          accent={human.avatarAccent}
+                          size="sm"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-slate-900 truncate">
+                              {human.name}
+                            </span>
+                            <HumanMark label="真人" />
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            旗下 {agentCount} 个对外 Agent · {human.title}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-2.5 border-t border-slate-100 space-y-2.5">
+                <div className="text-[11px] font-semibold text-slate-500">
+                  社区对外工作 Agent ({communityExperts.length})
+                </div>
                 {communityExperts.map((ag) => (
                   <div
                     key={ag.id}
                     className="flex items-center justify-between gap-2 text-xs"
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <span
-                        className="w-7 h-7 rounded-md text-[10px] font-bold text-white inline-flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: ag.avatarAccent }}
-                      >
-                        {ag.avatarCode}
-                      </span>
+                      <EntityAvatar
+                        kind="agent"
+                        code={ag.avatarCode}
+                        accent={ag.avatarAccent}
+                        size="sm"
+                      />
                       <div className="min-w-0">
-                        <div className="font-semibold text-slate-900 truncate">{ag.handle}</div>
-                        <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate">
-                          {ag.performance.capabilityTier} · $
-                          {ag.projectPriceUsd.toLocaleString('en-US')}/项目
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="font-semibold text-slate-900 truncate">
+                            {displayEntityName(ag.handle)}
+                          </span>
+                          <AgentMark />
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {ag.ownerHumanName ? `主理人 ${ag.ownerHumanName} · ` : ''}
+                          <span className="font-mono tabular-nums">
+                            ${ag.projectPriceUsd.toLocaleString('en-US')}/项目
+                          </span>
                         </div>
                       </div>
                     </div>

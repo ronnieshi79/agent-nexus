@@ -4,10 +4,12 @@ import {
   INITIAL_AUDIT_LOGS,
   INITIAL_COMMUNITY_POSTS,
   INITIAL_EXPERT_AGENTS,
+  INITIAL_HUMAN_EXPERTS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
   INITIAL_SETTLEMENTS,
   INITIAL_TASKS,
+  INITIAL_TASK_SESSIONS,
   INITIAL_WORKSPACES,
   INITIAL_ZONES,
   INITIAL_ZONE_PROJECTS,
@@ -17,6 +19,7 @@ import {
   orchestrateGroupChat,
   sendExpertDirectMessage,
   sendPlatformAssistantMessage,
+  sendTaskSessionMessage,
 } from '../services/api';
 import type {
   ActiveChatChannel,
@@ -34,6 +37,7 @@ import type {
   PlatformServiceCategory,
   ProjectWorkspace,
   SettlementRecord,
+  TaskSessionMessage,
   TaskStatus,
   WorkCardType,
   WorkflowTask,
@@ -61,6 +65,7 @@ export interface CreateWorkCardInput {
 
 export function useAgentNexusStore() {
   const [zones] = useState(INITIAL_ZONES);
+  const [humanExperts] = useState(INITIAL_HUMAN_EXPERTS);
   const [activeZoneId, setActiveZoneId] = useState<string>('zone_public');
   const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>([
     'zone_hz_dnx',
@@ -83,6 +88,8 @@ export function useAgentNexusStore() {
   const [agents, setAgents] = useState<ExpertAgent[]>(INITIAL_EXPERT_AGENTS);
   const [allTasks, setAllTasks] = useState<WorkflowTask[]>(INITIAL_TASKS);
   const [allMessages, setAllMessages] = useState<ChatMessage[]>(INITIAL_MESSAGES);
+  const [taskSessions, setTaskSessions] =
+    useState<Record<string, TaskSessionMessage[]>>(INITIAL_TASK_SESSIONS);
   const [negotiations, setNegotiations] = useState<NegotiationThread[]>(INITIAL_NEGOTIATIONS);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
     INITIAL_ASSISTANT_MESSAGES,
@@ -92,6 +99,8 @@ export function useAgentNexusStore() {
 
   const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
   const [dmError, setDmError] = useState<string | null>(null);
+  const [taskSessionBusyId, setTaskSessionBusyId] = useState<string | null>(null);
+  const [taskSessionError, setTaskSessionError] = useState<string | null>(null);
   const [assistantBusy, setAssistantBusy] = useState(false);
 
   const [isAiBusy, setIsAiBusy] = useState(false);
@@ -1303,6 +1312,23 @@ export function useAgentNexusStore() {
             linkedTaskIds: [taskId],
           },
         ]);
+        setTaskSessions((prev) => {
+          const existing = prev[taskId] || [];
+          return {
+            ...prev,
+            [taskId]: [
+              ...existing,
+              {
+                id: `tsm_done_${Date.now()}`,
+                taskId,
+                sender: 'system',
+                content: `雇主已验收通过「${target.title}」，产物归档完成，验收结论已自动摘要回写至项目群聊。`,
+                timestamp: ts,
+                milestoneSynced: true,
+              },
+            ],
+          };
+        });
         setAuditLogs((prev) => [
           {
             id: `aud_ok_${Date.now()}`,
@@ -1317,6 +1343,256 @@ export function useAgentNexusStore() {
       }
     },
     [allTasks, workspaces],
+  );
+
+  const openTaskSession = useCallback(
+    (taskId: string) => {
+      const target = allTasks.find((t) => t.id === taskId);
+      if (!target) return;
+      const agent = agents.find((a) => a.id === target.assigneeId);
+
+      setTaskSessions((prev) => {
+        if (prev[taskId] && prev[taskId].length > 0) return prev;
+        return {
+          ...prev,
+          [taskId]: [
+            {
+              id: `tsm_init_${Date.now()}`,
+              taskId,
+              sender: 'agent',
+              content: `已进入 ${agent?.handle || target.assigneeHandle} 的任务执行 Session（#${target.id} · ${target.title}）。本 Session 支持多轮细节确认、代码/方案微调与边界追问，不会刷屏项目群；关键里程碑与验收节点我会自动摘要回写至项目群。请直接告诉我你最关心的约束条件或点击下方快捷选项开工。`,
+              timestamp: nowTimeStr(),
+              suggestedActions: [
+                '请先输出执行计划与需要确认的边界条件',
+                '按卡片规格直接开始执行并产出初版方案',
+              ],
+              awaitingConfirmation: target.status !== 'done',
+            },
+          ],
+        };
+      });
+
+      setActiveSessionId(target.sessionId);
+      setActiveChatChannel({ type: 'task_session', taskId, projectId: target.sessionId });
+      setActiveView('chat');
+      setTaskSessionError(null);
+    },
+    [agents, allTasks],
+  );
+
+  const openNegotiationsHub = useCallback(() => {
+    const firstThread = negotiations[0];
+    if (firstThread) {
+      setActiveChatChannel({ type: 'dm', agentId: firstThread.agentId });
+      setActiveView('chat');
+      return;
+    }
+    const fallbackAgent = agents.find((a) => a.isListedInMarket) || agents[0];
+    if (fallbackAgent) {
+      startOrOpenNegotiation(fallbackAgent.id, true);
+    }
+  }, [agents, negotiations, startOrOpenNegotiation]);
+
+  const sendTaskSessionTurn = useCallback(
+    async (taskId: string, rawText: string) => {
+      const cleaned = rawText.trim();
+      if (!cleaned) return;
+      const task = allTasks.find((t) => t.id === taskId);
+      if (!task) return;
+
+      const assignedAgent = agents.find((a) => a.id === task.assigneeId);
+      const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
+      const prevHistory = taskSessions[taskId] || [];
+      const ts = nowTimeStr();
+
+      setTaskSessionError(null);
+      setTaskSessionBusyId(taskId);
+
+      const userTurn: TaskSessionMessage = {
+        id: `tsm_u_${Date.now()}`,
+        taskId,
+        sender: 'employer',
+        content: cleaned,
+        timestamp: ts,
+      };
+
+      // Clear previous awaitingConfirmation flags and append employer message
+      const nextHistory: TaskSessionMessage[] = [
+        ...prevHistory.map((m) => (m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m)),
+        userTurn,
+      ];
+
+      setTaskSessions((prev) => ({
+        ...prev,
+        [taskId]: nextHistory,
+      }));
+
+      // If task was pending, move to in_progress and emit one concise milestone start broadcast to project group
+      if (task.status === 'pending') {
+        setAllTasks((prev) =>
+          prev.map((t) => (t.id === taskId ? { ...t, status: 'in_progress', updatedAt: ts } : t)),
+        );
+        setAllMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_ts_start_${Date.now()}`,
+            sessionId: task.sessionId,
+            senderType: 'system',
+            senderId: 'system',
+            senderName: 'Agent 任务里程碑同步',
+            senderHandle: '里程碑同步',
+            content: `${assignedAgent?.handle || task.assigneeHandle} 已在 Agent 任务 Session #${task.id} 启动执行「${task.title}」（过程细节保留在 Session 内，待验收时自动回写结论）。`,
+            timestamp: ts,
+            linkedTaskIds: [taskId],
+          },
+        ]);
+      }
+
+      try {
+        const result = await sendTaskSessionMessage({
+          task: { ...task, status: task.status === 'pending' ? 'in_progress' : task.status },
+          agent: assignedAgent,
+          workspace: taskWorkspace,
+          history: nextHistory,
+          message: cleaned,
+        });
+
+        const replyTs = nowTimeStr();
+        const shouldSyncMilestone = Boolean(result.readyForReview);
+
+        const agentTurn: TaskSessionMessage = {
+          id: `tsm_a_${Date.now()}`,
+          taskId,
+          sender: 'agent',
+          content: result.reply,
+          timestamp: replyTs,
+          executionSteps: (result.executionSteps || []).filter(Boolean),
+          artifactPath: result.artifactPath?.trim() || undefined,
+          artifactSnippet: result.artifactSnippet?.trim() || undefined,
+          suggestedActions: (result.suggestedActions || []).filter(Boolean),
+          awaitingConfirmation: Boolean(result.awaitingConfirmation),
+          milestoneSynced: shouldSyncMilestone,
+        };
+
+        setTaskSessions((prev) => ({
+          ...prev,
+          [taskId]: [...(prev[taskId] || nextHistory), agentTurn],
+        }));
+
+        if (shouldSyncMilestone) {
+          const finalArtifact =
+            result.artifactPath?.trim() || task.deliverableArtifact || `artifacts/${task.id}_deliverable.md`;
+          const milestoneText =
+            result.groupMilestoneSummary?.trim() ||
+            `已完成「${task.title}」本轮 Agent Session 迭代并提交待验收（产物：${finalArtifact}）。`;
+
+          setAllTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId
+                ? {
+                    ...t,
+                    status: t.status === 'done' ? 'done' : 'review',
+                    deliverableSummary: result.reply,
+                    deliverableArtifact: finalArtifact,
+                    updatedAt: replyTs,
+                  }
+                : t,
+            ),
+          );
+
+          setAllMessages((prev) => [
+            ...prev,
+            {
+              id: `msg_ts_rev_${Date.now()}`,
+              sessionId: task.sessionId,
+              senderType: 'agent',
+              senderId: assignedAgent?.id || 'butler',
+              senderName: assignedAgent?.name || 'Nexa 助理',
+              senderHandle: assignedAgent?.handle || task.assigneeHandle,
+              content: `【Agent 任务里程碑】${milestoneText}`,
+              timestamp: replyTs,
+              linkedTaskIds: [taskId],
+            },
+          ]);
+
+          setAuditLogs((prev) => [
+            {
+              id: `aud_ts_${Date.now()}`,
+              category: 'audit',
+              title: `Agent 任务交付就绪待验收：${task.title}`,
+              detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已在 Session #${task.id} 完成迭代并回写群聊摘要。`,
+              severity: 'warning',
+              timestamp: replyTs,
+            },
+            ...prev,
+          ]);
+        } else if (result.artifactPath?.trim()) {
+          setAllTasks((prev) =>
+            prev.map((t) =>
+              t.id === taskId
+                ? {
+                    ...t,
+                    deliverableArtifact: result.artifactPath.trim(),
+                    updatedAt: replyTs,
+                  }
+                : t,
+            ),
+          );
+        }
+      } catch (err) {
+        setTaskSessionError(err instanceof Error ? err.message : 'Agent 任务 Session 调用失败');
+      } finally {
+        setTaskSessionBusyId(null);
+      }
+    },
+    [activeWorkspace, agents, allTasks, taskSessions, workspaces],
+  );
+
+  const syncTaskSummaryToGroup = useCallback(
+    (taskId: string, customNote?: string) => {
+      const task = allTasks.find((t) => t.id === taskId);
+      if (!task) return;
+      const assignedAgent = agents.find((a) => a.id === task.assigneeId);
+      const history = taskSessions[taskId] || [];
+      const lastAgentTurn = [...history].reverse().find((m) => m.sender === 'agent');
+      const ts = nowTimeStr();
+      const summary =
+        customNote?.trim() ||
+        (lastAgentTurn
+          ? lastAgentTurn.content.slice(0, 88) + (lastAgentTurn.content.length > 88 ? '...' : '')
+          : `「${task.title}」已在 Agent Session 同步阶段进展。`);
+
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_ts_sync_${Date.now()}`,
+          sessionId: task.sessionId,
+          senderType: 'agent',
+          senderId: assignedAgent?.id || 'butler',
+          senderName: assignedAgent?.name || 'Nexa 助理',
+          senderHandle: assignedAgent?.handle || task.assigneeHandle,
+          content: `【Agent 任务阶段同步】${summary}${task.deliverableArtifact ? `（产物：${task.deliverableArtifact}）` : ''}`,
+          timestamp: ts,
+          linkedTaskIds: [taskId],
+        },
+      ]);
+
+      setTaskSessions((prev) => ({
+        ...prev,
+        [taskId]: [
+          ...(prev[taskId] || []),
+          {
+            id: `tsm_sync_${Date.now()}`,
+            taskId,
+            sender: 'system',
+            content: '已将本轮阶段结论手动摘要回写至所属项目群聊。',
+            timestamp: ts,
+            milestoneSynced: true,
+          },
+        ],
+      }));
+    },
+    [agents, allTasks, taskSessions],
   );
 
   const runAutonomousTask = useCallback(
@@ -1357,6 +1633,29 @@ export function useAgentNexusStore() {
               : t,
           ),
         );
+
+        setTaskSessions((prev) => ({
+          ...prev,
+          [taskId]: [
+            ...(prev[taskId] || []).map((m) =>
+              m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m,
+            ),
+            {
+              id: `tsm_exec_${Date.now()}`,
+              taskId,
+              sender: 'agent',
+              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验收」并自动回写摘要至项目群。如需继续修改细节或追加边界测试，可直接在当前 Agent 任务 Session 向我提出。`,
+              timestamp: ts,
+              artifactPath: result.deliverableArtifact,
+              suggestedActions: [
+                '补充高并发边界单测后再定稿',
+                '已复核产物，确认验收通过',
+              ],
+              awaitingConfirmation: true,
+              milestoneSynced: true,
+            },
+          ],
+        }));
 
         setAuditLogs((prev) => [
           {
@@ -1419,6 +1718,17 @@ export function useAgentNexusStore() {
     [zoneProjects],
   );
 
+  const awaitingTaskSessionCount = useMemo(
+    () =>
+      allTasks.filter((t) => {
+        if (t.status === 'done') return false;
+        const msgs = taskSessions[t.id] || [];
+        const last = msgs[msgs.length - 1];
+        return Boolean(last?.awaitingConfirmation) || t.status === 'review';
+      }).length,
+    [allTasks, taskSessions],
+  );
+
   return {
     zones,
     activeZoneId,
@@ -1443,6 +1753,8 @@ export function useAgentNexusStore() {
     toggleLikePost,
     addPostComment,
     openAssistantChat,
+    openTaskSession,
+    openNegotiationsHub,
     openKanbanForProject,
     openCommunityDiscover,
     openMarketForZone,
@@ -1453,6 +1765,7 @@ export function useAgentNexusStore() {
     discoverZoneSeed,
     clearDiscoverZoneSeed: () => setDiscoverZoneSeed(null),
     agents,
+    humanExperts,
     marketplaceAgents,
     totalMarketExpertsCount,
     privateAgents,
@@ -1462,6 +1775,13 @@ export function useAgentNexusStore() {
     sessionTasks,
     allMessages,
     sessionMessages,
+    taskSessions,
+    taskSessionBusyId,
+    taskSessionError,
+    clearTaskSessionError: () => setTaskSessionError(null),
+    awaitingTaskSessionCount,
+    sendTaskSessionTurn,
+    syncTaskSummaryToGroup,
     negotiations,
     activeNegotiationCount,
     assistantMessages,

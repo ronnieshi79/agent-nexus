@@ -9,11 +9,13 @@ import type {
   PlatformAuditLog,
   ProjectWorkspace,
   SettlementRecord,
+  TaskSessionMessage,
   WorkflowTask,
 } from '../../types/agentnexus';
 import { GroupChatView } from '../views/GroupChatView';
 import { DirectNegotiationPane } from './DirectNegotiationPane';
 import { PlatformAssistantPane } from './PlatformAssistantPane';
+import { TaskSessionPane } from './TaskSessionPane';
 
 interface UnifiedChatViewProps {
   activeChannel: ActiveChatChannel;
@@ -22,8 +24,12 @@ interface UnifiedChatViewProps {
   agents: ExpertAgent[];
   hiredAgents: ExpertAgent[];
   privateAgents: ExpertAgent[];
+  allTasks: WorkflowTask[];
   sessionMessages: ChatMessage[];
   sessionTasks: WorkflowTask[];
+  taskSessions: Record<string, TaskSessionMessage[]>;
+  taskSessionBusyId: string | null;
+  taskSessionError: string | null;
   negotiations: NegotiationThread[];
   assistantMessages: AssistantMessage[];
   settlements: SettlementRecord[];
@@ -37,6 +43,11 @@ interface UnifiedChatViewProps {
   draftSeed: string;
   onClearDraftSeed: () => void;
   onClearDmError: () => void;
+  onClearTaskSessionError: () => void;
+  onSelectProjectChat: (projectId: string) => void;
+  onOpenTaskSession: (taskId: string) => void;
+  onSendTaskSessionTurn: (taskId: string, text: string) => Promise<void>;
+  onSyncTaskSummaryToGroup: (taskId: string) => void;
   onStartNegotiation: (agentId: string) => void;
   onSendGroupMessage: (text: string) => Promise<void>;
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
@@ -68,8 +79,12 @@ export function UnifiedChatView({
   agents,
   hiredAgents,
   privateAgents,
+  allTasks,
   sessionMessages,
   sessionTasks,
+  taskSessions,
+  taskSessionBusyId,
+  taskSessionError,
   negotiations,
   assistantMessages,
   settlements,
@@ -83,6 +98,11 @@ export function UnifiedChatView({
   draftSeed,
   onClearDraftSeed,
   onClearDmError,
+  onClearTaskSessionError,
+  onSelectProjectChat,
+  onOpenTaskSession,
+  onSendTaskSessionTurn,
+  onSyncTaskSummaryToGroup,
   onStartNegotiation,
   onSendGroupMessage,
   onCreateWorkCard,
@@ -106,31 +126,29 @@ export function UnifiedChatView({
     ? agents.find((a) => a.id === activeDmThread.agentId) || null
     : null;
 
+  const activeTask =
+    activeChannel.type === 'task_session'
+      ? allTasks.find((t) => t.id === activeChannel.taskId) || allTasks[0] || null
+      : null;
+  const activeTaskWorkspace = activeTask
+    ? workspaces.find((w) => w.id === activeTask.sessionId) || activeWorkspace
+    : activeWorkspace;
+  const activeTaskAgent = activeTask
+    ? agents.find((a) => a.id === activeTask.assigneeId) || null
+    : null;
+  const activeTaskSiblings = activeTask
+    ? allTasks.filter((t) => t.sessionId === activeTask.sessionId)
+    : [];
+
   return (
     <div className="h-full w-full overflow-hidden bg-white">
-      {activeChannel.type === 'assistant' && (
-        <PlatformAssistantPane
-          messages={assistantMessages}
-          settlements={settlements}
-          auditLogs={auditLogs}
-          privateAgents={privateAgents}
-          account={account}
-          isBusy={isAssistantBusy}
-          onSendMessage={onSendAssistantMessage}
-          onSettleRecord={onSettleRecord}
-          onSettleAll={onSettleAll}
-          onOpenDm={(agentId) => onStartNegotiation(agentId)}
-          onOpenKanban={onJumpToKanban}
-          onOpenTeam={onJumpToTeam}
-        />
-      )}
-
       {activeChannel.type === 'group' && (
         <GroupChatView
           workspace={activeWorkspace}
           hiredAgents={hiredAgents}
           messages={sessionMessages}
           tasks={sessionTasks}
+          taskSessions={taskSessions}
           account={account}
           isBusy={isGroupBusy}
           executingTaskId={executingTaskId}
@@ -140,9 +158,32 @@ export function UnifiedChatView({
           onCreateWorkCard={onCreateWorkCard}
           onRunTask={onRunTask}
           onApproveTask={onApproveTask}
+          onOpenTaskSession={onOpenTaskSession}
           onJumpToMarket={onJumpToMarket}
           onJumpToKanban={() => onJumpToKanban(activeWorkspace.id)}
           onJumpToTeam={onJumpToTeam}
+        />
+      )}
+
+      {activeChannel.type === 'task_session' && activeTask && (
+        <TaskSessionPane
+          task={activeTask}
+          workspace={activeTaskWorkspace}
+          agent={activeTaskAgent}
+          siblingTasks={activeTaskSiblings}
+          messages={taskSessions[activeTask.id] || []}
+          allTaskSessions={taskSessions}
+          account={account}
+          isBusy={taskSessionBusyId === activeTask.id}
+          isExecuting={executingTaskId === activeTask.id}
+          error={taskSessionError}
+          onClearError={onClearTaskSessionError}
+          onSendTurn={onSendTaskSessionTurn}
+          onRunTask={onRunTask}
+          onApproveTask={onApproveTask}
+          onSyncSummaryToGroup={onSyncTaskSummaryToGroup}
+          onBackToGroup={onSelectProjectChat}
+          onSelectTaskSession={onOpenTaskSession}
         />
       )}
 
@@ -158,6 +199,23 @@ export function UnifiedChatView({
           onSendMessage={onSendDm}
           onUpdateTerms={onUpdateNegotiationTerms}
           onConfirmHire={onConfirmHire}
+        />
+      )}
+
+      {activeChannel.type === 'assistant' && (
+        <PlatformAssistantPane
+          messages={assistantMessages}
+          settlements={settlements}
+          auditLogs={auditLogs}
+          privateAgents={privateAgents}
+          account={account}
+          isBusy={isAssistantBusy}
+          onSendMessage={onSendAssistantMessage}
+          onSettleRecord={onSettleRecord}
+          onSettleAll={onSettleAll}
+          onOpenDm={(agentId) => onStartNegotiation(agentId)}
+          onOpenKanban={onJumpToKanban}
+          onOpenTeam={onJumpToTeam}
         />
       )}
     </div>

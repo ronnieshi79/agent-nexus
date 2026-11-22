@@ -6,6 +6,7 @@ import {
   ClipboardPlus,
   FileCode2,
   FolderKanban,
+  MessageSquareCode,
   Play,
   Send,
   Sparkles,
@@ -18,10 +19,12 @@ import type {
   ChatMessage,
   ExpertAgent,
   ProjectWorkspace,
+  TaskSessionMessage,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
+import { AgentMark, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
 import { WORK_STATUS_META, WorkCardStageBar } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
@@ -29,6 +32,7 @@ interface GroupChatViewProps {
   hiredAgents: ExpertAgent[];
   messages: ChatMessage[];
   tasks: WorkflowTask[];
+  taskSessions: Record<string, TaskSessionMessage[]>;
   account: AgentNexusAccount | null;
   isBusy: boolean;
   executingTaskId: string | null;
@@ -38,6 +42,7 @@ interface GroupChatViewProps {
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
   onApproveTask: (taskId: string) => void;
+  onOpenTaskSession: (taskId: string) => void;
   onJumpToMarket: () => void;
   onJumpToKanban: () => void;
   onJumpToTeam: () => void;
@@ -55,6 +60,7 @@ export function GroupChatView({
   hiredAgents,
   messages,
   tasks,
+  taskSessions,
   account,
   isBusy,
   executingTaskId,
@@ -64,6 +70,7 @@ export function GroupChatView({
   onCreateWorkCard,
   onRunTask,
   onApproveTask,
+  onOpenTaskSession,
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
@@ -222,35 +229,39 @@ export function GroupChatView({
                   key={msg.id}
                   className={`flex gap-3 ${isEmployer ? 'flex-row-reverse' : 'flex-row'}`}
                 >
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 ${
+                  <EntityAvatar
+                    kind={isEmployer ? 'human' : isButler ? 'assistant' : 'agent'}
+                    code={
                       isEmployer
-                        ? 'bg-slate-900 text-white'
+                        ? account?.avatarInitials || '我'
                         : isButler
-                          ? 'bg-blue-600 text-white'
-                          : 'text-white'
-                    }`}
-                    style={
-                      !isEmployer && !isButler
-                        ? { backgroundColor: agentObj?.avatarAccent || '#334155' }
-                        : undefined
+                          ? 'NX'
+                          : agentObj?.avatarCode || 'AI'
                     }
-                  >
-                    {isEmployer ? account?.avatarInitials || '我' : isButler ? 'NX' : agentObj?.avatarCode || 'AG'}
-                  </div>
+                    accent={isEmployer ? '#0f172a' : agentObj?.avatarAccent || '#334155'}
+                    size="md"
+                    showCornerMark={!isEmployer && !isButler}
+                  />
 
                   <div
                     className={`min-w-0 max-w-[86%] ${
                       isEmployer ? 'items-end' : 'items-start'
                     } flex flex-col`}
                   >
-                    <div className="flex items-center gap-2 text-xs mb-1">
-                      <span className="font-semibold text-slate-900">{msg.senderHandle}</span>
-                      {!isEmployer && (
-                        <>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="text-slate-500">{msg.senderName}</span>
-                        </>
+                    <div className="flex items-center gap-1.5 text-xs mb-1 flex-wrap">
+                      <span className="font-semibold text-slate-900">
+                        {isEmployer
+                          ? account?.name || displayEntityName(msg.senderHandle)
+                          : displayEntityName(msg.senderHandle)}
+                      </span>
+                      {!isEmployer && <AgentMark label={isButler ? '助理' : 'AI'} />}
+                      {!isEmployer && !isButler && agentObj?.ownerHumanName && (
+                        <span className="text-[11px] text-slate-400">
+                          · 主理人 {agentObj.ownerHumanName}
+                        </span>
+                      )}
+                      {isButler && (
+                        <span className="text-slate-500">· {msg.senderName}</span>
                       )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
                     </div>
@@ -264,12 +275,16 @@ export function GroupChatView({
                     >
                       <p className="whitespace-pre-wrap">{msg.content}</p>
 
-                      {/* Lightweight inline task status reference (natural conversation, no heavy buttons or bars) */}
+                      {/* Lightweight inline task card reference with 1-click jump to 1v1 Task Session */}
                       {linkedTasks.length > 0 && (
                         <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1">
                           {linkedTasks.map((task) => {
                             const isExec = executingTaskId === task.id;
                             const st = WORK_STATUS_META[task.status];
+                            const sessionMsgs = taskSessions[task.id] || [];
+                            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+                            const needsConfirm =
+                              task.status !== 'done' && Boolean(lastMsg?.awaitingConfirmation);
                             return (
                               <div
                                 key={task.id}
@@ -277,11 +292,9 @@ export function GroupChatView({
                               >
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    setRightOpen(true);
-                                    setRightTab('tasks');
-                                  }}
-                                  className="flex items-center gap-2 min-w-0 text-left text-slate-700 hover:text-slate-950 cursor-pointer"
+                                  onClick={() => onOpenTaskSession(task.id)}
+                                  title="进入负责 Agent 的任务执行 Session"
+                                  className="flex items-center gap-2 min-w-0 text-left text-slate-700 hover:text-blue-700 cursor-pointer"
                                 >
                                   <span
                                     className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.activeSegmentCls} ${
@@ -295,6 +308,24 @@ export function GroupChatView({
                                   <span className={`font-medium ${st.textCls}`}>
                                     {isExec ? '正在执行' : st.label}
                                   </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTaskSession(task.id)}
+                                    className={`inline-flex items-center gap-1 font-semibold cursor-pointer hover:underline underline-offset-2 ${
+                                      needsConfirm
+                                        ? 'text-amber-700 hover:text-amber-900'
+                                        : 'text-indigo-600 hover:text-indigo-800'
+                                    }`}
+                                  >
+                                    <MessageSquareCode className="w-3 h-3" />
+                                    <span>
+                                      {needsConfirm
+                                        ? 'Agent 待确认'
+                                        : sessionMsgs.length > 0
+                                          ? `Agent 任务 (${sessionMsgs.length})`
+                                          : 'Agent 任务'}
+                                    </span>
+                                  </button>
                                   {task.status === 'pending' && (
                                     <button
                                       type="button"
@@ -429,7 +460,7 @@ export function GroupChatView({
                   >
                     {hiredAgents.map((a) => (
                       <option key={a.id} value={a.id}>
-                        指派：{a.handle}
+                        指派：{displayEntityName(a.handle)}（AI）
                       </option>
                     ))}
                   </select>
@@ -631,6 +662,10 @@ export function GroupChatView({
                       {moduleTasks.map((task) => {
                         const isExec = executingTaskId === task.id;
                         const st = WORK_STATUS_META[task.status];
+                        const sessionMsgs = taskSessions[task.id] || [];
+                        const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+                        const needsConfirm =
+                          task.status !== 'done' && Boolean(lastMsg?.awaitingConfirmation);
                         return (
                           <div
                             key={task.id}
@@ -645,15 +680,24 @@ export function GroupChatView({
                               </span>
                             </div>
 
-                            <div className="text-xs font-semibold text-slate-900 leading-snug">
+                            <button
+                              type="button"
+                              onClick={() => onOpenTaskSession(task.id)}
+                              className="text-left text-xs font-semibold text-slate-900 hover:text-blue-700 leading-snug cursor-pointer"
+                            >
                               {task.title}
-                            </div>
+                            </button>
 
                             <WorkCardStageBar status={task.status} />
 
                             <div className="flex items-center justify-between text-[11px] text-slate-500">
-                              <span>{task.assigneeHandle}</span>
-                              <span className="font-mono tabular-nums">
+                              <span className="inline-flex items-center gap-1 min-w-0">
+                                <span className="font-medium text-slate-700 truncate">
+                                  {displayEntityName(task.assigneeHandle)}
+                                </span>
+                                <AgentMark />
+                              </span>
+                              <span className="font-mono tabular-nums shrink-0">
                                 {task.priority}优 · {task.updatedAt}
                               </span>
                             </div>
@@ -665,33 +709,54 @@ export function GroupChatView({
                               </div>
                             )}
 
-                            {task.status === 'pending' && (
+                            <div className="flex items-center gap-2 pt-0.5">
                               <button
                                 type="button"
-                                disabled={Boolean(executingTaskId)}
-                                onClick={() => onRunTask(task.id)}
-                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45"
+                                onClick={() => onOpenTaskSession(task.id)}
+                                className={`flex-1 inline-flex items-center justify-center gap-1.5 py-1.5 px-2.5 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap cursor-pointer ${
+                                  needsConfirm
+                                    ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100/70'
+                                    : 'bg-slate-50 border-slate-200 text-slate-800 hover:bg-slate-100 hover:border-slate-300'
+                                }`}
                               >
-                                <Play className="w-3 h-3" />
-                                <span>{isExec ? '正在执行中...' : '批准执行'}</span>
+                                <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
+                                <span>
+                                  {needsConfirm
+                                    ? 'Agent 待确认'
+                                    : sessionMsgs.length > 0
+                                      ? `进入 Agent 任务 (${sessionMsgs.length})`
+                                      : '进入 Agent 任务'}
+                                </span>
                               </button>
-                            )}
+
+                              {task.status === 'pending' && (
+                                <button
+                                  type="button"
+                                  disabled={Boolean(executingTaskId)}
+                                  onClick={() => onRunTask(task.id)}
+                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
+                                >
+                                  <Play className="w-3 h-3" />
+                                  <span>{isExec ? '执行中' : '批准执行'}</span>
+                                </button>
+                              )}
+
+                              {task.status === 'review' && (
+                                <button
+                                  type="button"
+                                  onClick={() => onApproveTask(task.id)}
+                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>验收通过</span>
+                                </button>
+                              )}
+                            </div>
 
                             {task.status === 'in_progress' && (
-                              <div className="w-full text-center py-1.5 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50">
-                                正在执行中 · 沙箱运行并同步产物...
+                              <div className="w-full text-center py-1 rounded-lg text-[11px] font-medium text-blue-700 bg-blue-50">
+                                正在执行中 · 可进入 Agent Session 多轮调试
                               </div>
-                            )}
-
-                            {task.status === 'review' && (
-                              <button
-                                type="button"
-                                onClick={() => onApproveTask(task.id)}
-                                className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>验收通过</span>
-                              </button>
                             )}
 
                             {task.status === 'done' && (
@@ -729,17 +794,24 @@ export function GroupChatView({
                     className="bg-white rounded-xl p-3.5 border border-slate-200/90 space-y-2"
                   >
                     <div className="flex items-center gap-2.5">
-                      <div
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold text-white shrink-0"
-                        style={{ backgroundColor: agent.avatarAccent }}
-                      >
-                        {agent.avatarCode}
-                      </div>
+                      <EntityAvatar
+                        kind="agent"
+                        code={agent.avatarCode}
+                        accent={agent.avatarAccent}
+                        size="md"
+                      />
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-bold text-slate-900 truncate">
-                          {agent.handle}
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {displayEntityName(agent.handle)}
+                          </span>
+                          <AgentMark />
                         </div>
-                        <div className="text-[11px] text-slate-500 truncate">{agent.title}</div>
+                        <div className="text-[11px] text-slate-500 truncate">
+                          {agent.ownerHumanName
+                            ? `主理人：${agent.ownerHumanName} · ${agent.title}`
+                            : agent.title}
+                        </div>
                       </div>
                     </div>
 

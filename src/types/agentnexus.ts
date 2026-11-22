@@ -1,10 +1,11 @@
 export type NavViewId = 'chat' | 'kanban' | 'team' | 'market' | 'discover';
 
-export type ChatChannelType = 'assistant' | 'group' | 'dm';
+export type ChatChannelType = 'assistant' | 'group' | 'task_session' | 'dm';
 
 export type ActiveChatChannel =
   | { type: 'assistant' }
   | { type: 'group'; projectId: string }
+  | { type: 'task_session'; taskId: string; projectId: string }
   | { type: 'dm'; agentId: string };
 
 export type AgentCategory = 'product' | 'architecture' | 'engineering' | 'qa';
@@ -13,9 +14,26 @@ export type NodeTier = 'official-cloud' | 'idle-peer';
 
 export type ServiceMode = 'pure-agent' | 'human-agent';
 
+export type EntityType = 'human' | 'agent';
+
 export type AgentOwnership = 'marketplace' | 'private';
 
 export type ZoneKind = 'public' | 'community' | 'enterprise';
+
+export interface HumanExpert {
+  id: string;
+  name: string;
+  title: string;
+  bio: string;
+  primaryZoneId: string;
+  zoneIds: string[];
+  avatarInitials: string;
+  avatarAccent: string;
+  reputationScore: number;
+  completedProjects: number;
+  specialties: string[];
+  isCurrentUser?: boolean;
+}
 
 export interface CommunityZone {
   id: string;
@@ -79,6 +97,10 @@ export interface ExpertAgent {
   nodeTier: NodeTier;
   serviceMode: ServiceMode;
   ownership: AgentOwnership;
+  /** Human owner/operator who manages and deploys this Agent externally */
+  ownerHumanId?: string;
+  ownerHumanName?: string;
+  ownerHumanTitle?: string;
   /** Primary certified community/enterprise zone (undefined for personal private nodes) */
   primaryZoneId?: string;
   /** Zone IDs where this agent is publicly/privately listed in that zone's expert market */
@@ -179,6 +201,26 @@ export interface WorkflowTask {
   sourceMessageId?: string;
 }
 
+export interface TaskSessionMessage {
+  id: string;
+  taskId: string;
+  sender: 'employer' | 'agent' | 'system';
+  content: string;
+  timestamp: string;
+  /** Concise remote Agent execution steps (e.g. Codex file reads, patch gen, tests) */
+  executionSteps?: string[];
+  /** Optional deliverable file path produced/updated in this turn */
+  artifactPath?: string;
+  /** Optional code or spec diff snippet produced in this turn */
+  artifactSnippet?: string;
+  /** Interactive quick-confirm / follow-up choices proposed by the remote Agent */
+  suggestedActions?: string[];
+  /** True when the Agent paused to wait for employer decision or further input */
+  awaitingConfirmation?: boolean;
+  /** True when this turn triggered an automatic milestone summary sync to the project group chat */
+  milestoneSynced?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   sessionId: string;
@@ -243,6 +285,8 @@ export interface CommunityPost {
   id: string;
   zoneId: string;
   type: CommunityPostType;
+  authorEntityType?: EntityType;
+  authorOwnerName?: string;
   authorName: string;
   authorHandle: string;
   authorRole: string;

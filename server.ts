@@ -596,6 +596,105 @@ ${recentMessages
     }
   });
 
+  // 7. Dedicated 1v1 Task Card Multi-Turn Agent Session (Codex-style remote execution & confirmation)
+  app.post('/api/chat/task-session', async (req, res) => {
+    try {
+      const {
+        task,
+        agent,
+        workspace,
+        history = [],
+        message = '',
+      } = req.body ?? {};
+      const ai = getGeminiClient();
+
+      const historyText = history
+        .slice(-10)
+        .map((m: { sender: string; content: string; artifactPath?: string }) => {
+          const speaker = m.sender === 'employer' ? '雇主' : m.sender === 'system' ? '系统' : agent?.handle || '专家Agent';
+          return `${speaker}: ${m.content}${m.artifactPath ? ` [产物: ${m.artifactPath}]` : ''}`;
+        })
+        .join('\n');
+
+      const prompt = `
+你正在 AgentNexus 的「任务卡片 1v1 专聊模式（Task Session）」中，直接与雇主进行多轮深度执行对话（类似远程 Codex / 专业研发审查 Agent 的独立工作会话，所有中间过程与方案确认都在本专聊内完成，不刷屏项目群）。
+
+你的身份：
+- 角色：${agent?.handle ?? '@全栈开发员'}（${agent?.name ?? '专业执行专家'}）
+- 服务模式：${agent?.serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用'}
+- 擅长技能：${(agent?.skills ?? []).join('、')}
+- 已装配 MCP 工具：${(agent?.mcpTools ?? []).join('、')}
+
+当前任务卡片上下文：
+- 所属项目：${workspace?.name ?? ''}（目标：${workspace?.goal ?? ''}）
+- 所属模块：${task?.featureModule ?? '核心模块'}
+- 任务标题：${task?.title ?? ''}
+- 任务规格：${task?.description ?? ''}
+- 当前状态：${task?.status ?? 'in_progress'}
+- 已有产物：${task?.deliverableArtifact ?? '尚未生成'}
+
+历史 1v1 专聊记录：
+${historyText || '（刚刚开启本任务卡片的 1v1 专聊）'}
+
+雇主刚刚发送的最新指令/反馈：
+"${message}"
+
+请严格遵循以下协作行为：
+1. 像真实的远程工程/产品/架构/测试 Agent（如 Codex）一样，直接回应雇主的具体问题、给出本轮执行的 2~4 个简明步骤（executionSteps），以及必要时的真实代码片段/伪代码/接口契约/测试用例（artifactSnippet）和对应产物路径（artifactPath）。
+2. 如果仍存在值得雇主拍板的边界条件、方案二选一，或刚改完待确认，请给出 2~3 个简短可直接点击发送的下一步快捷选项（suggestedActions，每项 6~18 字），并设 awaitingConfirmation = true。
+3. 如果雇主明确要求「准备提交验收」「定稿提交」「没问题了收尾」或本轮已完成完整可验收交付，则设 readyForReview = true，并在 groupMilestoneSummary 中输出一条 35~65 字的精炼中文里程碑汇报（系统会自动将其摘要回写到所属项目群聊）；否则 readyForReview = false，groupMilestoneSummary 留空字符串。
+4. 严禁提及任何 Token 消耗或按次任务几美元计费，全程使用专业、自然、高效的中文工程口吻。
+`;
+
+      const response = await runWithRetry(() =>
+        ai.models.generateContent({
+          model: MODEL,
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                reply: { type: Type.STRING, description: '给雇主的本轮深度响应与说明（70~180 汉字）' },
+                executionSteps: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: '2~4 条本轮实际执行动作（如读取文件、修改状态机、跑边界单测）',
+                },
+                artifactPath: { type: Type.STRING, description: '更新或产出的工作区文件路径，无则空字符串' },
+                artifactSnippet: { type: Type.STRING, description: '关键代码变更、接口契约或测试断言片段（不超过 12 行），无则空字符串' },
+                suggestedActions: {
+                  type: Type.ARRAY,
+                  items: { type: Type.STRING },
+                  description: '2~3 个可供雇主一键点击的下一步确认或追问选项',
+                },
+                awaitingConfirmation: { type: Type.BOOLEAN },
+                readyForReview: { type: Type.BOOLEAN },
+                groupMilestoneSummary: { type: Type.STRING, description: '仅当 readyForReview 为 true 时填写 35~65 字回写项目群的里程碑摘要，否则空字符串' },
+              },
+              required: [
+                'reply',
+                'executionSteps',
+                'artifactPath',
+                'artifactSnippet',
+                'suggestedActions',
+                'awaitingConfirmation',
+                'readyForReview',
+                'groupMilestoneSummary',
+              ],
+            },
+          },
+        }),
+      );
+
+      res.json(JSON.parse((response.text ?? '{}').trim()));
+    } catch (err) {
+      const { status, message } = formatApiError(err);
+      res.status(status).json({ error: message });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

@@ -17,6 +17,7 @@ import type {
   PlatformServiceCategory,
   SettlementRecord,
 } from '../../types/agentnexus';
+import { AgentMark, displayEntityName } from '../shared/EntityIdentity';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface PlatformAssistantPaneProps {
@@ -351,8 +352,9 @@ export function PlatformAssistantPane({
                     className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5"
                   >
                     <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-semibold text-slate-900 truncate">
-                        {s.agentHandle}
+                      <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
+                        <span className="truncate">{displayEntityName(s.agentHandle)}</span>
+                        <AgentMark />
                       </span>
                       <span className="font-mono tabular-nums font-bold text-slate-900 shrink-0">
                         ${Math.round(s.amountUsd).toLocaleString('en-US')}
