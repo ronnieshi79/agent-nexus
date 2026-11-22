@@ -77,6 +77,11 @@ export function useAgentNexusStore() {
   const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);
   const [zoneProjects, setZoneProjects] = useState<ZoneProjectOpportunity[]>(INITIAL_ZONE_PROJECTS);
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(INITIAL_COMMUNITY_POSTS);
+  const [followedEntityKeys, setFollowedEntityKeys] = useState<string[]>([
+    'human:陈可心',
+    'human:沈知行',
+    'agent:架构审查员',
+  ]);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
 
   // Unified Chat Channel: Platform Assistant | Project Group | External Expert DM
@@ -485,8 +490,7 @@ export function useAgentNexusStore() {
       const cleanedTitle = input.title.trim() || cleanedContent.slice(0, 32);
       if (!cleanedContent) return;
       const defaultTagMap: Record<Exclude<CommunityPostType, 'project'>, string> = {
-        tech: '技术讨论',
-        business: '商业分析',
+        discussion: '分享讨论',
         agn_recommend: 'AGN 推荐',
         announcement: '社区公告',
       };
@@ -1769,6 +1773,12 @@ export function useAgentNexusStore() {
     [allTasks, taskSessions],
   );
 
+  const toggleFollowEntity = useCallback((entityKey: string) => {
+    setFollowedEntityKeys((prev) =>
+      prev.includes(entityKey) ? prev.filter((k) => k !== entityKey) : [entityKey, ...prev],
+    );
+  }, []);
+
   return {
     zones,
     activeZoneId,
@@ -1793,6 +1803,8 @@ export function useAgentNexusStore() {
     togglePinPost,
     toggleLikePost,
     addPostComment,
+    followedEntityKeys,
+    toggleFollowEntity,
     openAssistantChat,
     openTaskSession,
     openNegotiationsHub,

@@ -210,11 +210,13 @@ export default function App() {
               joinedZoneIds={store.joinedZoneIds}
               zoneProjects={store.zoneProjects}
               communityPosts={store.communityPosts}
+              followedEntityKeys={store.followedEntityKeys}
               allAgents={store.agents}
               humanExperts={store.humanExperts}
               zoneSeed={store.discoverZoneSeed}
               onClearZoneSeed={store.clearDiscoverZoneSeed}
               onToggleJoinZone={store.toggleJoinZone}
+              onToggleFollowEntity={store.toggleFollowEntity}
               onCreatePost={store.createCommunityPost}
               onTogglePinPost={store.togglePinPost}
               onToggleLikePost={store.toggleLikePost}

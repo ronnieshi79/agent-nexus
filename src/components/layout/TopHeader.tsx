@@ -1,4 +1,4 @@
-import { Menu, PanelLeftOpen, ShieldCheck } from 'lucide-react';
+import { Menu, PanelLeftOpen } from 'lucide-react';
 import { formatAgentDisplayName, formatShortModel } from '../shared/EntityIdentity';
 import type {
   ActiveChatChannel,
@@ -24,7 +24,7 @@ interface TopHeaderProps {
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team' | 'discover', string> = {
   kanban: '项目总览、费用与 Token 消耗洞察、多 Agent 任务流看板与实时闲忙状态',
   team: '自建/外雇 Agent 专家团队',
-  discover: '技术讨论、商业分析、项目招募、AGN 推荐与社区公告',
+  discover: '分享讨论、项目招募、AGN 推荐与社区公告',
 };
 
 export function TopHeader({
@@ -107,15 +107,6 @@ export function TopHeader({
           <span className="text-slate-300 shrink-0" aria-hidden="true">/</span>
           <span className="text-xs sm:text-sm text-slate-500 truncate">{subLabel}</span>
         </div>
-      </div>
-
-      {/* Right: Project Budget Readout */}
-      <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-600 font-mono tabular-nums whitespace-nowrap shrink-0">
-        <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-        <span>
-          项目签约 ${workspace.spentUsd.toLocaleString('en-US')} / 预算 $
-          {workspace.budgetCapUsd.toLocaleString('en-US')}
-        </span>
       </div>
     </header>
   );

@@ -283,8 +283,7 @@ export interface ZoneProjectOpportunity {
 }
 
 export type CommunityPostType =
-  | 'tech'
-  | 'business'
+  | 'discussion'
   | 'project'
   | 'agn_recommend'
   | 'announcement';
