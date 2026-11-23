@@ -25,6 +25,8 @@ import {
   ToolbarDropdown,
   ToolbarSegment,
   ViewToolbar,
+  WORKSPACE_GUTTER_CLASS,
+  WORKSPACE_MAX_WIDTH_CLASS,
 } from '../shared/ViewToolbar';
 import type {
   AgentCategory,
@@ -436,7 +438,7 @@ export function MyTeamView({
   return (
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main AGN Agent Team Area */}
-      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
         {/* Simplified Single-Row Toolbar: Ownership Segment + Status & Category Dropdowns + Single Add Button */}
         <ViewToolbar
           left={
@@ -472,7 +474,7 @@ export function MyTeamView({
           }
           right={
             <>
-              <span className="hidden xl:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
+              <span className="hidden @[980px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
                 <span className="inline-flex items-center gap-1 text-emerald-700">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                   <span>工作中 {statusCounts.working}</span>
@@ -494,8 +496,8 @@ export function MyTeamView({
         />
 
         {/* Pure Agent Roster Canvas */}
-        <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70">
-          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5 space-y-4">
+        <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
             {/* Concise Context Line */}
             <div className="flex items-center justify-between gap-3">
               <div className="text-xs text-slate-500">
@@ -548,7 +550,7 @@ export function MyTeamView({
             ) : (
               <div className="border border-slate-200 rounded-xl bg-white mb-16">
                 {/* Desktop Column Header for Consistent Vertical Alignment */}
-                <div className="hidden lg:grid lg:grid-cols-[minmax(0,1fr)_144px_84px_132px_140px] lg:items-center lg:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_144px_84px_132px_140px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
                   <div>Agent 专家</div>
                   <div>运行状态</div>
                   <div>当前交付</div>
@@ -584,7 +586,7 @@ export function MyTeamView({
                     return (
                       <div
                         key={agent.id}
-                        className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 lg:grid lg:grid-cols-[minmax(0,1fr)_144px_84px_132px_140px] lg:items-center lg:gap-4 last:rounded-b-xl"
+                        className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_144px_84px_132px_140px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
                       >
                         {/* Col 1: Agent Identity & Capabilities */}
                         <div className="flex items-start gap-3.5 min-w-0">
@@ -649,8 +651,8 @@ export function MyTeamView({
                         </div>
 
                         {/* Col 2: Runtime Status */}
-                        <div className="flex items-center justify-between lg:block text-xs">
-                          <span className="text-[11px] text-slate-400 lg:hidden">运行状态</span>
+                        <div className="flex items-center justify-between @[860px]:block text-xs">
+                          <span className="text-[11px] text-slate-400 @[860px]:hidden">运行状态</span>
                           <div>
                             <div className="flex items-center gap-1.5">
                               <span
@@ -683,8 +685,8 @@ export function MyTeamView({
                         </div>
 
                         {/* Col 3: Current Project Delivery */}
-                        <div className="flex items-center justify-between lg:block text-xs font-mono tabular-nums">
-                          <span className="text-[11px] font-sans text-slate-400 lg:hidden">当前交付</span>
+                        <div className="flex items-center justify-between @[860px]:block text-xs font-mono tabular-nums">
+                          <span className="text-[11px] font-sans text-slate-400 @[860px]:hidden">当前交付</span>
                           {isWorkingInCurrent ? (
                             <div>
                               <div className="font-semibold text-slate-900">
@@ -706,10 +708,10 @@ export function MyTeamView({
 
                         {/* Col 4: Unified Capability / Cost Rating (e.g. S/H, A+/M, A/L) */}
                         <div
-                          className="flex items-center justify-between lg:block text-xs"
+                          className="flex items-center justify-between @[860px]:block text-xs"
                           title={`${tierRating.description} · ${agent.runtimeAgent} (${agent.defaultModel})${isPrivate ? ' · 自建按算力消耗' : ` · 外雇 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目`}`}
                         >
-                          <span className="text-[11px] text-slate-400 lg:hidden">能力 / 成本</span>
+                          <span className="text-[11px] text-slate-400 @[860px]:hidden">能力 / 成本</span>
                           <div>
                             <div className="inline-flex items-center gap-1 font-mono tabular-nums">
                               <span

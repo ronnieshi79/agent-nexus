@@ -54,15 +54,21 @@ export default function App() {
 
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
         <TopHeader
+          zones={store.zones}
           activeZone={store.activeZone}
+          joinedZoneIds={store.joinedZoneIds}
           activeView={store.activeView}
           activeChatChannel={store.activeChatChannel}
           workspace={store.activeWorkspace}
           agents={store.agents}
           allTasks={store.allTasks}
+          communityPosts={store.communityPosts}
+          zoneProjects={store.zoneProjects}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
+          onSelectZone={store.setActiveZoneId}
+          onToggleJoinZone={store.toggleJoinZone}
         />
 
         {store.aiError && (
@@ -207,6 +213,7 @@ export default function App() {
           {store.activeView === 'discover' && (
             <CommunityDiscoverView
               zones={store.zones}
+              activeZone={store.activeZone}
               joinedZoneIds={store.joinedZoneIds}
               zoneProjects={store.zoneProjects}
               communityPosts={store.communityPosts}
@@ -215,6 +222,7 @@ export default function App() {
               humanExperts={store.humanExperts}
               zoneSeed={store.discoverZoneSeed}
               onClearZoneSeed={store.clearDiscoverZoneSeed}
+              onSelectZone={store.setActiveZoneId}
               onToggleJoinZone={store.toggleJoinZone}
               onToggleFollowEntity={store.toggleFollowEntity}
               onCreatePost={store.createCommunityPost}

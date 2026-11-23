@@ -1,27 +1,38 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Check, ChevronDown, Search, X } from 'lucide-react';
 
+/** Shared horizontal gutter and max-width tokens so ViewToolbar and page content stay mathematically flush-aligned */
+export const WORKSPACE_GUTTER_CLASS = 'px-4 sm:px-6 lg:px-8';
+export const WORKSPACE_MAX_WIDTH_CLASS = 'max-w-[1360px] mx-auto w-full';
+
 /**
- * Unified single-row workspace toolbar container shared across Market, Community, Kanban, etc.
+ * Unified single-row workspace toolbar container shared across Market, Community, Kanban, Team, etc.
  * All child mini-widgets conform to a strict 32px (h-8) control height and 1px hairline grammar.
  */
 export function ViewToolbar({
   left,
   right,
   subStrip,
+  maxWidthClass = WORKSPACE_MAX_WIDTH_CLASS,
 }: {
   left: ReactNode;
   right?: ReactNode;
   /** Optional thin strip rendered ONLY when active contextual filters/banners exist */
   subStrip?: ReactNode;
+  /** Override max-width container class if a specific view uses a custom width */
+  maxWidthClass?: string;
 }) {
   return (
-    <div className="shrink-0 bg-white border-b border-slate-200 px-5 sm:px-8 py-2.5">
-      <div className="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-2">
+    <div className={`shrink-0 bg-white border-b border-slate-200 ${WORKSPACE_GUTTER_CLASS} py-2.5`}>
+      <div className={`${maxWidthClass} flex flex-wrap items-center justify-between gap-x-3 gap-y-2`}>
         <div className="flex items-center gap-2 flex-wrap min-w-0">{left}</div>
-        {right && <div className="flex items-center gap-2 flex-wrap shrink-0">{right}</div>}
+        {right && (
+          <div className="flex items-center gap-2 flex-wrap min-w-0 ml-auto justify-end">
+            {right}
+          </div>
+        )}
       </div>
-      {subStrip && <div className="max-w-6xl mx-auto mt-2">{subStrip}</div>}
+      {subStrip && <div className={`${maxWidthClass} mt-2`}>{subStrip}</div>}
     </div>
   );
 }
@@ -42,7 +53,7 @@ export function ToolbarSegment<T extends string>({
   options: { id: T; label: string; count?: number; icon?: ReactNode }[];
 }) {
   return (
-    <div className="inline-flex items-center gap-0.5 p-0.5 h-8 rounded-lg bg-slate-100 border border-slate-200/70 shrink-0">
+    <div className="inline-flex items-center gap-0.5 p-0.5 h-8 rounded-lg bg-slate-100 border border-slate-200/70 max-w-full overflow-x-auto shrink-0">
       {options.map((opt) => {
         const active = opt.id === value;
         return (

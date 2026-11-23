@@ -30,8 +30,12 @@ import {
   displayEntityName,
   evaluateAgentTierRating,
 } from '../shared/EntityIdentity';
-import { ToolbarSearch, ViewToolbar } from '../shared/ViewToolbar';
-import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
+import {
+  ToolbarSearch,
+  ViewToolbar,
+  WORKSPACE_GUTTER_CLASS,
+  WORKSPACE_MAX_WIDTH_CLASS,
+} from '../shared/ViewToolbar';
 import type {
   CommunityPost,
   CommunityPostType,
@@ -44,6 +48,7 @@ import type {
 
 interface CommunityDiscoverViewProps {
   zones: CommunityZone[];
+  activeZone: CommunityZone;
   joinedZoneIds: string[];
   zoneProjects: ZoneProjectOpportunity[];
   communityPosts: CommunityPost[];
@@ -52,6 +57,7 @@ interface CommunityDiscoverViewProps {
   humanExperts: HumanExpert[];
   zoneSeed: string | null;
   onClearZoneSeed: () => void;
+  onSelectZone: (zoneId: string) => void;
   onToggleJoinZone: (zoneId: string) => void;
   onToggleFollowEntity: (entityKey: string) => void;
   onCreatePost: (input: {
@@ -142,6 +148,7 @@ function isCurrentUserName(name: string): boolean {
 
 export function CommunityDiscoverView({
   zones,
+  activeZone,
   joinedZoneIds,
   zoneProjects,
   communityPosts,
@@ -150,6 +157,7 @@ export function CommunityDiscoverView({
   humanExperts,
   zoneSeed,
   onClearZoneSeed,
+  onSelectZone,
   onToggleJoinZone,
   onToggleFollowEntity,
   onCreatePost,
@@ -162,7 +170,6 @@ export function CommunityDiscoverView({
   onJumpToZoneMarket,
   onJumpToKanban,
 }: CommunityDiscoverViewProps) {
-  const [activeCommunityId, setActiveCommunityId] = useState<string>(zones[0]?.id || 'zone_public');
   const [postFilter, setPostFilter] = useState<'all' | 'following' | 'pinned' | CommunityPostType>(
     'all',
   );
@@ -219,16 +226,18 @@ export function CommunityDiscoverView({
   useEffect(() => {
     if (zoneSeed) {
       if (zones.some((z) => z.id === zoneSeed)) {
-        setActiveCommunityId(zoneSeed);
+        onSelectZone(zoneSeed);
       }
       onClearZoneSeed();
     }
-  }, [onClearZoneSeed, zoneSeed, zones]);
+  }, [onClearZoneSeed, onSelectZone, zoneSeed, zones]);
 
-  const activeCommunity = useMemo(
-    () => zones.find((z) => z.id === activeCommunityId) || zones[0],
-    [activeCommunityId, zones],
-  );
+  const activeCommunity = activeZone;
+
+  useEffect(() => {
+    setPostFilter('all');
+    setSearchKeyword('');
+  }, [activeZone.id]);
 
   const isPublicCommunity = activeCommunity.kind === 'public';
   const hasAccess = isPublicCommunity || joinedZoneIds.includes(activeCommunity.id);
@@ -587,58 +596,33 @@ export function CommunityDiscoverView({
       : postFilter;
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-white">
-      {/* Clean Top Toolbar: Community Switcher + Search + Publish */}
+    <div className="h-full flex flex-col min-h-0 bg-white @container/view">
+      {/* Content-Level Functional Toolbar (Aligned Flush with 3-Column Workspace Below) */}
       <ViewToolbar
         left={
           <>
-            <ZoneSelectorDropdown
-              zones={zones}
-              activeZoneId={activeCommunity.id}
-              onSelectZone={(zId) => {
-                setActiveCommunityId(zId);
-                setPostFilter('all');
-                setSearchKeyword('');
-              }}
-              joinedZoneIds={joinedZoneIds}
-              onToggleJoinZone={onToggleJoinZone}
-              getZoneStat={(z) => {
-                const postCnt = communityPosts.filter((p) => p.zoneId === z.id).length;
-                const openProjCnt = zoneProjects.filter(
-                  (p) => p.zoneId === z.id && p.status === 'open',
-                ).length;
-                return `${postCnt} 帖子 · ${openProjCnt} 社区项目 · 主理 ${z.principalName}`;
-              }}
-            />
-
-            {!isPublicCommunity && (
-              <button
-                type="button"
-                onClick={() => onToggleJoinZone(activeCommunity.id)}
-                className={`inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-                  hasAccess
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                    : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
-                }`}
-              >
-                {hasAccess ? (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>已加入</span>
-                  </>
-                ) : (
-                  <>
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>加入社区</span>
-                  </>
-                )}
-              </button>
+            {hasAccess ? (
+              <ToolbarSearch
+                value={searchKeyword}
+                onChange={setSearchKeyword}
+                placeholder={`在「${activeCommunity.name}」搜索帖子、标签或作者...`}
+                widthClass="w-full sm:w-64 lg:w-72"
+              />
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+                <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                <span>私有社区 · 加入后解锁完整讨论与互动</span>
+              </span>
             )}
 
-            <span className="hidden sm:inline-flex items-center gap-1.5 text-xs text-slate-500 pl-1 truncate">
+            <span className="hidden @[780px]:inline-flex items-center gap-1.5 text-xs text-slate-500 pl-1 truncate">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span className="truncate">
-                社区主理：<strong className="font-semibold text-slate-700">{activeCommunity.principalName}</strong>
+                主理：<strong className="font-semibold text-slate-700">{activeCommunity.principalName}</strong>
+              </span>
+              <span className="text-slate-300" aria-hidden="true">·</span>
+              <span className="font-mono tabular-nums text-slate-500 whitespace-nowrap">
+                {zonePosts.length} 帖 / {communityOpenProjects.length} 社区项目
               </span>
             </span>
           </>
@@ -646,11 +630,14 @@ export function CommunityDiscoverView({
         right={
           hasAccess ? (
             <>
-              <ToolbarSearch
-                value={searchKeyword}
-                onChange={setSearchKeyword}
-                placeholder="搜索帖子、标签或作者..."
-              />
+              <button
+                type="button"
+                onClick={() => onJumpToZoneMarket(activeCommunity.id)}
+                className="hidden @[640px]:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap transition-colors shrink-0"
+              >
+                <Store className="w-3.5 h-3.5 text-blue-600" />
+                <span>服务市场</span>
+              </button>
               <button
                 type="button"
                 onClick={() => openComposer(resolveComposerMode())}
@@ -664,12 +651,12 @@ export function CommunityDiscoverView({
         }
       />
 
-      {/* Weibo-Style 3-Column Community Workspace: Left Channels + Center Feed + Right Context Rail */}
-      <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 px-4 sm:px-6 py-5">
-        <div className="max-w-[1360px] mx-auto">
-          {/* Mobile Horizontal Channel Strip (< md) */}
+      {/* Weibo-Style Container-Responsive 3-Column Community Workspace */}
+      <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
+        <div className={WORKSPACE_MAX_WIDTH_CLASS}>
+          {/* Compact Horizontal Channel Strip (< @[720px]) */}
           {hasAccess && (
-            <div className="md:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
+            <div className="@[720px]:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
               {allChannelItems.map((item) => {
                 const Icon = item.icon;
                 const active = postFilter === item.id;
@@ -695,11 +682,11 @@ export function CommunityDiscoverView({
             </div>
           )}
 
-          <div className="flex flex-col md:flex-row gap-4 xl:gap-5 items-start">
+          <div className="flex flex-col @[720px]:flex-row gap-4 @[1160px]:gap-5 items-start">
             {/* COLUMN 1 (LEFT): Weibo-Style Sticky Category Channel Navigation */}
             <nav
               aria-label="社区内容分类"
-              className="hidden md:block w-[172px] xl:w-[192px] shrink-0 sticky top-5 space-y-3"
+              className="hidden @[720px]:block w-[172px] @[1180px]:w-[192px] shrink-0 sticky top-5 space-y-3"
             >
               <div className="bg-white rounded-xl border border-slate-200 p-2 space-y-0.5">
                 <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold text-slate-400 tracking-wide">
@@ -796,8 +783,10 @@ export function CommunityDiscoverView({
               )}
             </nav>
 
-            {/* COLUMN 2 (CENTER): Main Community Feed Stream */}
-            <div className="flex-1 min-w-0 w-full space-y-3.5">
+            {/* COLUMNS 2 & 3 WRAPPER: Reflows cleanly between 2-column and 3-column on resize / sidebar toggle */}
+            <div className="flex-1 min-w-0 w-full flex flex-col @[1020px]:flex-row gap-4 @[1160px]:gap-5 items-start">
+              {/* COLUMN 2 (CENTER): Main Community Feed Stream */}
+              <div className="flex-1 min-w-0 w-full space-y-3.5">
               {!hasAccess ? (
                 /* Private Community Access Gate */
                 <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-3">
@@ -1374,8 +1363,8 @@ export function CommunityDiscoverView({
               )}
             </div>
 
-            {/* COLUMN 3 (RIGHT): Community Profile, Open Projects & Recommended AGN Services */}
-            <aside className="w-full lg:w-[264px] xl:w-[296px] shrink-0 space-y-4 lg:sticky lg:top-5">
+            {/* COLUMN 3 (RIGHT): Community Profile, Community Projects & Active User Ranking */}
+            <aside className="w-full @[1020px]:w-[276px] @[1200px]:w-[300px] shrink-0 space-y-4 @[1020px]:sticky @[1020px]:top-5">
               {/* Community Overview Card */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1613,6 +1602,7 @@ export function CommunityDiscoverView({
                 )}
               </section>
             </aside>
+            </div>
           </div>
         </div>
       </div>

@@ -11,6 +11,8 @@ interface ZoneSelectorDropdownProps {
   /** Optional membership controls (used in Community Discover) */
   joinedZoneIds?: string[];
   onToggleJoinZone?: (zoneId: string) => void;
+  /** Visual density variant: 'header' sits cleanly inside TopHeader breadcrumb */
+  variant?: 'default' | 'header';
 }
 
 export function ZoneSelectorDropdown({
@@ -20,6 +22,7 @@ export function ZoneSelectorDropdown({
   getZoneStat,
   joinedZoneIds,
   onToggleJoinZone,
+  variant = 'default',
 }: ZoneSelectorDropdownProps) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -137,17 +140,21 @@ export function ZoneSelectorDropdown({
     );
   };
 
+  const isHeader = variant === 'header';
+
   return (
-    <div ref={containerRef} className="relative inline-block">
+    <div ref={containerRef} className="relative inline-block shrink-0">
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2 rounded-lg border bg-white text-left transition-colors cursor-pointer ${
+        className={`inline-flex items-center gap-1.5 h-8 pl-1.5 pr-2 rounded-lg border text-left transition-colors cursor-pointer ${
           open
-            ? 'border-slate-900 ring-2 ring-slate-900/10'
-            : 'border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
+            ? 'bg-white border-slate-900 ring-2 ring-slate-900/10'
+            : isHeader
+              ? 'bg-slate-50/80 border-slate-200/90 hover:border-slate-300 hover:bg-slate-100/70'
+              : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
         }`}
       >
         <span
@@ -156,13 +163,15 @@ export function ZoneSelectorDropdown({
         >
           {activeZone.shortCode}
         </span>
-        <span className="text-xs font-bold text-slate-900 whitespace-nowrap">
+        <span className="text-xs font-bold text-slate-900 whitespace-nowrap max-w-[140px] sm:max-w-[180px] truncate">
           {activeZone.name}
         </span>
-        <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-slate-400 whitespace-nowrap">
-          {renderKindIcon(activeZone, 'w-3 h-3 text-slate-400 shrink-0')}
-          <span>{activeZone.typeLabel}</span>
-        </span>
+        {!isHeader && (
+          <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-slate-400 whitespace-nowrap">
+            {renderKindIcon(activeZone, 'w-3 h-3 text-slate-400 shrink-0')}
+            <span>{activeZone.typeLabel}</span>
+          </span>
+        )}
         <ChevronDown
           className={`w-3.5 h-3.5 text-slate-400 transition-transform shrink-0 ${
             open ? 'rotate-180 text-slate-700' : ''
@@ -173,7 +182,7 @@ export function ZoneSelectorDropdown({
       {open && (
         <div
           role="listbox"
-          className="absolute left-0 mt-1.5 w-80 sm:w-[340px] bg-white rounded-xl border border-slate-200 shadow-lg p-1.5 z-40 space-y-1.5"
+          className="absolute left-0 mt-1.5 w-[min(340px,calc(100vw-2rem))] bg-white rounded-xl border border-slate-200 shadow-lg p-1.5 z-50 space-y-1.5"
         >
           {publicZones.length > 0 && (
             <div className="space-y-0.5">

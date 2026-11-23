@@ -28,14 +28,14 @@ import {
   formatShortRuntime,
 } from '../shared/EntityIdentity';
 import {
-  ToolbarDivider,
   ToolbarDropdown,
   ToolbarPopoverWidget,
   ToolbarSearch,
   ToolbarSegment,
   ViewToolbar,
+  WORKSPACE_GUTTER_CLASS,
+  WORKSPACE_MAX_WIDTH_CLASS,
 } from '../shared/ViewToolbar';
-import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import type {
   AgentCategory,
   CommunityZone,
@@ -506,26 +506,11 @@ export function AgentMarketView({
   return (
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Service Market Directory */}
-      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
-        {/* Unified Single-Row Composable Widget Toolbar */}
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
+        {/* Unified Single-Row Composable Widget Toolbar (Content Filtering & Actions) */}
         <ViewToolbar
           left={
             <>
-              <ZoneSelectorDropdown
-                zones={zones}
-                activeZoneId={activeZone.id}
-                onSelectZone={onSelectZone}
-                getZoneStat={(z) => {
-                  const agentCount = allAgents.filter((a) => a.listedZoneIds.includes(z.id)).length;
-                  const skillCount = INITIAL_MARKET_SKILLS.filter((s) =>
-                    s.zoneIds.includes(z.id),
-                  ).length;
-                  return `${agentCount} Agent · ${skillCount} Skills`;
-                }}
-              />
-
-              <ToolbarDivider />
-
               <ToolbarSegment
                 value={entityTab}
                 onChange={(next) => {
@@ -722,8 +707,8 @@ export function AgentMarketView({
         />
 
         {/* Scrollable Service Market Canvas */}
-        <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70">
-          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-5 space-y-4">
+        <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
             {/* Context Hint Bar */}
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
               {entityTab === 'agents' && (
@@ -760,13 +745,7 @@ export function AgentMarketView({
 
             {/* TAB 1: AGENT SERVICE CATALOG */}
             {entityTab === 'agents' && (
-              <div
-                className={`grid gap-4 ${
-                  activeDrawer
-                    ? 'grid-cols-1 md:grid-cols-2'
-                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
-                }`}
-              >
+              <div className="grid grid-cols-1 @[640px]:grid-cols-2 @[1020px]:grid-cols-3 gap-4">
                 {filteredAgents.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Agent 服务</p>
@@ -1010,7 +989,7 @@ export function AgentMarketView({
 
             {/* TAB 2: HUMAN EXPERTS (PRINCIPALS) */}
             {entityTab === 'humans' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 @[760px]:grid-cols-2 gap-4">
                 {zoneHumans.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配专家</p>
@@ -1239,13 +1218,7 @@ export function AgentMarketView({
 
             {/* TAB 3: SKILLS & MCP MARKETPLACE */}
             {entityTab === 'skills' && (
-              <div
-                className={`grid gap-4 ${
-                  activeDrawer
-                    ? 'grid-cols-1 md:grid-cols-2'
-                    : 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
-                }`}
-              >
+              <div className="grid grid-cols-1 @[640px]:grid-cols-2 @[1020px]:grid-cols-3 gap-4">
                 {filteredSkills.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Skills / MCP</p>

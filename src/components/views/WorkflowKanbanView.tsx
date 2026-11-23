@@ -49,6 +49,8 @@ import {
   ToolbarDropdown,
   ToolbarSegment,
   ViewToolbar,
+  WORKSPACE_GUTTER_CLASS,
+  WORKSPACE_MAX_WIDTH_CLASS,
 } from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
@@ -437,7 +439,7 @@ export function WorkflowKanbanView({
   };
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-white">
+    <div className="h-full flex flex-col min-h-0 bg-white @container/view">
       {/* Unified Single-Row Composable Widget Toolbar */}
       <ViewToolbar
         left={
@@ -552,7 +554,7 @@ export function WorkflowKanbanView({
         }
         right={
           <>
-            <span className="hidden xl:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
+            <span className="hidden @[1040px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
               <span>完成 {progressPct}%</span>
               <span className="text-slate-300" aria-hidden="true">·</span>
               <span>待验证 {reviewCount}</span>
@@ -592,12 +594,12 @@ export function WorkflowKanbanView({
       />
 
       {/* Main Scrollable Content Canvas */}
-      <div className="flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 px-5 sm:px-8 py-5">
+      <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
         {/* ================= TAB 1: PROJECT OVERVIEW (Executive Cockpit) ================= */}
         {activeTab === 'overview' && (
-          <div className="max-w-6xl mx-auto space-y-5">
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
             {/* Top KPI Strip: Progress & Competitiveness | External Cost | Own Token Usage | Agent Fleet Status */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+            <div className="grid grid-cols-1 @[520px]:grid-cols-2 @[980px]:grid-cols-4 gap-3.5">
               {/* KPI 1: Project Progress & Delivery Competitiveness */}
               <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
                 <div className="flex items-center justify-between text-xs text-slate-500">
@@ -758,9 +760,9 @@ export function WorkflowKanbanView({
             </section>
 
             {/* Lower Split: Project Comparison Table (Left 7) + Frequent Agents & Live Status (Right 5) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="grid grid-cols-1 @[920px]:grid-cols-12 gap-4">
               {/* Project Overview & Cost/Efficiency Comparison */}
-              <section className="lg:col-span-7 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+              <section className="@[920px]:col-span-7 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
                 <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
                   <div>
                     <h2 className="text-sm font-bold text-slate-900">项目状态、竞争效率与成本核算</h2>
@@ -895,7 +897,7 @@ export function WorkflowKanbanView({
               </section>
 
               {/* Frequent Agents + Live Availability */}
-              <section className="lg:col-span-5 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
+              <section className="@[920px]:col-span-5 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
                 <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
                   <div>
                     <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
@@ -979,7 +981,7 @@ export function WorkflowKanbanView({
 
         {/* ================= TAB 2: MY PROJECTS (Leading & Participating) ================= */}
         {activeTab === 'my_projects' && (
-          <div className="max-w-6xl mx-auto space-y-4">
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
             {/* Inline Create Project Form */}
             {showCreateProjectForm && !focusedProject && (
               <form
@@ -1261,8 +1263,8 @@ export function WorkflowKanbanView({
                   </div>
                 </section>
 
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-                  <section className="lg:col-span-8 bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="grid grid-cols-1 @[920px]:grid-cols-12 gap-4">
+                  <section className="@[920px]:col-span-8 bg-white rounded-xl border border-slate-200 overflow-hidden">
                     <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
                       <h3 className="text-sm font-bold text-slate-900">
                         协作任务节点 ({focusedProjectTasks.length})
@@ -1362,7 +1364,7 @@ export function WorkflowKanbanView({
                     )}
                   </section>
 
-                  <div className="lg:col-span-4 space-y-4">
+                  <div className="@[920px]:col-span-4 space-y-4">
                     <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-bold text-slate-900">
@@ -1432,7 +1434,7 @@ export function WorkflowKanbanView({
 
         {/* ================= TAB 3: TASK FLOW KANBAN (Clean 4-Column Multi-Agent Board) ================= */}
         {activeTab === 'kanban' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 min-h-full">
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} grid grid-cols-1 @[620px]:grid-cols-2 @[1040px]:grid-cols-4 gap-4 min-h-full`}>
             {WORK_CARD_STAGES.map((col) => {
               const colTasks = kanbanTasks.filter((t) =>
                 col.status === 'in_progress'
@@ -1625,9 +1627,9 @@ export function WorkflowKanbanView({
 
         {/* ================= TAB 4: PROJECT AGENT ORCHESTRATION, STATUS & HIRING ================= */}
         {activeTab === 'agents' && (
-          <div className="max-w-6xl mx-auto space-y-5">
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
             {/* Compact Fleet Status Summary Strip */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 @[640px]:grid-cols-4 gap-3">
               <div className="bg-white rounded-xl border border-slate-200 px-4 py-3">
                 <div className="text-[11px] text-slate-500">项目整体 Agent</div>
                 <div className="mt-1 flex items-baseline gap-2">

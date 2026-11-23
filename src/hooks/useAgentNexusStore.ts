@@ -233,7 +233,10 @@ export function useAgentNexusStore() {
   }, []);
 
   const openCommunityDiscover = useCallback((zoneId?: string) => {
-    if (zoneId) setDiscoverZoneSeed(zoneId);
+    if (zoneId) {
+      setActiveZoneId(zoneId);
+      setDiscoverZoneSeed(zoneId);
+    }
     setActiveView('discover');
   }, []);
 

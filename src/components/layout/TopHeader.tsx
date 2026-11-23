@@ -1,45 +1,65 @@
-import { Menu, PanelLeftOpen } from 'lucide-react';
+import { Check, Menu, PanelLeftOpen, Plus } from 'lucide-react';
+import { INITIAL_MARKET_SKILLS } from '../../data/initialData';
 import { formatAgentDisplayName, formatShortModel } from '../shared/EntityIdentity';
+import { WORKSPACE_GUTTER_CLASS } from '../shared/ViewToolbar';
+import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import type {
   ActiveChatChannel,
+  CommunityPost,
   CommunityZone,
   ExpertAgent,
   NavViewId,
   ProjectWorkspace,
   WorkflowTask,
+  ZoneProjectOpportunity,
 } from '../../types/agentnexus';
 
 interface TopHeaderProps {
+  zones: CommunityZone[];
   activeZone: CommunityZone;
+  joinedZoneIds: string[];
   activeView: NavViewId;
   activeChatChannel: ActiveChatChannel;
   workspace: ProjectWorkspace;
   agents: ExpertAgent[];
   allTasks: WorkflowTask[];
+  communityPosts: CommunityPost[];
+  zoneProjects: ZoneProjectOpportunity[];
   sidebarCollapsed?: boolean;
   onToggleSidebarCollapse?: () => void;
   onOpenMobileMenu: () => void;
+  onSelectZone: (zoneId: string) => void;
+  onToggleJoinZone: (zoneId: string) => void;
 }
 
-const VIEW_DESCRIPTIONS: Record<'kanban' | 'team' | 'discover', string> = {
+const VIEW_DESCRIPTIONS: Record<'kanban' | 'team', string> = {
   kanban: '项目总览、费用与 Token 消耗洞察、多 Agent 任务流看板与实时闲忙状态',
   team: '自建/外雇 Agent 专家团队',
-  discover: '分享讨论、项目招募、AGN 推荐与社区公告',
 };
 
 export function TopHeader({
+  zones,
   activeZone,
+  joinedZoneIds,
   activeView,
   activeChatChannel,
   workspace,
   agents,
   allTasks,
+  communityPosts,
+  zoneProjects,
   sidebarCollapsed = false,
   onToggleSidebarCollapse,
   onOpenMobileMenu,
+  onSelectZone,
+  onToggleJoinZone,
 }: TopHeaderProps) {
+  const isCommunityScopedView = activeView === 'discover' || activeView === 'market';
+  const isPublicZone = activeZone.kind === 'public';
+  const hasJoinedActiveZone = isPublicZone || joinedZoneIds.includes(activeZone.id);
+
   let primaryLabel: string;
-  let subLabel: string;
+  let subLabel = '';
 
   if (activeView === 'chat') {
     if (activeChatChannel.type === 'task_session') {
@@ -64,21 +84,23 @@ export function TopHeader({
     }
   } else if (activeView === 'market') {
     primaryLabel = '服务市场';
-    subLabel = `${activeZone.name} · Agent 服务、真人专家与 Skills 能力市场`;
+  } else if (activeView === 'discover') {
+    primaryLabel = '交流社区';
   } else {
-    const labelMap: Record<'kanban' | 'team' | 'discover', string> = {
+    const labelMap: Record<'kanban' | 'team', string> = {
       kanban: '工作看板',
       team: 'AGN 团队',
-      discover: '交流社区',
     };
     primaryLabel = labelMap[activeView];
     subLabel = VIEW_DESCRIPTIONS[activeView];
   }
 
   return (
-    <header className="h-14 shrink-0 bg-white border-b border-slate-200 px-4 sm:px-6 flex items-center justify-between gap-4">
-      {/* Left: Contextual Breadcrumb */}
-      <div className="flex items-center gap-2.5 min-w-0">
+    <header
+      className={`h-14 shrink-0 bg-white border-b border-slate-200 ${WORKSPACE_GUTTER_CLASS} flex items-center justify-between gap-3 relative z-30`}
+    >
+      {/* Left: Contextual Breadcrumb & Top-Level Community Switcher */}
+      <div className="flex items-center gap-2.5 min-w-0 flex-1">
         <button
           type="button"
           onClick={onOpenMobileMenu}
@@ -100,14 +122,77 @@ export function TopHeader({
           </button>
         )}
 
-        <div className="flex items-center gap-2.5 min-w-0 truncate">
-          <span className="text-sm font-bold text-slate-900 whitespace-nowrap shrink-0">
-            {primaryLabel}
-          </span>
-          <span className="text-slate-300 shrink-0" aria-hidden="true">/</span>
-          <span className="text-xs sm:text-sm text-slate-500 truncate">{subLabel}</span>
-        </div>
+        {isCommunityScopedView ? (
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
+            <span className="text-sm font-bold text-slate-900 whitespace-nowrap shrink-0">
+              {primaryLabel}
+            </span>
+            <span className="text-slate-300 shrink-0" aria-hidden="true">/</span>
+            <ZoneSelectorDropdown
+              variant="header"
+              zones={zones}
+              activeZoneId={activeZone.id}
+              onSelectZone={onSelectZone}
+              joinedZoneIds={activeView === 'discover' ? joinedZoneIds : undefined}
+              onToggleJoinZone={activeView === 'discover' ? onToggleJoinZone : undefined}
+              getZoneStat={(z) => {
+                if (activeView === 'market') {
+                  const agentCount = agents.filter((a) => a.listedZoneIds.includes(z.id)).length;
+                  const skillCount = INITIAL_MARKET_SKILLS.filter((s) =>
+                    s.zoneIds.includes(z.id),
+                  ).length;
+                  return `${agentCount} Agent · ${skillCount} Skills`;
+                }
+                const postCnt = communityPosts.filter((p) => p.zoneId === z.id).length;
+                const openProjCnt = zoneProjects.filter(
+                  (p) => p.zoneId === z.id && p.status === 'open',
+                ).length;
+                return `${postCnt} 帖子 · ${openProjCnt} 社区项目 · 主理 ${z.principalName}`;
+              }}
+            />
+            <span className="hidden md:inline text-slate-300 shrink-0" aria-hidden="true">·</span>
+            <span
+              title={activeZone.tagline}
+              className="hidden md:block text-xs text-slate-500 truncate min-w-0"
+            >
+              {activeZone.tagline}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2.5 min-w-0 truncate">
+            <span className="text-sm font-bold text-slate-900 whitespace-nowrap shrink-0">
+              {primaryLabel}
+            </span>
+            <span className="text-slate-300 shrink-0" aria-hidden="true">/</span>
+            <span className="text-xs sm:text-sm text-slate-500 truncate">{subLabel}</span>
+          </div>
+        )}
       </div>
+
+      {/* Right: Private Community Membership Action (only when relevant in Discover) */}
+      {activeView === 'discover' && !isPublicZone && (
+        <button
+          type="button"
+          onClick={() => onToggleJoinZone(activeZone.id)}
+          className={`inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
+            hasJoinedActiveZone
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+              : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
+          }`}
+        >
+          {hasJoinedActiveZone ? (
+            <>
+              <Check className="w-3.5 h-3.5" />
+              <span>已加入</span>
+            </>
+          ) : (
+            <>
+              <Plus className="w-3.5 h-3.5" />
+              <span>加入社区</span>
+            </>
+          )}
+        </button>
+      )}
     </header>
   );
 }
