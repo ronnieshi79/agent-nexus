@@ -3,6 +3,8 @@ import {
   Activity,
   ArrowLeft,
   ArrowUpRight,
+  Briefcase,
+  CalendarClock,
   CheckCircle2,
   Compass,
   Cpu,
@@ -20,11 +22,15 @@ import {
   TrendingUp,
   UserMinus,
   UserPlus,
+  Users,
   X,
 } from 'lucide-react';
 import type {
+  AgentLeaseRecord,
   CommunityZone,
   ExpertAgent,
+  HumanExpert,
+  LeasePeriod,
   NegotiationStatus,
   NegotiationThread,
   ProjectRole,
@@ -32,6 +38,7 @@ import type {
   ServiceMode,
   SettlementRecord,
   TaskStatus,
+  TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
@@ -39,18 +46,22 @@ import {
   AGENT_RUNTIME_PRESETS,
   AgentIdentityName,
   EntityAvatar,
+  LEASE_PERIOD_META,
   displayEntityName,
   formatAgentDisplayName,
   formatShortModel,
+  getAgentLeasePricing,
   getRuntimePreset,
 } from '../shared/EntityIdentity';
 import {
-  ToolbarDivider,
+  RailNavButton,
+  RailSectionLabel,
   ToolbarDropdown,
-  ToolbarSegment,
+  ToolbarSearch,
   ViewToolbar,
   WORKSPACE_GUTTER_CLASS,
   WORKSPACE_MAX_WIDTH_CLASS,
+  WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
@@ -65,6 +76,9 @@ interface WorkflowKanbanViewProps {
   onClearTabSeed: () => void;
   allTasks: WorkflowTask[];
   agents: ExpertAgent[];
+  humanExperts: HumanExpert[];
+  agentLeases: Record<string, AgentLeaseRecord>;
+  teamExperts: TeamExpertMembership[];
   negotiations: NegotiationThread[];
   settlements: SettlementRecord[];
   executingTaskId: string | null;
@@ -77,6 +91,9 @@ interface WorkflowKanbanViewProps {
   onJumpToZoneMarket: (zoneId: string) => void;
   onJumpToDiscover: () => void;
   onReleaseAgent: (agentId: string, projectId?: string) => void;
+  onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
+  onAssignExpertToWorkspace: (expertId: string, workspaceId: string) => void;
+  onRemoveExpertFromWorkspace: (expertId: string, workspaceId: string) => void;
   onUpdateAgentRuntimeConfig: (agentId: string, runtimeAgent: string, defaultModel: string) => void;
 }
 
@@ -159,6 +176,9 @@ export function WorkflowKanbanView({
   onClearTabSeed,
   allTasks,
   agents,
+  humanExperts,
+  agentLeases,
+  teamExperts,
   negotiations,
   settlements,
   executingTaskId,
@@ -171,9 +191,13 @@ export function WorkflowKanbanView({
   onJumpToZoneMarket,
   onJumpToDiscover,
   onReleaseAgent,
+  onLeaseAgent,
+  onAssignExpertToWorkspace,
+  onRemoveExpertFromWorkspace,
   onUpdateAgentRuntimeConfig,
 }: WorkflowKanbanViewProps) {
   const [activeTab, setActiveTab] = useState<WorkKanbanTab>('overview');
+  const [assignExpertId, setAssignExpertId] = useState<string>('');
 
   // My Projects state
   const [roleFilter, setRoleFilter] = useState<'all' | ProjectRole>('all');
@@ -187,6 +211,9 @@ export function WorkflowKanbanView({
   const [kanbanProjectScope, setKanbanProjectScope] = useState<string>('all');
   const [kanbanAgentFilter, setKanbanAgentFilter] = useState<string>('all');
   const [workTypeFilter, setWorkTypeFilter] = useState<'all' | WorkCardType>('all');
+
+  // Shared right-toolbar keyword search
+  const [searchKeyword, setSearchKeyword] = useState('');
 
   // Agent Fleet & Orchestration Tab filters
   const [fleetOwnershipFilter, setFleetOwnershipFilter] = useState<'all' | 'marketplace' | 'private'>('all');
@@ -227,6 +254,18 @@ export function WorkflowKanbanView({
     agents.forEach((a) => map.set(a.id, a));
     return map;
   }, [agents]);
+
+  const humanExpertMap = useMemo(() => {
+    const map = new Map<string, HumanExpert>();
+    humanExperts.forEach((h) => map.set(h.id, h));
+    return map;
+  }, [humanExperts]);
+
+  const teamExpertMap = useMemo(() => {
+    const map = new Map<string, TeamExpertMembership>();
+    teamExperts.forEach((m) => map.set(m.expertId, m));
+    return map;
+  }, [teamExperts]);
 
   // Compute live runtime snapshots for every involved/private Agent across all projects
   const agentSnapshots = useMemo<AgentRuntimeSnapshot[]>(() => {
@@ -352,10 +391,20 @@ export function WorkflowKanbanView({
 
   const pendingNegotiationCount = negotiations.filter((n) => n.status !== 'hired').length;
 
+  const normalizedQuery = searchKeyword.trim().toLowerCase();
+
   // Filtered lists
   const filteredMyProjects = useMemo(
-    () => workspaces.filter((w) => (roleFilter === 'all' ? true : w.role === roleFilter)),
-    [roleFilter, workspaces],
+    () =>
+      workspaces.filter((w) => {
+        if (roleFilter !== 'all' && w.role !== roleFilter) return false;
+        if (!normalizedQuery) return true;
+        return (
+          w.name.toLowerCase().includes(normalizedQuery) ||
+          w.goal.toLowerCase().includes(normalizedQuery)
+        );
+      }),
+    [normalizedQuery, roleFilter, workspaces],
   );
 
   const focusedProject = useMemo(
@@ -384,9 +433,19 @@ export function WorkflowKanbanView({
       if (kanbanProjectScope !== 'all' && t.sessionId !== kanbanProjectScope) return false;
       if (kanbanAgentFilter !== 'all' && t.assigneeId !== kanbanAgentFilter) return false;
       if (workTypeFilter !== 'all' && t.workType !== workTypeFilter) return false;
+      if (normalizedQuery) {
+        const wsName = workspaceMap.get(t.sessionId)?.name || '';
+        const match =
+          t.title.toLowerCase().includes(normalizedQuery) ||
+          t.description.toLowerCase().includes(normalizedQuery) ||
+          t.featureModule.toLowerCase().includes(normalizedQuery) ||
+          t.assigneeHandle.toLowerCase().includes(normalizedQuery) ||
+          wsName.toLowerCase().includes(normalizedQuery);
+        if (!match) return false;
+      }
       return true;
     });
-  }, [allTasks, kanbanAgentFilter, kanbanProjectScope, workTypeFilter]);
+  }, [allTasks, kanbanAgentFilter, kanbanProjectScope, normalizedQuery, workTypeFilter, workspaceMap]);
 
   const kanbanAssignableAgents = useMemo(() => {
     const ids = new Set(allTasks.map((t) => t.assigneeId));
@@ -401,9 +460,19 @@ export function WorkflowKanbanView({
       if (fleetStatusFilter !== 'all' && snap.availability !== fleetStatusFilter) {
         return false;
       }
+      if (normalizedQuery) {
+        const match =
+          snap.agent.handle.toLowerCase().includes(normalizedQuery) ||
+          snap.agent.name.toLowerCase().includes(normalizedQuery) ||
+          snap.agent.title.toLowerCase().includes(normalizedQuery) ||
+          snap.agent.runtimeAgent.toLowerCase().includes(normalizedQuery) ||
+          snap.agent.defaultModel.toLowerCase().includes(normalizedQuery) ||
+          snap.projects.some((p) => p.name.toLowerCase().includes(normalizedQuery));
+        if (!match) return false;
+      }
       return true;
     });
-  }, [agentSnapshots, fleetOwnershipFilter, fleetStatusFilter]);
+  }, [agentSnapshots, fleetOwnershipFilter, fleetStatusFilter, normalizedQuery]);
 
   const handleCreateProjectSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -438,29 +507,158 @@ export function WorkflowKanbanView({
     );
   };
 
-  return (
-    <div className="h-full flex flex-col min-h-0 bg-white @container/view">
-      {/* Unified Single-Row Composable Widget Toolbar */}
-      <ViewToolbar
-        left={
-          <>
-            <ToolbarSegment
-              value={activeTab}
-              onChange={(next) => {
-                setActiveTab(next);
-                if (next !== 'my_projects') setFocusedProjectId(null);
-              }}
-              options={[
-                { id: 'overview', label: '项目概览' },
-                { id: 'my_projects', label: '我的项目', count: workspaces.length },
-                { id: 'kanban', label: '任务看板', count: allTasks.length },
-                { id: 'agents', label: 'Agent 编排', count: agentSnapshots.length },
-              ]}
-            />
+  const searchPlaceholder =
+    activeTab === 'kanban'
+      ? '搜索任务标题、模块、项目或执行 Agent...'
+      : activeTab === 'agents'
+        ? '搜索 Agent 名称、底座、模型或所在项目...'
+        : '搜索项目名称、目标或范围...';
 
-            {activeTab === 'my_projects' && !focusedProject && (
-              <>
-                <ToolbarDivider />
+  return (
+    <div className="h-full flex min-h-0 bg-white relative @container/shell">
+      {/* FAR-LEFT PRIMARY FILTER RAIL: Workspace Views + Contextual Primary Scope */}
+      <WorkspacePrimaryRail ariaLabel="工作看板主筛选">
+        <div className="space-y-1">
+          <RailSectionLabel>工作视图</RailSectionLabel>
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'overview'}
+            onClick={() => {
+              setActiveTab('overview');
+              setFocusedProjectId(null);
+            }}
+            icon={<TrendingUp className="w-3.5 h-3.5" />}
+            label="项目概览"
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'my_projects'}
+            onClick={() => {
+              setActiveTab('my_projects');
+              setFocusedProjectId(null);
+            }}
+            icon={<FolderKanban className="w-3.5 h-3.5" />}
+            label="我的项目"
+            count={workspaces.length}
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'kanban'}
+            onClick={() => {
+              setActiveTab('kanban');
+              setFocusedProjectId(null);
+            }}
+            icon={<Briefcase className="w-3.5 h-3.5" />}
+            label="任务看板"
+            count={allTasks.length}
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'agents'}
+            onClick={() => {
+              setActiveTab('agents');
+              setFocusedProjectId(null);
+            }}
+            icon={<Cpu className="w-3.5 h-3.5" />}
+            label="Agent 编排"
+            count={agentSnapshots.length}
+          />
+        </div>
+
+        {(activeTab === 'overview' || activeTab === 'my_projects') && (
+          <div className="pt-3 border-t border-slate-100 space-y-1">
+            <RailSectionLabel>项目工作区</RailSectionLabel>
+            {workspaces.map((ws) => {
+              const wsTaskCount = allTasks.filter((t) => t.sessionId === ws.id).length;
+              return (
+                <RailNavButton
+                  key={ws.id}
+                  active={activeTab === 'my_projects' && focusedProjectId === ws.id}
+                  onClick={() => {
+                    setActiveTab('my_projects');
+                    setFocusedProjectId(ws.id);
+                  }}
+                  label={ws.name}
+                  count={wsTaskCount}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'kanban' && (
+          <div className="pt-3 border-t border-slate-100 space-y-1">
+            <RailSectionLabel>项目范围</RailSectionLabel>
+            <RailNavButton
+              active={kanbanProjectScope === 'all'}
+              onClick={() => setKanbanProjectScope('all')}
+              label="全部项目"
+              count={allTasks.length}
+            />
+            {workspaces.map((ws) => {
+              const wsTaskCount = allTasks.filter((t) => t.sessionId === ws.id).length;
+              return (
+                <RailNavButton
+                  key={ws.id}
+                  active={kanbanProjectScope === ws.id}
+                  onClick={() => setKanbanProjectScope(ws.id)}
+                  label={ws.name}
+                  count={wsTaskCount}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        {activeTab === 'agents' && (
+          <div className="pt-3 border-t border-slate-100 space-y-1">
+            <RailSectionLabel>节点归属</RailSectionLabel>
+            <RailNavButton
+              active={fleetOwnershipFilter === 'all'}
+              onClick={() => setFleetOwnershipFilter('all')}
+              label="全部 Agent"
+              count={agentSnapshots.length}
+            />
+            <RailNavButton
+              active={fleetOwnershipFilter === 'marketplace'}
+              onClick={() => setFleetOwnershipFilter('marketplace')}
+              label="外部雇佣"
+              count={externalFleetCount}
+            />
+            <RailNavButton
+              active={fleetOwnershipFilter === 'private'}
+              onClick={() => setFleetOwnershipFilter('private')}
+              label="自有节点"
+              count={privateFleetCount}
+            />
+          </div>
+        )}
+      </WorkspacePrimaryRail>
+
+      {/* RIGHT WORKSPACE COLUMN: Top Search & Secondary Filter Bar Aligned Flush with Content Below */}
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
+        <ViewToolbar
+          left={
+            <>
+              {activeTab === 'my_projects' && focusedProject ? (
+                <button
+                  type="button"
+                  onClick={() => setFocusedProjectId(null)}
+                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>返回项目列表</span>
+                </button>
+              ) : (
+                <ToolbarSearch
+                  value={searchKeyword}
+                  onChange={setSearchKeyword}
+                  placeholder={searchPlaceholder}
+                  widthClass="flex-1 min-w-[160px] max-w-[300px]"
+                />
+              )}
+
+              {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
                 <ToolbarDropdown
                   label="视角"
                   value={roleFilter}
@@ -472,70 +670,41 @@ export function WorkflowKanbanView({
                     { id: 'participating', label: '我参与', hint: `${participatingCount}` },
                   ]}
                 />
-              </>
-            )}
+              )}
 
-            {activeTab === 'kanban' && (
-              <>
-                <ToolbarDivider />
-                <ToolbarDropdown
-                  label="项目"
-                  value={kanbanProjectScope}
-                  defaultValue="all"
-                  onChange={setKanbanProjectScope}
-                  options={[
-                    { id: 'all', label: '全部项目', hint: `${allTasks.length}` },
-                    ...workspaces.map((ws) => ({
-                      id: ws.id,
-                      label: ws.name,
-                      hint: `${allTasks.filter((t) => t.sessionId === ws.id).length}`,
-                    })),
-                  ]}
-                />
-                <ToolbarDropdown
-                  label="执行 Agent"
-                  value={kanbanAgentFilter}
-                  defaultValue="all"
-                  onChange={setKanbanAgentFilter}
-                  options={[
-                    { id: 'all', label: '全部 Agent' },
-                    ...kanbanAssignableAgents.map((a) => ({
-                      id: a.id,
-                      label: formatAgentDisplayName(a.handle, a.runtimeAgent),
-                      hint: `${allTasks.filter((t) => t.assigneeId === a.id).length}`,
-                    })),
-                  ]}
-                />
-                <ToolbarDropdown
-                  label="类型"
-                  value={workTypeFilter}
-                  defaultValue="all"
-                  onChange={setWorkTypeFilter}
-                  options={[
-                    { id: 'all', label: '全部类型' },
-                    { id: 'planning', label: '产品策划' },
-                    { id: 'development', label: '功能开发' },
-                    { id: 'testing', label: '功能测试' },
-                    { id: 'review', label: '架构评审' },
-                  ]}
-                />
-              </>
-            )}
+              {activeTab === 'kanban' && (
+                <>
+                  <ToolbarDropdown
+                    label="执行 Agent"
+                    value={kanbanAgentFilter}
+                    defaultValue="all"
+                    onChange={setKanbanAgentFilter}
+                    options={[
+                      { id: 'all', label: '全部 Agent' },
+                      ...kanbanAssignableAgents.map((a) => ({
+                        id: a.id,
+                        label: formatAgentDisplayName(a.handle, a.runtimeAgent),
+                        hint: `${allTasks.filter((t) => t.assigneeId === a.id).length}`,
+                      })),
+                    ]}
+                  />
+                  <ToolbarDropdown
+                    label="类型"
+                    value={workTypeFilter}
+                    defaultValue="all"
+                    onChange={setWorkTypeFilter}
+                    options={[
+                      { id: 'all', label: '全部类型' },
+                      { id: 'planning', label: '产品策划' },
+                      { id: 'development', label: '功能开发' },
+                      { id: 'testing', label: '功能测试' },
+                      { id: 'review', label: '架构评审' },
+                    ]}
+                  />
+                </>
+              )}
 
-            {activeTab === 'agents' && (
-              <>
-                <ToolbarDivider />
-                <ToolbarDropdown
-                  label="归属"
-                  value={fleetOwnershipFilter}
-                  defaultValue="all"
-                  onChange={setFleetOwnershipFilter}
-                  options={[
-                    { id: 'all', label: '全部 Agent', hint: `${agentSnapshots.length}` },
-                    { id: 'marketplace', label: '外部雇佣', hint: `${externalFleetCount}` },
-                    { id: 'private', label: '自有节点', hint: `${privateFleetCount}` },
-                  ]}
-                />
+              {activeTab === 'agents' && (
                 <ToolbarDropdown
                   label="状态"
                   value={fleetStatusFilter}
@@ -548,56 +717,87 @@ export function WorkflowKanbanView({
                     { id: 'offline', label: '离线', hint: `${offlineAgentCount}` },
                   ]}
                 />
-              </>
-            )}
-          </>
-        }
-        right={
-          <>
-            <span className="hidden @[1040px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
-              <span>完成 {progressPct}%</span>
-              <span className="text-slate-300" aria-hidden="true">·</span>
-              <span>待验证 {reviewCount}</span>
-              <span className="text-slate-300" aria-hidden="true">·</span>
-              <span className="text-emerald-700 font-semibold">
-                在线 {idleAgentCount + busyAgentCount}/{agentSnapshots.length}
+              )}
+            </>
+          }
+          right={
+            <>
+              <span className="hidden @[900px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
+                <span>完成 {progressPct}%</span>
+                <span className="text-slate-300" aria-hidden="true">·</span>
+                <span>待验证 {reviewCount}</span>
+                <span className="text-slate-300" aria-hidden="true">·</span>
+                <span className="text-emerald-700 font-semibold">
+                  在线 {idleAgentCount + busyAgentCount}/{agentSnapshots.length}
+                </span>
               </span>
-            </span>
 
-            {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab('my_projects');
-                  setFocusedProjectId(null);
-                  setShowCreateProjectForm(true);
-                }}
-                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>新建项目</span>
-              </button>
-            )}
+              {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab('my_projects');
+                    setFocusedProjectId(null);
+                    setShowCreateProjectForm(true);
+                  }}
+                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>新建项目</span>
+                </button>
+              )}
 
-            {activeTab === 'agents' && (
-              <button
-                type="button"
-                onClick={onJumpToMarket}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-              >
-                <Store className="w-3.5 h-3.5" />
-                <span>去服务市场</span>
-              </button>
-            )}
-          </>
-        }
-      />
+              {activeTab === 'agents' && (
+                <button
+                  type="button"
+                  onClick={onJumpToMarket}
+                  className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                >
+                  <Store className="w-3.5 h-3.5" />
+                  <span>去服务市场</span>
+                </button>
+              )}
+            </>
+          }
+        />
 
-      {/* Main Scrollable Content Canvas */}
-      <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
-        {/* ================= TAB 1: PROJECT OVERVIEW (Executive Cockpit) ================= */}
-        {activeTab === 'overview' && (
-          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
+        {/* Main Scrollable Content Canvas */}
+        <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
+          {/* Compact Narrow Strip (visible only when shell < 760px) */}
+          <div className={`${WORKSPACE_MAX_WIDTH_CLASS} @[760px]/shell:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-0.5`}>
+            {[
+              { id: 'overview' as const, label: '项目概览', count: undefined },
+              { id: 'my_projects' as const, label: '我的项目', count: workspaces.length },
+              { id: 'kanban' as const, label: '任务看板', count: allTasks.length },
+              { id: 'agents' as const, label: 'Agent 编排', count: agentSnapshots.length },
+            ].map((item) => {
+              const active = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    if (item.id !== 'my_projects') setFocusedProjectId(null);
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
+                    active
+                      ? 'bg-slate-900 text-white border-slate-900'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                  {item.count !== undefined && (
+                    <span className="text-[11px] font-mono opacity-75">{item.count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* ================= TAB 1: PROJECT OVERVIEW (Executive Cockpit) ================= */}
+          {activeTab === 'overview' && (
+            <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
             {/* Top KPI Strip: Progress & Competitiveness | External Cost | Own Token Usage | Agent Fleet Status */}
             <div className="grid grid-cols-1 @[520px]:grid-cols-2 @[980px]:grid-cols-4 gap-3.5">
               {/* KPI 1: Project Progress & Delivery Competitiveness */}
@@ -780,7 +980,7 @@ export function WorkflowKanbanView({
                 </div>
 
                 <div className="divide-y divide-slate-100 flex-1">
-                  {workspaces.map((proj) => {
+                  {filteredMyProjects.map((proj) => {
                     const projTasks = allTasks.filter((t) => t.sessionId === proj.id);
                     const pPending = projTasks.filter((t) => t.status === 'pending').length;
                     const pRunning = projTasks.filter(
@@ -1165,15 +1365,36 @@ export function WorkflowKanbanView({
 
                         <div>
                           <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-                            <span>执行 Agent ({projMembers.length})</span>
+                            <span>
+                              项目阵容（{(proj.hiredExpertIds || []).length} 专家 · {projMembers.length} Agent）
+                            </span>
                             <span className="font-mono tabular-nums text-slate-700">
                               ${proj.spentUsd.toLocaleString('en-US')} / $
                               {proj.budgetCapUsd.toLocaleString('en-US')}
                             </span>
                           </div>
+                          {(proj.hiredExpertIds || []).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-emerald-800 mb-1.5">
+                              {(proj.hiredExpertIds || []).map((eid) => {
+                                const exp = humanExpertMap.get(eid);
+                                if (!exp) return null;
+                                return (
+                                  <span
+                                    key={eid}
+                                    title={`擅长方向：${exp.outsourcingDomain || exp.specialties[0] || ''}`}
+                                    className="inline-flex items-center gap-1 font-semibold"
+                                  >
+                                    <Users className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    <span>{exp.name}</span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          )}
                           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-700">
                             {projMembers.map((m) => {
                               const snap = snapshotByAgentId.get(m.id);
+                              const lease = agentLeases[m.id];
                               const dotCls =
                                 snap?.availability === 'busy'
                                   ? 'bg-blue-600'
@@ -1183,7 +1404,13 @@ export function WorkflowKanbanView({
                               return (
                                 <span
                                   key={m.id}
-                                  title={snap ? `${snap.availabilityLabel} · ${snap.availabilityDetail}` : ''}
+                                  title={
+                                    lease
+                                      ? `${lease.expiresLabel} · $${lease.priceUsd}${LEASE_PERIOD_META[lease.period].unitSuffix}`
+                                      : snap
+                                        ? `${snap.availabilityLabel} · ${snap.availabilityDetail}`
+                                        : ''
+                                  }
                                   className="inline-flex items-center gap-1"
                                 >
                                   <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
@@ -1192,6 +1419,11 @@ export function WorkflowKanbanView({
                                     runtime={m.runtimeAgent}
                                     model={m.defaultModel}
                                   />
+                                  {lease && (
+                                    <span className="text-[10px] font-mono text-indigo-600 font-semibold">
+                                      ({LEASE_PERIOD_META[lease.period].shortLabel})
+                                    </span>
+                                  )}
                                 </span>
                               );
                             })}
@@ -1365,10 +1597,136 @@ export function WorkflowKanbanView({
                   </section>
 
                   <div className="@[920px]:col-span-4 space-y-4">
+                    {/* Project Cooperative Experts Panel */}
+                    {(() => {
+                      const assignedExpertIds = focusedProject.hiredExpertIds || [];
+                      const assignedExperts = assignedExpertIds
+                        .map((id) => humanExpertMap.get(id))
+                        .filter((h): h is HumanExpert => Boolean(h));
+                      const availableExperts = humanExperts.filter(
+                        (h) => !h.isCurrentUser && !assignedExpertIds.includes(h.id),
+                      );
+                      const effectiveAssignId = assignExpertId || availableExperts[0]?.id || '';
+
+                      return (
+                        <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                              <Briefcase className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>项目合作专家 ({assignedExperts.length})</span>
+                            </h3>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                focusedProject.sourceZoneId
+                                  ? onJumpToZoneMarket(focusedProject.sourceZoneId)
+                                  : onJumpToMarket()
+                              }
+                              className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                            >
+                              人类专家 →
+                            </button>
+                          </div>
+
+                          {assignedExperts.length === 0 ? (
+                            <p className="text-xs text-slate-400">
+                              暂未派驻合作专家，可从下方直接指派团队或社区专家。
+                            </p>
+                          ) : (
+                            <div className="space-y-2.5">
+                              {assignedExperts.map((exp) => {
+                                const member = teamExpertMap.get(exp.id);
+                                const ownedCount = agents.filter(
+                                  (a) => a.ownerHumanId === exp.id && a.isListedInMarket,
+                                ).length;
+                                return (
+                                  <div
+                                    key={exp.id}
+                                    className="flex items-start justify-between gap-2 text-xs rounded-lg bg-slate-50/80 border border-slate-100 p-2.5"
+                                  >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                      <EntityAvatar
+                                        kind="human"
+                                        code={exp.avatarInitials}
+                                        accent={exp.avatarAccent}
+                                        size="sm"
+                                      />
+                                      <div className="min-w-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <span className="font-bold text-slate-900">{exp.name}</span>
+                                          <span className="px-1 py-0.5 rounded bg-violet-50 border border-violet-200 text-[10px] font-mono font-bold text-violet-700 leading-none">
+                                            {exp.ratingTier || 'A+'}级
+                                          </span>
+                                          {member && (
+                                            <span className="text-[10px] text-emerald-700 font-medium">
+                                              {member.relation === 'mutual_friend'
+                                                ? '互关好友'
+                                                : '项目合作'}
+                                            </span>
+                                          )}
+                                        </div>
+                                        <div className="text-[11px] text-slate-600 truncate mt-0.5">
+                                          {exp.outsourcingDomain || exp.specialties[0] || ''}
+                                        </div>
+                                        <div className="text-[10px] text-slate-400 mt-0.5">
+                                          内建 {ownedCount} 个专业 Agent
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onRemoveExpertFromWorkspace(exp.id, focusedProject.id)
+                                      }
+                                      title="移出该项目"
+                                      className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
+                                    >
+                                      <UserMinus className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {availableExperts.length > 0 && (
+                            <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5">
+                              <select
+                                value={effectiveAssignId}
+                                onChange={(e) => setAssignExpertId(e.target.value)}
+                                aria-label="选择要派驻该项目的专家"
+                                className="flex-1 min-w-0 h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-800 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600/30"
+                              >
+                                {availableExperts.map((exp) => (
+                                  <option key={exp.id} value={exp.id}>
+                                    {exp.name} · {exp.outsourcingDomain || exp.specialties[0] || ''}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (effectiveAssignId) {
+                                    onAssignExpertToWorkspace(effectiveAssignId, focusedProject.id);
+                                    setAssignExpertId('');
+                                  }
+                                }}
+                                className="h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                              >
+                                + 派驻
+                              </button>
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })()}
+
+                    {/* Project Executing & Leased Agents Panel */}
                     <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                       <div className="flex items-center justify-between">
-                        <h3 className="text-xs font-bold text-slate-900">
-                          项目执行 Agent ({focusedProject.hiredAgentIds.length})
+                        <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                          <Cpu className="w-3.5 h-3.5 text-indigo-600" />
+                          <span>项目专业 Agent ({focusedProject.hiredAgentIds.length})</span>
                         </h3>
                         <button
                           type="button"
@@ -1379,7 +1737,7 @@ export function WorkflowKanbanView({
                           }
                           className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                         >
-                          + 去专区招募
+                          + 租赁 Agent
                         </button>
                       </div>
                       <div className="space-y-2.5">
@@ -1387,39 +1745,82 @@ export function WorkflowKanbanView({
                           const snap = snapshotByAgentId.get(agentId);
                           const ag = agentMap.get(agentId);
                           if (!ag) return null;
+                          const lease = agentLeases[ag.id];
+                          const pricing = getAgentLeasePricing({
+                            runtimeAgent: ag.runtimeAgent,
+                            defaultModel: ag.defaultModel,
+                            capabilityTier: ag.performance.capabilityTier,
+                            ownership: ag.ownership,
+                            projectPriceUsd: ag.projectPriceUsd,
+                            monthlyLeaseUsd: ag.monthlyLeaseUsd,
+                          });
                           return (
                             <div
                               key={ag.id}
-                              className="flex items-center justify-between gap-2 text-xs"
+                              className="rounded-lg bg-slate-50/70 border border-slate-100 p-2.5 space-y-2 text-xs"
                             >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <EntityAvatar
-                                  kind="agent"
-                                  code={ag.avatarCode}
-                                  accent={ag.avatarAccent}
-                                  size="sm"
-                                />
-                                <div className="min-w-0">
-                                  <div className="flex items-center gap-1.5 min-w-0">
-                                    <AgentIdentityName
-                                      name={ag.handle}
-                                      runtime={ag.runtimeAgent}
-                                      model={ag.defaultModel}
-                                      showModel
-                                      className="font-semibold text-slate-900"
-                                    />
-                                  </div>
-                                  <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
-                                    {snap && renderAvailabilityIndicator(snap)}
-                                    <span className="text-slate-300" aria-hidden="true">·</span>
-                                    <span className="font-mono tabular-nums">
-                                      {ag.ownership === 'private'
-                                        ? '自有节点'
-                                        : `$${ag.projectPriceUsd.toLocaleString('en-US')}/项目`}
-                                    </span>
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <EntityAvatar
+                                    kind="agent"
+                                    code={ag.avatarCode}
+                                    accent={ag.avatarAccent}
+                                    size="sm"
+                                  />
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <AgentIdentityName
+                                        name={ag.handle}
+                                        runtime={ag.runtimeAgent}
+                                        model={ag.defaultModel}
+                                        showModel
+                                        className="font-semibold text-slate-900"
+                                      />
+                                    </div>
+                                    <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
+                                      {snap && renderAvailabilityIndicator(snap)}
+                                      <span className="text-slate-300" aria-hidden="true">·</span>
+                                      <span className="font-mono tabular-nums">
+                                        {ag.ownership === 'private'
+                                          ? '自有免租'
+                                          : lease
+                                            ? lease.expiresLabel
+                                            : `$${pricing.monthlyUsd}/月`}
+                                      </span>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
+
+                              {ag.ownership === 'marketplace' && (
+                                <div className="pt-1.5 border-t border-slate-200/70 flex items-center justify-between gap-2">
+                                  <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
+                                    <CalendarClock className="w-3 h-3 text-indigo-500" />
+                                    <span>切换租期</span>
+                                  </span>
+                                  <div className="inline-flex items-center gap-1">
+                                    {(['week', 'month', 'quarter'] as LeasePeriod[]).map((p) => {
+                                      const isCur = lease?.period === p;
+                                      return (
+                                        <button
+                                          key={p}
+                                          type="button"
+                                          onClick={() =>
+                                            onLeaseAgent(ag.id, p, focusedProject.id)
+                                          }
+                                          className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
+                                            isCur
+                                              ? 'bg-indigo-600 text-white'
+                                              : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400'
+                                          }`}
+                                        >
+                                          {LEASE_PERIOD_META[p].label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           );
                         })}
@@ -2018,19 +2419,50 @@ export function WorkflowKanbanView({
                                     {formatTokensK(snap.privateTokensK)} tokens
                                   </div>
                                   <div className="text-[11px] text-slate-400">
-                                    ≈ ${snap.privateTokenCostUsd.toFixed(1)} · 自用免签约
+                                    ≈ ${snap.privateTokenCostUsd.toFixed(1)} · 自用免租
                                   </div>
                                 </div>
-                              ) : (
-                                <div>
-                                  <div className="font-semibold text-slate-900">
-                                    ${agent.projectPriceUsd.toLocaleString('en-US')} / 项目
+                              ) : (() => {
+                                const lease = agentLeases[agent.id];
+                                const pricing = getAgentLeasePricing({
+                                  runtimeAgent: agent.runtimeAgent,
+                                  defaultModel: agent.defaultModel,
+                                  capabilityTier: agent.performance.capabilityTier,
+                                  ownership: agent.ownership,
+                                  projectPriceUsd: agent.projectPriceUsd,
+                                  monthlyLeaseUsd: agent.monthlyLeaseUsd,
+                                });
+                                return (
+                                  <div className="space-y-1">
+                                    <div className="font-semibold text-slate-900">
+                                      {lease
+                                        ? `$${lease.priceUsd}${LEASE_PERIOD_META[lease.period].unitSuffix}`
+                                        : `$${pricing.monthlyUsd}/月`}
+                                    </div>
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <span className="text-[11px] font-sans text-emerald-700 font-medium">
+                                        {lease ? lease.expiresLabel : '未定周期'}
+                                      </span>
+                                      <select
+                                        value={lease?.period || 'month'}
+                                        onChange={(e) =>
+                                          onLeaseAgent(
+                                            agent.id,
+                                            e.target.value as LeasePeriod,
+                                            snap.projects[0]?.id,
+                                          )
+                                        }
+                                        aria-label={`调整 ${displayEntityName(agent.handle)} 租期`}
+                                        className="h-5 rounded border border-slate-200 bg-slate-50 px-1 text-[10px] font-sans text-slate-700 cursor-pointer focus:bg-white focus:outline-none"
+                                      >
+                                        <option value="week">1周</option>
+                                        <option value="month">1个月</option>
+                                        <option value="quarter">1季度</option>
+                                      </select>
+                                    </div>
                                   </div>
-                                  <div className="text-[11px] text-slate-400">
-                                    累计 ${snap.externalCostUsd.toLocaleString('en-US')}
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </td>
 
                             <td className="py-3 px-5 text-right whitespace-nowrap">
@@ -2172,6 +2604,7 @@ export function WorkflowKanbanView({
             </section>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

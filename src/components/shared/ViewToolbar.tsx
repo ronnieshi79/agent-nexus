@@ -6,6 +6,85 @@ export const WORKSPACE_GUTTER_CLASS = 'px-4 sm:px-6 lg:px-8';
 export const WORKSPACE_MAX_WIDTH_CLASS = 'max-w-[1360px] mx-auto w-full';
 
 /**
+ * Full-height far-left primary filter rail shared across Market, Community, Kanban, and Team.
+ * Anchored at the far-left edge so the right-side ViewToolbar (search & secondary filters) aligns flush with content.
+ */
+export function WorkspacePrimaryRail({
+  ariaLabel,
+  children,
+}: {
+  ariaLabel: string;
+  children: ReactNode;
+}) {
+  return (
+    <aside
+      aria-label={ariaLabel}
+      className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200 bg-white overflow-y-auto clean-scroll px-2.5 py-3.5 space-y-3"
+    >
+      {children}
+    </aside>
+  );
+}
+
+export function RailSectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="px-2.5 pt-1 pb-1 text-[11px] font-semibold text-slate-400 tracking-wide">
+      {children}
+    </div>
+  );
+}
+
+export function RailNavButton({
+  active,
+  variant = 'primary',
+  disabled = false,
+  icon,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  variant?: 'primary' | 'subtle';
+  disabled?: boolean;
+  icon?: ReactNode;
+  label: string;
+  count?: number | string;
+  onClick: () => void;
+}) {
+  const cls =
+    variant === 'primary'
+      ? active
+        ? 'bg-slate-900 text-white font-semibold shadow-2xs'
+        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-semibold'
+      : active
+        ? 'bg-slate-100 text-slate-900 font-semibold'
+        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium';
+
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${cls}`}
+    >
+      <span className="inline-flex items-center gap-2 min-w-0 truncate">
+        {icon}
+        <span className="truncate">{label}</span>
+      </span>
+      {count !== undefined && (
+        <span
+          className={`text-[11px] font-mono tabular-nums shrink-0 ${
+            active && variant === 'primary' ? 'text-slate-300' : 'text-slate-400'
+          }`}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+/**
  * Unified single-row workspace toolbar container shared across Market, Community, Kanban, Team, etc.
  * All child mini-widgets conform to a strict 32px (h-8) control height and 1px hairline grammar.
  */

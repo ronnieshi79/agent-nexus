@@ -26,12 +26,40 @@ export type AgentOwnership = 'marketplace' | 'private';
 
 export type ZoneKind = 'public' | 'community' | 'enterprise';
 
+export type LeasePeriod = 'week' | 'month' | 'quarter';
+
+export interface AgentLeaseRecord {
+  agentId: string;
+  period: LeasePeriod;
+  priceUsd: number;
+  startedAt: string;
+  expiresLabel: string;
+  targetWorkspaceId?: string;
+}
+
+export type ExpertRelationType = 'project_collab' | 'mutual_friend';
+
+export interface TeamExpertMembership {
+  expertId: string;
+  relation: ExpertRelationType;
+  /** Zone from which this expert was invited or collaborated */
+  sourceZoneId?: string;
+  /** Project IDs this expert is actively assigned to */
+  assignedWorkspaceIds: string[];
+  outsourcingScope?: string;
+  joinedAt: string;
+}
+
 export interface HumanExpert {
   id: string;
   name: string;
   title: string;
   category: AgentCategory;
   bio: string;
+  /** Dedicated outsourcing direction offered by this human expert & their built-in Agents */
+  outsourcingDomain?: string;
+  outsourcingModes?: string[];
+  ratingTier?: 'S' | 'A+' | 'A';
   primaryZoneId: string;
   zoneIds: string[];
   avatarInitials: string;
@@ -124,6 +152,8 @@ export interface ExpertAgent {
   mcpTools: string[];
   /** Standard project engagement fee (USD / project), priced by capability, reputation & supply-demand */
   projectPriceUsd: number;
+  /** Optional explicit monthly lease price (USD / month); falls back to tier-based pricing helper */
+  monthlyLeaseUsd?: number;
   bio: string;
   avatarAccent: string;
   avatarCode: string;
@@ -263,6 +293,8 @@ export interface ProjectWorkspace {
   /** Total contracted external expert project fees (USD) */
   spentUsd: number;
   hiredAgentIds: string[];
+  /** Human experts engaged in this project (outsourcing / advisory / joint delivery) */
+  hiredExpertIds?: string[];
 }
 
 export interface ZoneProjectOpportunity {
@@ -338,7 +370,10 @@ export interface MarketSkill {
   version: string;
   installs: number;
   rating: number;
-  license: '免费开源' | '社区共享' | '订阅授权';
+  /** Optional explicit rating tier ('S' | 'A+' | 'A') and one-time purchase price USD (0 = free) */
+  ratingTier?: 'S' | 'A+' | 'A';
+  priceUsd?: number;
+  license: '免费开源' | '社区共享' | '付费买断';
   zoneIds: string[];
   installCommand: string;
   highlights: string[];

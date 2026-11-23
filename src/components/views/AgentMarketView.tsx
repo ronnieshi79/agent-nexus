@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   Blocks,
+  Briefcase,
+  CalendarClock,
   Check,
   Copy,
   Cpu,
   ExternalLink,
   MessageCircle,
   Send,
+  ShoppingBag,
   Sparkles,
   Terminal,
   UploadCloud,
   User,
+  UserCheck,
   UserMinus,
   UserPlus,
   Wrench,
@@ -18,34 +22,42 @@ import {
 } from 'lucide-react';
 import { INITIAL_MARKET_SKILLS } from '../../data/initialData';
 import { fetchMarketMatches, type MarketMatchResult } from '../../services/api';
+import { MarketLeaderboardRail } from '../market/MarketLeaderboardRail';
 import {
   AGENT_RUNTIME_PRESETS,
   AgentIdentityName,
   EntityAvatar,
-  HumanMark,
+  LEASE_PERIOD_META,
   displayEntityName,
-  evaluateAgentTierRating,
   formatShortRuntime,
+  getAgentLeasePricing,
+  getSkillPurchasePricing,
 } from '../shared/EntityIdentity';
 import {
+  RailNavButton,
+  RailSectionLabel,
   ToolbarDropdown,
   ToolbarPopoverWidget,
   ToolbarSearch,
-  ToolbarSegment,
   ViewToolbar,
   WORKSPACE_GUTTER_CLASS,
   WORKSPACE_MAX_WIDTH_CLASS,
+  WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import type {
   AgentCategory,
+  AgentLeaseRecord,
   CommunityZone,
   DemandStatus,
   DirectMessage,
   ExpertAgent,
+  ExpertRelationType,
   HumanExpert,
+  LeasePeriod,
   MarketSkill,
   ProjectWorkspace,
   SkillKind,
+  TeamExpertMembership,
 } from '../../types/agentnexus';
 
 const DEMAND_COLOR: Record<DemandStatus, string> = {
@@ -102,6 +114,9 @@ interface AgentMarketViewProps {
   agents: ExpertAgent[];
   privateAgents: ExpertAgent[];
   humanExperts: HumanExpert[];
+  agentLeases: Record<string, AgentLeaseRecord>;
+  purchasedSkillIds: string[];
+  teamExperts: TeamExpertMembership[];
   hiredIds: string[];
   dmHistories: Record<string, DirectMessage[]>;
   dmBusyAgentId: string | null;
@@ -109,6 +124,15 @@ interface AgentMarketViewProps {
   onClearDmError: () => void;
   onSendDm: (agentId: string, text: string) => Promise<void>;
   onStartNegotiation: (agentId: string) => void;
+  onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
+  onAcquireSkill: (skillId: string, skillName?: string, priceUsd?: number) => void;
+  onInviteTeamExpert: (input: {
+    expertId: string;
+    relation: ExpertRelationType;
+    targetWorkspaceId?: string;
+    sourceZoneId?: string;
+    outsourcingScope?: string;
+  }) => void;
   onSavePrivateAgent: (expert: ExpertAgent, isNew: boolean) => void;
   categorySeed: 'all' | AgentCategory;
   onClearCategorySeed: () => void;
@@ -119,9 +143,11 @@ interface AgentMarketViewProps {
 }
 
 type MarketEntityTab = 'agents' | 'humans' | 'skills';
+type MarketSortOption = 'recommended' | 'popular' | 'top_rated' | 'price_asc';
+type SkillPriceFilter = 'all' | 'free' | 'paid';
 
 type ActiveDrawer =
-  | { type: 'agent'; agentId: string; tab: 'consult' | 'profile' }
+  | { type: 'agent'; agentId: string; tab: 'lease' | 'consult' | 'profile' }
   | { type: 'human'; humanId: string }
   | { type: 'skill'; skillId: string }
   | null;
@@ -141,11 +167,13 @@ export function AgentMarketView({
   workspaces,
   zones,
   activeZone,
-  onSelectZone,
   allAgents,
   agents,
   privateAgents,
   humanExperts,
+  agentLeases,
+  purchasedSkillIds,
+  teamExperts,
   hiredIds,
   dmHistories,
   dmBusyAgentId,
@@ -153,6 +181,9 @@ export function AgentMarketView({
   onClearDmError,
   onSendDm,
   onStartNegotiation,
+  onLeaseAgent,
+  onAcquireSkill,
+  onInviteTeamExpert,
   onSavePrivateAgent,
   categorySeed,
   onClearCategorySeed,
@@ -166,6 +197,8 @@ export function AgentMarketView({
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [runtimeFilter, setRuntimeFilter] = useState<string>('all');
   const [skillKindFilter, setSkillKindFilter] = useState<'all' | SkillKind>('all');
+  const [skillPriceFilter, setSkillPriceFilter] = useState<SkillPriceFilter>('all');
+  const [sortBy, setSortBy] = useState<MarketSortOption>('recommended');
   const [keyword, setKeyword] = useState('');
 
   // AI Match Popover
@@ -175,8 +208,10 @@ export function AgentMarketView({
   const [matchResult, setMatchResult] = useState<MarketMatchResult | null>(null);
   const [matchError, setMatchError] = useState<string | null>(null);
 
-  // Unified Slide-in Drawer (Agent Consultation / Human Negotiation / Skill Detail)
+  // Unified Slide-in Drawer (Agent Lease / Consultation / Human Outsourcing / Skill Detail)
   const [activeDrawer, setActiveDrawer] = useState<ActiveDrawer>(null);
+  const [selectedLeasePeriod, setSelectedLeasePeriod] = useState<LeasePeriod>('month');
+  const [selectedLeaseWorkspaceId, setSelectedLeaseWorkspaceId] = useState<string>(workspace.id);
   const [dmDraft, setDmDraft] = useState('');
   const [humanDraft, setHumanDraft] = useState('');
   const [humanChatMap, setHumanChatMap] = useState<Record<string, HumanConsultMessage[]>>({});
@@ -186,6 +221,16 @@ export function AgentMarketView({
     privateAgents[0]?.id || '',
   );
   const dmEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setSelectedLeaseWorkspaceId(workspace.id);
+  }, [workspace.id]);
+
+  const teamExpertMap = useMemo(() => {
+    const map = new Map<string, TeamExpertMembership>();
+    teamExperts.forEach((m) => map.set(m.expertId, m));
+    return map;
+  }, [teamExperts]);
 
   useEffect(() => {
     if (!selectedMountAgentId && privateAgents[0]?.id) {
@@ -243,24 +288,56 @@ export function AgentMarketView({
     return [{ id: 'all', label: '全部底座' }, ...ordered];
   }, [agents]);
 
-  const zoneHumansAllCount = useMemo(
+  const zoneHumansAll = useMemo(
     () =>
       humanExperts.filter(
         (human) =>
           human.zoneIds.includes(activeZone.id) ||
           agents.some((a) => a.ownerHumanId === human.id),
-      ).length,
+      ),
     [activeZone.id, agents, humanExperts],
   );
+
+  const zoneHumansAllCount = zoneHumansAll.length;
 
   const zoneSkillsAll = useMemo(
     () => INITIAL_MARKET_SKILLS.filter((sk) => sk.zoneIds.includes(activeZone.id)),
     [activeZone.id],
   );
 
+  // Per-category counts for the active entity tab in the left rail
+  const categoryCounts = useMemo(() => {
+    const counts: Record<'all' | AgentCategory, number> = {
+      all: 0,
+      engineering: 0,
+      design: 0,
+      product: 0,
+      architecture: 0,
+      qa: 0,
+      media: 0,
+    };
+    if (entityTab === 'agents') {
+      counts.all = agents.length;
+      agents.forEach((a) => {
+        counts[a.category] += 1;
+      });
+    } else if (entityTab === 'humans') {
+      counts.all = zoneHumansAll.length;
+      zoneHumansAll.forEach((h) => {
+        counts[h.category] += 1;
+      });
+    } else {
+      counts.all = zoneSkillsAll.length;
+      zoneSkillsAll.forEach((s) => {
+        counts[s.category] += 1;
+      });
+    }
+    return counts;
+  }, [agents, entityTab, zoneHumansAll, zoneSkillsAll]);
+
   const zoneHumans = useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    return humanExperts
+    const list = humanExperts
       .map((human) => {
         const ownedInZone = agents.filter((a) => a.ownerHumanId === human.id);
         const ownedAllListed = allAgents.filter(
@@ -285,7 +362,17 @@ export function AgentMarketView({
           .toLowerCase();
         return haystack.includes(q);
       });
-  }, [activeZone.id, agents, allAgents, categoryFilter, humanExperts, keyword]);
+
+    return [...list].sort((a, b) => {
+      if (sortBy === 'popular') {
+        return b.human.completedProjects - a.human.completedProjects;
+      }
+      if (sortBy === 'top_rated') {
+        return b.human.reputationScore - a.human.reputationScore;
+      }
+      return 0;
+    });
+  }, [activeZone.id, agents, allAgents, categoryFilter, humanExperts, keyword, sortBy]);
 
   const activeOwnerFilter = useMemo(
     () => (ownerFilterId ? humanExperts.find((h) => h.id === ownerFilterId) || null : null),
@@ -294,7 +381,7 @@ export function AgentMarketView({
 
   const filteredAgents = useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    return agents.filter((agent) => {
+    const list = agents.filter((agent) => {
       if (ownerFilterId && agent.ownerHumanId !== ownerFilterId) return false;
       if (categoryFilter !== 'all' && agent.category !== categoryFilter) return false;
       if (runtimeFilter !== 'all' && agent.runtimeAgent !== runtimeFilter) return false;
@@ -314,13 +401,47 @@ export function AgentMarketView({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [agents, categoryFilter, keyword, ownerFilterId, runtimeFilter]);
+
+    return [...list].sort((a, b) => {
+      if (sortBy === 'popular') {
+        return b.performance.completedProjects - a.performance.completedProjects;
+      }
+      if (sortBy === 'top_rated') {
+        return b.performance.rating - a.performance.rating;
+      }
+      if (sortBy === 'price_asc') {
+        const pA = getAgentLeasePricing({
+          runtimeAgent: a.runtimeAgent,
+          defaultModel: a.defaultModel,
+          capabilityTier: a.performance.capabilityTier,
+          ownership: a.ownership,
+          projectPriceUsd: a.projectPriceUsd,
+          monthlyLeaseUsd: a.monthlyLeaseUsd,
+        }).monthlyUsd;
+        const pB = getAgentLeasePricing({
+          runtimeAgent: b.runtimeAgent,
+          defaultModel: b.defaultModel,
+          capabilityTier: b.performance.capabilityTier,
+          ownership: b.ownership,
+          projectPriceUsd: b.projectPriceUsd,
+          monthlyLeaseUsd: b.monthlyLeaseUsd,
+        }).monthlyUsd;
+        return pA - pB;
+      }
+      return 0;
+    });
+  }, [agents, categoryFilter, keyword, ownerFilterId, runtimeFilter, sortBy]);
 
   const filteredSkills = useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    return zoneSkillsAll.filter((sk) => {
+    const list = zoneSkillsAll.filter((sk) => {
       if (categoryFilter !== 'all' && sk.category !== categoryFilter) return false;
       if (skillKindFilter !== 'all' && sk.kind !== skillKindFilter) return false;
+      if (skillPriceFilter !== 'all') {
+        const pricing = getSkillPurchasePricing(sk);
+        if (skillPriceFilter === 'free' && !pricing.isFree) return false;
+        if (skillPriceFilter === 'paid' && pricing.isFree) return false;
+      }
       if (!q) return true;
       const haystack = [
         sk.name,
@@ -336,7 +457,16 @@ export function AgentMarketView({
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [categoryFilter, keyword, skillKindFilter, zoneSkillsAll]);
+
+    return [...list].sort((a, b) => {
+      if (sortBy === 'popular') return b.installs - a.installs;
+      if (sortBy === 'top_rated') return b.rating - a.rating;
+      if (sortBy === 'price_asc') {
+        return getSkillPurchasePricing(a).priceUsd - getSkillPurchasePricing(b).priceUsd;
+      }
+      return 0;
+    });
+  }, [categoryFilter, keyword, skillKindFilter, skillPriceFilter, sortBy, zoneSkillsAll]);
 
   const drawerAgent = useMemo(() => {
     if (activeDrawer?.type !== 'agent') return null;
@@ -366,7 +496,9 @@ export function AgentMarketView({
     dmEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }, [activeDmList.length, isDmBusy, activeDrawer, humanChatMap]);
 
-  const openAgentDrawer = (agentId: string, tab: 'consult' | 'profile') => {
+  const openAgentDrawer = (agentId: string, tab: 'lease' | 'consult' | 'profile') => {
+    const existingLease = agentLeases[agentId];
+    setSelectedLeasePeriod(existingLease?.period || 'month');
     setActiveDrawer({ type: 'agent', agentId, tab });
     onClearDmError();
   };
@@ -504,47 +636,73 @@ export function AgentMarketView({
   const hasActiveSubStrip = Boolean(activeOwnerFilter || matchResult || matchError);
 
   return (
-    <div className="h-full flex min-h-0 bg-white relative">
-      {/* Main Service Market Directory */}
+    <div className="h-full flex min-h-0 bg-white relative @container/shell">
+      {/* FAR-LEFT FULL-HEIGHT PRIMARY FILTER RAIL */}
+      <WorkspacePrimaryRail ariaLabel="服务市场主筛选">
+        <div className="space-y-0.5">
+          <RailSectionLabel>服务类型</RailSectionLabel>
+          {[
+            { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu, tint: 'text-indigo-500' },
+            { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase, tint: 'text-emerald-600' },
+            { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks, tint: 'text-amber-600' },
+          ].map((item) => {
+            const Icon = item.icon;
+            const active = entityTab === item.id;
+            return (
+              <RailNavButton
+                key={item.id}
+                active={active}
+                variant="primary"
+                label={item.label}
+                count={item.count}
+                icon={
+                  <Icon
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      active ? 'text-sky-300' : item.tint
+                    }`}
+                  />
+                }
+                onClick={() => {
+                  setEntityTab(item.id);
+                  if (item.id !== 'agents') setOwnerFilterId(null);
+                }}
+              />
+            );
+          })}
+        </div>
+
+        <div className="border-t border-slate-100 pt-2.5 space-y-0.5">
+          <RailSectionLabel>专业分类</RailSectionLabel>
+          {CATEGORY_TABS.map((cat) => (
+            <RailNavButton
+              key={cat.id}
+              active={categoryFilter === cat.id}
+              variant="subtle"
+              label={cat.label}
+              count={categoryCounts[cat.id]}
+              onClick={() => setCategoryFilter(cat.id)}
+            />
+          ))}
+        </div>
+      </WorkspacePrimaryRail>
+
+      {/* RIGHT MAIN WORKSPACE COLUMN: Top Search & Secondary Filters Aligned Flush with Content */}
       <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
-        {/* Unified Single-Row Composable Widget Toolbar (Content Filtering & Actions) */}
+        {/* Top Toolbar (Right-Shifted & Flush-Aligned with Content Area Below) */}
         <ViewToolbar
           left={
             <>
-              <ToolbarSegment
-                value={entityTab}
-                onChange={(next) => {
-                  setEntityTab(next);
-                  if (next !== 'agents') setOwnerFilterId(null);
-                }}
-                options={[
-                  {
-                    id: 'agents',
-                    label: 'Agent',
-                    count: agents.length,
-                    icon: <Cpu className="w-3.5 h-3.5 text-indigo-600 shrink-0" />,
-                  },
-                  {
-                    id: 'humans',
-                    label: '专家',
-                    count: zoneHumansAllCount,
-                    icon: <User className="w-3.5 h-3.5 text-emerald-600 shrink-0" />,
-                  },
-                  {
-                    id: 'skills',
-                    label: 'Skills',
-                    count: zoneSkillsAll.length,
-                    icon: <Blocks className="w-3.5 h-3.5 text-amber-600 shrink-0" />,
-                  },
-                ]}
-              />
-
-              <ToolbarDropdown
-                label="分类"
-                value={categoryFilter}
-                defaultValue="all"
-                onChange={setCategoryFilter}
-                options={CATEGORY_TABS.map((t) => ({ id: t.id, label: t.label }))}
+              <ToolbarSearch
+                value={keyword}
+                onChange={setKeyword}
+                widthClass="w-full sm:w-56 lg:w-64"
+                placeholder={
+                  entityTab === 'humans'
+                    ? '搜索人类专家、擅长方向...'
+                    : entityTab === 'skills'
+                      ? '搜索 Skill、MCP、适配底座...'
+                      : '搜索 Agent、底座(CC/Codex/Qoder)...'
+                }
               />
 
               {entityTab === 'agents' && (
@@ -558,34 +716,57 @@ export function AgentMarketView({
               )}
 
               {entityTab === 'skills' && (
-                <ToolbarDropdown
-                  label="类型"
-                  value={skillKindFilter}
-                  defaultValue="all"
-                  onChange={setSkillKindFilter}
-                  options={[
-                    { id: 'all', label: '全部类型' },
-                    { id: 'skill', label: 'Prompt Skill' },
-                    { id: 'mcp', label: 'MCP Server' },
-                    { id: 'workflow', label: '工作流套件' },
-                  ]}
-                />
+                <>
+                  <ToolbarDropdown
+                    label="类型"
+                    value={skillKindFilter}
+                    defaultValue="all"
+                    onChange={setSkillKindFilter}
+                    options={[
+                      { id: 'all', label: '全部类型' },
+                      { id: 'skill', label: 'Prompt Skill' },
+                      { id: 'mcp', label: 'MCP Server' },
+                      { id: 'workflow', label: '工作流套件' },
+                    ]}
+                  />
+                  <ToolbarDropdown
+                    label="价格"
+                    value={skillPriceFilter}
+                    defaultValue="all"
+                    onChange={setSkillPriceFilter}
+                    options={[
+                      { id: 'all', label: '全部价格' },
+                      { id: 'free', label: '免费开源' },
+                      { id: 'paid', label: '付费买断' },
+                    ]}
+                  />
+                </>
               )}
+
+              <ToolbarDropdown
+                label="排序"
+                value={sortBy}
+                defaultValue="recommended"
+                onChange={setSortBy}
+                options={
+                  entityTab === 'humans'
+                    ? [
+                        { id: 'recommended', label: '综合推荐' },
+                        { id: 'popular', label: '最受欢迎' },
+                        { id: 'top_rated', label: '最好评价' },
+                      ]
+                    : [
+                        { id: 'recommended', label: '综合推荐' },
+                        { id: 'popular', label: '最受欢迎' },
+                        { id: 'top_rated', label: '最好评价' },
+                        { id: 'price_asc', label: '价格从低到高' },
+                      ]
+                }
+              />
             </>
           }
           right={
             <>
-              <ToolbarSearch
-                value={keyword}
-                onChange={setKeyword}
-                placeholder={
-                  entityTab === 'humans'
-                    ? '搜索专家、专长、领域...'
-                    : entityTab === 'skills'
-                      ? '搜索 Skill、MCP、适配底座...'
-                      : '搜索 Agent、底座(CC/Codex/Qoder)、MCP...'
-                }
-              />
 
               <ToolbarPopoverWidget
                 open={aiPopoverOpen}
@@ -706,46 +887,102 @@ export function AgentMarketView({
           }
         />
 
-        {/* Scrollable Service Market Canvas */}
+        {/* Scrollable Content Canvas (Aligned Flush with ViewToolbar Above: 2-Col Catalog + Right Leaderboard) */}
         <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
           <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
-            {/* Context Hint Bar */}
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-              {entityTab === 'agents' && (
-                <>
-                  <span>
-                    带技能与 MCP 工具链的专项 Agent（按底座、能力等级与成本指数评估，项目报价请向主理人询价）
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    能力 S/A+/A · 成本指数 H/M/L（非 Token）
-                  </span>
-                </>
-              )}
-              {entityTab === 'humans' && (
-                <>
-                  <span>
-                    社区认证真人专家与 Agent 主理人，支持 1v1 私聊与项目需求协商
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    共 {zoneHumans.length} 位专家
-                  </span>
-                </>
-              )}
-              {entityTab === 'skills' && (
-                <>
-                  <span>
-                    面向 Claude Code / Codex / Qoder / Gemini 等底座的可复用 Skills、MCP Server 与工作流套件
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-mono">
-                    共 {filteredSkills.length} 个能力包
-                  </span>
-                </>
-              )}
+            {/* Compact Narrow Strip (visible only when shell < 760px) */}
+            <div className="@[760px]/shell:hidden space-y-2">
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                {[
+                  { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu },
+                  { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase },
+                  { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks },
+                ].map((item) => {
+                  const Icon = item.icon;
+                  const active = entityTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setEntityTab(item.id);
+                        if (item.id !== 'agents') setOwnerFilterId(null);
+                      }}
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
+                        active
+                          ? 'bg-slate-900 text-white border-slate-900'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span>{item.label}</span>
+                      <span className="text-[11px] font-mono opacity-75">{item.count}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                {CATEGORY_TABS.map((cat) => {
+                  const active = categoryFilter === cat.id;
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat.id)}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
+                        active
+                          ? 'bg-slate-800 text-white border-slate-800'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {cat.label} ({categoryCounts[cat.id]})
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            {/* TAB 1: AGENT SERVICE CATALOG */}
-            {entityTab === 'agents' && (
-              <div className="grid grid-cols-1 @[640px]:grid-cols-2 @[1020px]:grid-cols-3 gap-4">
+            {/* CENTER 2-COL CATALOG + RIGHT LEADERBOARD */}
+            <div className="flex flex-col @[820px]:flex-row gap-4 @[1100px]:gap-5 items-start">
+              {/* CENTER COLUMN: 2-Column Service Catalog */}
+              <div className="flex-1 min-w-0 w-full space-y-3.5 @container/center">
+                  {/* Context Hint Bar */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                    {entityTab === 'agents' && (
+                      <>
+                        <span>
+                          专业 Agent 支持按周 / 按月 / 按季度租赁，依据能力评级明码定价
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          共 {filteredAgents.length} 个 · 支持周租/月租/季租(85折)
+                        </span>
+                      </>
+                    )}
+                    {entityTab === 'humans' && (
+                      <>
+                        <span>
+                          空间认证人类专家，内建多个专业 Agent，支持方案讨论与项目合作咨询
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          共 {zoneHumans.length} 位人类专家
+                        </span>
+                      </>
+                    )}
+                    {entityTab === 'skills' && (
+                      <>
+                        <span>
+                          可复用 Skills、MCP 与工作流套件，支持免费开源或一次性买断永久使用
+                        </span>
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          共 {filteredSkills.length} 个 · 已拥有 {purchasedSkillIds.length}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* TAB 1: AGENT SERVICE CATALOG (2-Column Grid) */}
+                  {entityTab === 'agents' && (
+                    <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
                 {filteredAgents.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Agent 服务</p>
@@ -766,6 +1003,7 @@ export function AgentMarketView({
                   filteredAgents.map((agent) => {
                     const isInMyTeam = myTeamAgentIds.has(agent.id);
                     const isHiredInCurrent = hiredIds.includes(agent.id);
+                    const activeLease = agentLeases[agent.id];
                     const aiReason = matchMap.get(agent.id);
                     const isSelected =
                       activeDrawer?.type === 'agent' && activeDrawer.agentId === agent.id;
@@ -773,13 +1011,15 @@ export function AgentMarketView({
                     const ownerTotalCount = agent.ownerHumanId
                       ? ownerAgentCountMap.get(agent.ownerHumanId) || 1
                       : 0;
-                    const rating = evaluateAgentTierRating({
+                    const pricing = getAgentLeasePricing({
                       runtimeAgent: agent.runtimeAgent,
                       defaultModel: agent.defaultModel,
                       capabilityTier: agent.performance.capabilityTier,
                       ownership: agent.ownership,
                       projectPriceUsd: agent.projectPriceUsd,
+                      monthlyLeaseUsd: agent.monthlyLeaseUsd,
                     });
+                    const { rating } = pricing;
 
                     return (
                       <article
@@ -793,7 +1033,7 @@ export function AgentMarketView({
                         }`}
                       >
                         <div>
-                          {/* Top Row: Identity + Capability/Cost Index (NO raw price) */}
+                          {/* Top Row: Identity + Rating Tier & Transparent Lease Price */}
                           <div className="flex items-start justify-between gap-2.5">
                             <div className="flex items-center gap-3 min-w-0">
                               <EntityAvatar
@@ -817,46 +1057,37 @@ export function AgentMarketView({
                                   <span>{CATEGORY_LABELS[agent.category]}</span>
                                   <span className="text-slate-300">·</span>
                                   <span className="font-mono text-slate-600">
-                                    底座 {agent.runtimeAgent}
+                                    {agent.runtimeAgent}
+                                  </span>
+                                  <span className="text-slate-300">·</span>
+                                  <span
+                                    className={`font-mono font-bold ${
+                                      rating.capability === 'S'
+                                        ? 'text-violet-700'
+                                        : rating.capability === 'A+'
+                                          ? 'text-blue-700'
+                                          : 'text-slate-600'
+                                    }`}
+                                  >
+                                    {rating.capability}级
                                   </span>
                                 </div>
                               </div>
                             </div>
 
-                            {/* Capability Grade / Non-Token Cost Index */}
+                            {/* Transparent Monthly Lease Pricing */}
                             <div
-                              className="text-right shrink-0"
-                              title={`能力等级 ${rating.capability}（${rating.capabilityLabel}）· ${rating.costIndexLabel}（非 Token 计费，具体项目报价请向主理人询价）`}
+                              className="text-right shrink-0 font-mono tabular-nums"
+                              title={`能力评级 ${rating.capability} · 周租 $${pricing.weeklyUsd} · 月租 $${pricing.monthlyUsd} · 季租 $${pricing.quarterlyUsd}`}
                             >
-                              <div className="inline-flex items-center gap-1 font-mono tabular-nums">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-bold leading-none ${
-                                    rating.capability === 'S'
-                                      ? 'bg-violet-50 text-violet-700 border border-violet-200/80'
-                                      : rating.capability === 'A+'
-                                        ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
-                                        : 'bg-slate-100 text-slate-700 border border-slate-200/80'
-                                  }`}
-                                >
-                                  {rating.capability}
-                                </span>
-                                <span className="text-slate-300 text-xs">/</span>
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-bold leading-none ${
-                                    rating.cost === 'H'
-                                      ? 'bg-amber-50 text-amber-700 border border-amber-200/80'
-                                      : rating.cost === 'M'
-                                        ? 'bg-sky-50 text-sky-700 border border-sky-200/80'
-                                        : 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
-                                  }`}
-                                >
-                                  {rating.cost}
+                              <div className="text-sm font-bold text-slate-900 leading-none">
+                                ${pricing.monthlyUsd}
+                                <span className="text-[10px] font-sans font-normal text-slate-500">
+                                  /月
                                 </span>
                               </div>
-                              <div className="text-[10px] mt-1 whitespace-nowrap">
-                                <span className={`font-semibold ${DEMAND_COLOR[agent.performance.demandStatus]}`}>
-                                  {agent.performance.demandStatus}
-                                </span>
+                              <div className="text-[10px] text-slate-400 mt-1 whitespace-nowrap">
+                                周 ${pricing.weeklyUsd} · 季 ${pricing.quarterlyUsd}
                               </div>
                             </div>
                           </div>
@@ -865,13 +1096,27 @@ export function AgentMarketView({
                             {agent.title}
                           </p>
 
-                          {/* Principal (主理人) Attribution Bar */}
+                          {/* Active Lease Banner if Leased */}
+                          {activeLease && (
+                            <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] bg-emerald-50/80 border border-emerald-200/80 text-emerald-800 rounded-lg px-2.5 py-1.5">
+                              <span className="inline-flex items-center gap-1.5 font-semibold">
+                                <CalendarClock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span>已租用 · {activeLease.expiresLabel}</span>
+                              </span>
+                              <span className="font-mono tabular-nums text-emerald-700">
+                                ${activeLease.priceUsd}
+                                {LEASE_PERIOD_META[activeLease.period].unitSuffix}
+                              </span>
+                            </div>
+                          )}
+
+                          {/* Principal (所属专家) Attribution Bar */}
                           {agent.ownerHumanName && (
                             <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
                               <span className="inline-flex items-center gap-1.5 text-slate-600 truncate">
                                 <User className="w-3 h-3 text-emerald-600 shrink-0" />
                                 <span>
-                                  主理人：
+                                  所属专家：
                                   <strong className="font-semibold text-slate-900">
                                     {agent.ownerHumanName}
                                   </strong>
@@ -883,7 +1128,7 @@ export function AgentMarketView({
                                   onClick={() => setOwnerFilterId(agent.ownerHumanId || null)}
                                   className="text-blue-700 hover:text-blue-900 font-medium whitespace-nowrap shrink-0 cursor-pointer"
                                 >
-                                  旗下 {ownerTotalCount} 个
+                                  内建 {ownerTotalCount} 个
                                 </button>
                               )}
                             </div>
@@ -924,30 +1169,46 @@ export function AgentMarketView({
                               {agent.performance.repeatHireRate}%
                             </span>
                             <span>
-                              {agent.performance.completedProjects} 交付 · 评分{' '}
-                              {agent.performance.rating.toFixed(2)}
+                              <span className={`font-sans font-semibold mr-1.5 ${DEMAND_COLOR[agent.performance.demandStatus]}`}>
+                                {agent.performance.demandStatus}
+                              </span>
+                              ★ {agent.performance.rating.toFixed(2)}
                             </span>
                           </div>
                         </div>
 
-                        {/* Footer Actions: Strictly NO direct "拉入群" unless already in my AGN team */}
+                        {/* Footer Actions: Periodic Leasing + Consult */}
                         <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openAgentDrawer(agent.id, 'profile')}
-                            className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
-                          >
-                            查看详情
-                          </button>
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => openAgentDrawer(agent.id, 'profile')}
+                              className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                            >
+                              详情
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openAgentDrawer(agent.id, 'consult')}
+                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 cursor-pointer whitespace-nowrap"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>{dmCount > 0 ? `咨询 (${dmCount})` : '咨询'}</span>
+                            </button>
+                          </div>
 
-                          {isInMyTeam ? (
+                          {activeLease || isInMyTeam ? (
                             <div className="flex items-center gap-1.5">
                               {isHiredInCurrent ? (
                                 <>
-                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
-                                    <Check className="w-3.5 h-3.5" />
-                                    已在当前群
-                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => openAgentDrawer(agent.id, 'lease')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 whitespace-nowrap cursor-pointer"
+                                  >
+                                    <CalendarClock className="w-3.5 h-3.5" />
+                                    <span>{activeLease ? '续租 / 调期' : '已入当前群'}</span>
+                                  </button>
                                   <button
                                     type="button"
                                     onClick={() => onRelease(agent.id)}
@@ -961,22 +1222,22 @@ export function AgentMarketView({
                                 <button
                                   type="button"
                                   onClick={() => onHire(agent.id)}
-                                  title="该 Agent 已在你的团队中，可直接拉入当前项目群"
+                                  title="该 Agent 已在你的团队中，可直接派驻当前项目"
                                   className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
                                 >
                                   <UserPlus className="w-3.5 h-3.5" />
-                                  <span>拉入当前群</span>
+                                  <span>派驻当前项目</span>
                                 </button>
                               )}
                             </div>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => openAgentDrawer(agent.id, 'consult')}
+                              onClick={() => openAgentDrawer(agent.id, 'lease')}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>{dmCount > 0 ? `咨询/询价 (${dmCount})` : '咨询 / 询价'}</span>
+                              <CalendarClock className="w-3.5 h-3.5" />
+                              <span>立即租赁</span>
                             </button>
                           )}
                         </div>
@@ -987,9 +1248,9 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* TAB 2: HUMAN EXPERTS (PRINCIPALS) */}
+            {/* TAB 2: HUMAN EXPERTS (2-Column Grid) */}
             {entityTab === 'humans' && (
-              <div className="grid grid-cols-1 @[760px]:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
                 {zoneHumans.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配专家</p>
@@ -1008,10 +1269,12 @@ export function AgentMarketView({
                   </div>
                 ) : (
                   zoneHumans.map(({ human, ownedInZone, ownedAllListed }) => {
-                    const displayAgents = ownedInZone.length > 0 ? ownedInZone : ownedAllListed;
+                    const displayAgents = ownedAllListed.length > 0 ? ownedAllListed : ownedInZone;
                     const humanMsgCount = (humanChatMap[human.id] || []).length;
                     const isSelected =
                       activeDrawer?.type === 'human' && activeDrawer.humanId === human.id;
+                    const teamMember = teamExpertMap.get(human.id);
+                    const expertTier = human.ratingTier || 'A+';
 
                     return (
                       <article
@@ -1037,7 +1300,20 @@ export function AgentMarketView({
                                   <h3 className="text-sm font-bold text-slate-900">
                                     {human.name}
                                   </h3>
-                                  <HumanMark label={human.isCurrentUser ? '本人' : '真人专家'} />
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none ${
+                                      expertTier === 'S'
+                                        ? 'bg-violet-50 text-violet-700 border border-violet-200/80'
+                                        : 'bg-blue-50 text-blue-700 border border-blue-200/80'
+                                    }`}
+                                  >
+                                    {expertTier}级专家
+                                  </span>
+                                  {human.isCurrentUser && (
+                                    <span className="text-[11px] font-semibold text-emerald-700">
+                                      · 本人
+                                    </span>
+                                  )}
                                   <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
                                     · {CATEGORY_LABELS[human.category]}
                                   </span>
@@ -1058,21 +1334,38 @@ export function AgentMarketView({
                             </div>
                           </div>
 
+                          {/* Explicit Specialty Direction & Modes */}
+                          <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2 space-y-1">
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
+                                <Briefcase className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                <span className="truncate">
+                                  擅长方向：{human.outsourcingDomain || human.specialties[0]}
+                                </span>
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span>
+                                {(human.outsourcingModes && human.outsourcingModes.length > 0
+                                  ? human.outsourcingModes
+                                  : ['项目整包交付', '里程碑验收']
+                                ).join(' · ')}
+                              </span>
+                              <span className="text-slate-300">·</span>
+                              <span>支持项目外包与协作咨询</span>
+                            </div>
+                          </div>
+
                           <p className="mt-2.5 text-xs text-slate-600 leading-relaxed">
                             {human.bio}
                           </p>
 
-                          <div className="mt-2 text-[11px] text-slate-500">
-                            <span className="text-slate-400 mr-1.5">专长</span>
-                            {human.specialties.join(' · ')}
-                          </div>
-
-                          {/* Owned External Working Agents List */}
+                          {/* Owned Built-in Agents List */}
                           <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-2">
                             <div className="flex items-center justify-between text-xs">
                               <span className="font-semibold text-slate-800 inline-flex items-center gap-1.5">
                                 <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>主理旗下 Agent（{displayAgents.length} 个）</span>
+                                <span>内建专业 Agent（{displayAgents.length} 个）</span>
                               </span>
                               {ownedInZone.length > 0 && (
                                 <button
@@ -1083,32 +1376,32 @@ export function AgentMarketView({
                                   }}
                                   className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                                 >
-                                  在 Agent 市场查看 →
+                                  筛选全部 →
                                 </button>
                               )}
                             </div>
 
                             {displayAgents.length === 0 ? (
                               <p className="text-xs text-slate-400 py-2">
-                                暂未将名下 Agent 上架至当前社区服务市场
+                                暂未将内建 Agent 上架至服务市场
                               </p>
                             ) : (
                               <div className="space-y-2">
                                 {displayAgents.map((ag) => {
-                                  const agInTeam = myTeamAgentIds.has(ag.id);
-                                  const agHiredInCurrent = hiredIds.includes(ag.id);
-                                  const agRating = evaluateAgentTierRating({
+                                  const agLease = agentLeases[ag.id];
+                                  const agPricing = getAgentLeasePricing({
                                     runtimeAgent: ag.runtimeAgent,
                                     defaultModel: ag.defaultModel,
                                     capabilityTier: ag.performance.capabilityTier,
                                     ownership: ag.ownership,
                                     projectPriceUsd: ag.projectPriceUsd,
+                                    monthlyLeaseUsd: ag.monthlyLeaseUsd,
                                   });
 
                                   return (
                                     <div
                                       key={ag.id}
-                                      className="rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2.5 flex items-center justify-between gap-2.5"
+                                      className="rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2 flex items-center justify-between gap-2.5"
                                     >
                                       <div className="flex items-center gap-2.5 min-w-0">
                                         <EntityAvatar
@@ -1127,14 +1420,22 @@ export function AgentMarketView({
                                               className="text-xs font-bold text-slate-900"
                                             />
                                           </div>
-                                          <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
-                                            <span className="font-mono font-semibold text-slate-700">
-                                              评级 {agRating.code}
+                                          <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5 font-mono tabular-nums">
+                                            <span className="font-semibold text-slate-700">
+                                              {agPricing.rating.capability}级
                                             </span>
                                             <span className="text-slate-300">·</span>
-                                            <span>{ag.mcpTools.length} MCP</span>
-                                            <span className="text-slate-300">·</span>
-                                            <span>{ag.performance.demandStatus}</span>
+                                            <span className="text-slate-800 font-semibold">
+                                              ${agPricing.monthlyUsd}/月
+                                            </span>
+                                            {agLease && (
+                                              <>
+                                                <span className="text-slate-300">·</span>
+                                                <span className="font-sans text-emerald-700 font-semibold">
+                                                  已租({LEASE_PERIOD_META[agLease.period].shortLabel})
+                                                </span>
+                                              </>
+                                            )}
                                           </div>
                                         </div>
                                       </div>
@@ -1145,32 +1446,19 @@ export function AgentMarketView({
                                           onClick={() => openAgentDrawer(ag.id, 'profile')}
                                           className="px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-600 cursor-pointer whitespace-nowrap"
                                         >
-                                          查看
+                                          详情
                                         </button>
-                                        {agInTeam ? (
-                                          agHiredInCurrent ? (
-                                            <span className="inline-flex items-center gap-0.5 px-2 py-1 text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
-                                              <Check className="w-3 h-3" />
-                                              已在群
-                                            </span>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={() => onHire(ag.id)}
-                                              className="px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                                            >
-                                              拉入群
-                                            </button>
-                                          )
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => openAgentDrawer(ag.id, 'consult')}
-                                            className="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                                          >
-                                            询价
-                                          </button>
-                                        )}
+                                        <button
+                                          type="button"
+                                          onClick={() => openAgentDrawer(ag.id, 'lease')}
+                                          className={`px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
+                                            agLease
+                                              ? 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                                              : 'bg-slate-900 hover:bg-slate-800 text-white'
+                                          }`}
+                                        >
+                                          {agLease ? '续租' : '租赁'}
+                                        </button>
                                       </div>
                                     </div>
                                   );
@@ -1180,33 +1468,59 @@ export function AgentMarketView({
                           </div>
                         </div>
 
-                        {/* Human Expert Card Footer: Strictly Private Chat / Negotiation */}
+                        {/* Human Expert Card Footer: Team Invite + Outsourcing Consultation */}
                         <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <span className="text-[11px] text-slate-400">
-                            {human.isCurrentUser
-                              ? '你的公开主理人名片'
-                              : '支持项目方案评估与 1v1 档期协商'}
-                          </span>
                           {human.isCurrentUser ? (
-                            <button
-                              type="button"
-                              onClick={onJumpToMountPrivate}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-                            >
-                              <UploadCloud className="w-3.5 h-3.5" />
-                              <span>管理上架 Agent</span>
-                            </button>
+                            <>
+                              <span className="text-[11px] text-slate-400">你的公开专家名片</span>
+                              <button
+                                type="button"
+                                onClick={onJumpToMountPrivate}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                              >
+                                <UploadCloud className="w-3.5 h-3.5" />
+                                <span>管理内建 Agent</span>
+                              </button>
+                            </>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => openHumanDrawer(human.id)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>
-                                {humanMsgCount > 0 ? `私聊 / 协商 (${humanMsgCount})` : '私聊 / 协商'}
-                              </span>
-                            </button>
+                            <>
+                              {teamMember ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 whitespace-nowrap">
+                                  <UserCheck className="w-3.5 h-3.5" />
+                                  <span>
+                                    专家团队 ·{' '}
+                                    {teamMember.relation === 'mutual_friend' ? '互关好友' : '项目合作'}
+                                  </span>
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onInviteTeamExpert({
+                                      expertId: human.id,
+                                      relation: 'mutual_friend',
+                                      sourceZoneId: activeZone.id,
+                                      outsourcingScope: human.outsourcingDomain || human.specialties[0] || '',
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                                >
+                                  <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
+                                  <span>互关好友</span>
+                                </button>
+                              )}
+
+                              <button
+                                type="button"
+                                onClick={() => openHumanDrawer(human.id)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                                <span>
+                                  {humanMsgCount > 0 ? `咨询 (${humanMsgCount})` : '咨询'}
+                                </span>
+                              </button>
+                            </>
                           )}
                         </div>
                       </article>
@@ -1216,9 +1530,9 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* TAB 3: SKILLS & MCP MARKETPLACE */}
+            {/* TAB 3: SKILLS & MCP MARKETPLACE (2-Column Grid · Free or One-Time Purchase) */}
             {entityTab === 'skills' && (
-              <div className="grid grid-cols-1 @[640px]:grid-cols-2 @[1020px]:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
                 {filteredSkills.length === 0 ? (
                   <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Skills / MCP</p>
@@ -1227,6 +1541,7 @@ export function AgentMarketView({
                       onClick={() => {
                         setCategoryFilter('all');
                         setSkillKindFilter('all');
+                        setSkillPriceFilter('all');
                         setKeyword('');
                       }}
                       className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
@@ -1239,6 +1554,8 @@ export function AgentMarketView({
                     const isSelected =
                       activeDrawer?.type === 'skill' && activeDrawer.skillId === skill.id;
                     const mountedCount = (mountedSkillMap[skill.id] || []).length;
+                    const isOwned = purchasedSkillIds.includes(skill.id);
+                    const skillPricing = getSkillPurchasePricing(skill);
 
                     return (
                       <article
@@ -1258,8 +1575,16 @@ export function AgentMarketView({
                                 >
                                   {SKILL_KIND_LABELS[skill.kind]}
                                 </span>
-                                <span className="text-[11px] text-slate-500">
-                                  {CATEGORY_LABELS[skill.category]}
+                                <span
+                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none ${
+                                    skillPricing.ratingTier === 'S'
+                                      ? 'bg-violet-50 text-violet-700 border border-violet-200/80'
+                                      : skillPricing.ratingTier === 'A+'
+                                        ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
+                                        : 'bg-slate-100 text-slate-600 border border-slate-200/80'
+                                  }`}
+                                >
+                                  {skillPricing.ratingTier}级
                                 </span>
                                 <span className="text-[10px] font-mono text-slate-400">
                                   {skill.version}
@@ -1273,9 +1598,18 @@ export function AgentMarketView({
                               </div>
                             </div>
 
-                            <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-medium whitespace-nowrap shrink-0">
-                              {skill.license}
-                            </span>
+                            <div className="text-right shrink-0 font-mono tabular-nums">
+                              <div
+                                className={`text-sm font-bold leading-none ${
+                                  skillPricing.isFree ? 'text-emerald-700' : 'text-slate-900'
+                                }`}
+                              >
+                                {skillPricing.priceLabel}
+                              </div>
+                              <div className="text-[10px] font-sans text-slate-400 mt-1 whitespace-nowrap">
+                                {skillPricing.isFree ? '免费开源' : '一次买断'}
+                              </div>
+                            </div>
                           </div>
 
                           <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">
@@ -1310,26 +1644,34 @@ export function AgentMarketView({
                             onClick={() => openSkillDrawer(skill.id)}
                             className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
                           >
-                            查看文档 / 命令行
+                            文档 / 装配{mountedCount > 0 ? ` (${mountedCount})` : ''}
                           </button>
 
-                          {mountedCount > 0 ? (
+                          {isOwned ? (
                             <button
                               type="button"
                               onClick={() => openSkillDrawer(skill.id)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold cursor-pointer whitespace-nowrap"
                             >
                               <Check className="w-3.5 h-3.5" />
-                              <span>已装配 ({mountedCount})</span>
+                              <span>{skillPricing.isFree ? '已免费获取' : '已买断 · 装配'}</span>
                             </button>
                           ) : (
                             <button
                               type="button"
-                              onClick={() => openSkillDrawer(skill.id)}
+                              onClick={() =>
+                                onAcquireSkill(skill.id, skill.name, skillPricing.priceUsd)
+                              }
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
                             >
-                              <Blocks className="w-3.5 h-3.5" />
-                              <span>装配到 Agent</span>
+                              {skillPricing.isFree ? (
+                                <Blocks className="w-3.5 h-3.5" />
+                              ) : (
+                                <ShoppingBag className="w-3.5 h-3.5" />
+                              )}
+                              <span>
+                                {skillPricing.isFree ? '免费获取' : `购买 ${skillPricing.priceLabel}`}
+                              </span>
                             </button>
                           )}
                         </div>
@@ -1339,21 +1681,45 @@ export function AgentMarketView({
                 )}
               </div>
             )}
+                </div>
+
+                {/* COLUMN 3 (RIGHT): Ranking & Recommendation Leaderboard Rail */}
+                <MarketLeaderboardRail
+                  entityTab={entityTab}
+                  activeCategory={categoryFilter}
+                  agents={agents}
+                  allAgents={allAgents}
+                  humanExperts={zoneHumansAll}
+                  skills={zoneSkillsAll}
+                  agentLeases={agentLeases}
+                  purchasedSkillIds={purchasedSkillIds}
+                  onSelectAgent={(agentId) => openAgentDrawer(agentId, 'lease')}
+                  onSelectHuman={(humanId) => openHumanDrawer(humanId)}
+                  onSelectSkill={(skillId) => openSkillDrawer(skillId)}
+                  onSwitchEntityTab={(tab) => {
+                    setEntityTab(tab);
+                    if (tab !== 'agents') setOwnerFilterId(null);
+                  }}
+                />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* RIGHT SLIDE-IN DRAWER A: AGENT CONSULTATION (TO PRINCIPAL) & PROFILE */}
+      {/* RIGHT SLIDE-IN DRAWER A: AGENT LEASE CONFIGURATOR, CONSULTATION & PROFILE */}
       {drawerAgent && activeDrawer?.type === 'agent' && (() => {
-        const isInMyTeam = myTeamAgentIds.has(drawerAgent.id);
-        const isHiredInCurrent = hiredIds.includes(drawerAgent.id);
-        const rating = evaluateAgentTierRating({
+        const activeLease = agentLeases[drawerAgent.id];
+        const pricing = getAgentLeasePricing({
           runtimeAgent: drawerAgent.runtimeAgent,
           defaultModel: drawerAgent.defaultModel,
           capabilityTier: drawerAgent.performance.capabilityTier,
           ownership: drawerAgent.ownership,
           projectPriceUsd: drawerAgent.projectPriceUsd,
+          monthlyLeaseUsd: drawerAgent.monthlyLeaseUsd,
         });
+        const { rating } = pricing;
+        const selectedPrice = pricing.getPriceForPeriod(selectedLeasePeriod);
+        const selectedMeta = LEASE_PERIOD_META[selectedLeasePeriod];
 
         return (
           <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[430px] lg:w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
@@ -1378,9 +1744,9 @@ export function AgentMarketView({
                     </h2>
                     <p className="text-xs text-slate-500 mt-0.5 truncate">
                       {drawerAgent.ownerHumanName
-                        ? `主理人：${drawerAgent.ownerHumanName} · `
+                        ? `所属专家：${drawerAgent.ownerHumanName} · `
                         : ''}
-                      底座 {drawerAgent.runtimeAgent} · 评级 {rating.code}
+                      评级 {rating.capability}级 · ${pricing.monthlyUsd}/月
                     </p>
                   </div>
                 </div>
@@ -1395,19 +1761,19 @@ export function AgentMarketView({
               </div>
 
               {/* Segmented Drawer Tabs */}
-              <div className="mt-3 grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
+              <div className="mt-3 grid grid-cols-3 gap-1 p-1 bg-slate-200/70 rounded-lg">
                 <button
                   type="button"
                   onClick={() =>
-                    setActiveDrawer({ type: 'agent', agentId: drawerAgent.id, tab: 'consult' })
+                    setActiveDrawer({ type: 'agent', agentId: drawerAgent.id, tab: 'lease' })
                   }
                   className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
-                    activeDrawer.tab === 'consult'
+                    activeDrawer.tab === 'lease'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  咨询主理人 / 询价
+                  按期租赁
                 </button>
                 <button
                   type="button"
@@ -1420,16 +1786,129 @@ export function AgentMarketView({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  底座能力与履历
+                  评级与能力
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveDrawer({ type: 'agent', agentId: drawerAgent.id, tab: 'consult' })
+                  }
+                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                    activeDrawer.tab === 'consult'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  咨询
                 </button>
               </div>
             </div>
 
-            {activeDrawer.tab === 'consult' ? (
+            {activeDrawer.tab === 'lease' ? (
+              <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4 bg-slate-50/40">
+                {activeLease && (
+                  <div className="rounded-xl bg-emerald-50 border border-emerald-200 px-3.5 py-2.5 text-xs text-emerald-900 flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 font-semibold">
+                      <CalendarClock className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>当前租期生效：{activeLease.expiresLabel}</span>
+                    </span>
+                    <span className="font-mono font-bold">
+                      ${activeLease.priceUsd}
+                      {LEASE_PERIOD_META[activeLease.period].unitSuffix}
+                    </span>
+                  </div>
+                )}
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900">选择租赁周期</span>
+                    <span className="text-[11px] font-mono text-slate-500">
+                      评级 {rating.capability}级 · ★ {drawerAgent.performance.rating.toFixed(2)}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(['week', 'month', 'quarter'] as LeasePeriod[]).map((period) => {
+                      const meta = LEASE_PERIOD_META[period];
+                      const price = pricing.getPriceForPeriod(period);
+                      const checked = selectedLeasePeriod === period;
+                      return (
+                        <button
+                          key={period}
+                          type="button"
+                          onClick={() => setSelectedLeasePeriod(period)}
+                          className={`w-full text-left rounded-xl border p-3.5 flex items-center justify-between gap-3 transition-colors cursor-pointer ${
+                            checked
+                              ? 'bg-white border-blue-600 ring-2 ring-blue-600/15'
+                              : 'bg-white border-slate-200 hover:border-slate-300'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-slate-900">
+                                {meta.label}（{meta.shortLabel}）
+                              </span>
+                              {period === 'quarter' && (
+                                <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-[10px] font-semibold text-amber-800">
+                                  85折
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              {meta.hint} · 租期 {meta.days} 天
+                            </div>
+                          </div>
+                          <div className="text-right font-mono tabular-nums shrink-0">
+                            <div className="text-base font-bold text-slate-900">
+                              ${price}
+                              <span className="text-[11px] font-sans font-normal text-slate-500">
+                                {meta.unitSuffix}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-bold text-slate-900">
+                    派驻目标项目工作区
+                  </label>
+                  <select
+                    value={selectedLeaseWorkspaceId}
+                    onChange={(e) => setSelectedLeaseWorkspaceId(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    {workspaces.map((ws) => (
+                      <option key={ws.id} value={ws.id}>
+                        {ws.name}（当前 {ws.hiredAgentIds.length} 个 Agent）
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    租赁生效后，该专业 Agent 将立即派驻至所选项目群与任务看板，并同步纳入「AGN 团队」管理，支持随时续租或调整租期。
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-white border border-slate-200 p-3.5 space-y-2 text-xs">
+                  <div className="font-semibold text-slate-800">租赁包含权益</div>
+                  <ul className="space-y-1 text-[11px] text-slate-600 list-disc pl-4">
+                    <li>
+                      完整挂载底座 {drawerAgent.runtimeAgent}（{drawerAgent.defaultModel}）与{' '}
+                      {drawerAgent.mcpTools.length} 个 MCP 工具链
+                    </li>
+                    <li>租期内项目群无限轮次任务协作、代码/文档产物交付与自动权限隔离</li>
+                    <li>如需定制化需求、方案探讨或项目交付，可随时向所属专家 {drawerAgent.ownerHumanName || '主理人'} 发起咨询</li>
+                  </ul>
+                </div>
+              </div>
+            ) : activeDrawer.tab === 'consult' ? (
               <div className="flex-1 min-h-0 flex flex-col">
                 <div className="px-4 py-2 bg-blue-50/70 border-b border-blue-100 text-[11px] text-blue-900 flex items-center justify-between gap-2">
                   <span>
-                    当前对接主理人 <strong>{drawerAgent.ownerHumanName || '官方服务主理人'}</strong>，按项目范围评估报价
+                    当前对接所属专家 <strong>{drawerAgent.ownerHumanName || '官方服务主理人'}</strong>，支持租赁答疑、方案讨论与合作评估
                   </span>
                 </div>
 
@@ -1439,14 +1918,13 @@ export function AgentMarketView({
                       <span className="font-semibold text-slate-700">
                         {drawerAgent.ownerHumanName || displayEntityName(drawerAgent.handle)}
                       </span>
-                      <span>· 主理人接待</span>
+                      <span>· 咨询</span>
                     </span>
                     <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">
                       你好！我是 {formatShortRuntime(drawerAgent.runtimeAgent)}-
-                      {displayEntityName(drawerAgent.handle)} 的主理人
+                      {displayEntityName(drawerAgent.handle)} 的所属专家
                       {drawerAgent.ownerHumanName ? ` ${drawerAgent.ownerHumanName}` : ''}。该
-                      Agent 运行在 {drawerAgent.runtimeAgent}（{drawerAgent.defaultModel}）底座上，
-                      综合评级 {rating.code}（{rating.description}）。具体费用需结合「{workspace.name}」的交付范围与周期做市场评估，欢迎直接说明需求询价。
+                      Agent 评级为 {rating.capability} 级（月租 ${pricing.monthlyUsd}/月，支持周租与季租），可以直接在「按期租赁」一键启用；如果需要方案探讨或由我带队合作，欢迎直接说明场景与目标。
                     </div>
                   </div>
 
@@ -1478,7 +1956,7 @@ export function AgentMarketView({
 
                   {isDmBusy && (
                     <div className="text-xs text-slate-500">
-                      主理人正在结合项目范围组织回复与评估...
+                      专家正在结合项目范围组织回复...
                     </div>
                   )}
 
@@ -1519,7 +1997,7 @@ export function AgentMarketView({
                       value={dmDraft}
                       onChange={(e) => setDmDraft(e.target.value)}
                       disabled={isDmBusy}
-                      placeholder={`向主理人 ${drawerAgent.ownerHumanName || ''} 咨询能力或发起项目询价...`}
+                      placeholder={`向 ${drawerAgent.ownerHumanName || '专家'} 咨询适配度、方案或合作...`}
                       className="flex-1 min-w-0 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
                     />
                     <button
@@ -1539,9 +2017,15 @@ export function AgentMarketView({
 
                 <div className="grid grid-cols-2 gap-3.5 py-4 border-y border-slate-200">
                   <div>
-                    <div className="text-[11px] text-slate-500">能力等级 / 成本指数</div>
+                    <div className="text-[11px] text-slate-500">能力评级 / 综合成本</div>
                     <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono tabular-nums">
-                      {rating.code}（{rating.capabilityLabel.slice(0, 2)} · {rating.costLabel}）
+                      {rating.capability}级 · {rating.code}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[11px] text-slate-500">透明租赁定价</div>
+                    <div className="text-xs font-semibold font-mono tabular-nums text-slate-900 mt-1">
+                      ${pricing.monthlyUsd}/月 · 周 ${pricing.weeklyUsd} · 季 ${pricing.quarterlyUsd}
                     </div>
                   </div>
                   <div>
@@ -1557,26 +2041,6 @@ export function AgentMarketView({
                       {drawerAgent.performance.repeatHireRate}%
                     </div>
                   </div>
-                  <div>
-                    <div className="text-[11px] text-slate-500">当前档期与信誉</div>
-                    <div
-                      className={`text-xs font-semibold mt-1 ${DEMAND_COLOR[drawerAgent.performance.demandStatus]}`}
-                    >
-                      {drawerAgent.performance.demandStatus} · 信誉{' '}
-                      {drawerAgent.performance.reputationScore}
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="text-xs font-semibold text-slate-800 mb-1">报价评估机制</div>
-                  <p className="text-xs text-slate-600 leading-relaxed">
-                    服务市场不设一口价：费用由具体项目需求复杂度、交付周期及市场供需综合评估。点击下方「进入对话协商」与主理人{' '}
-                    <strong className="text-slate-900">
-                      {drawerAgent.ownerHumanName || '服务主理人'}
-                    </strong>{' '}
-                    沟通获取正式报价。
-                  </p>
                 </div>
 
                 <div>
@@ -1629,41 +2093,39 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* Sticky Bottom Bar: NO direct 拉入群 for external non-team Agents */}
+            {/* Sticky Bottom Bar */}
             <div className="p-4 border-t border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
-              <div className="min-w-0">
+              <div className="min-w-0 font-mono tabular-nums">
                 <div className="text-xs font-bold text-slate-900">
-                  {isInMyTeam ? '已在我的 AGN 团队' : '按项目评估报价'}
+                  ${selectedPrice}
+                  <span className="font-sans font-normal text-slate-500">
+                    {selectedMeta.unitSuffix}（{selectedMeta.label}）
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-500 truncate">
-                  {rating.code} · {rating.costIndexLabel}
+                <div className="text-[11px] font-sans text-slate-500 truncate">
+                  {rating.capability}级专业 Agent · {activeLease ? '可续租或切换周期' : '租后即刻派驻项目'}
                 </div>
               </div>
 
-              {isInMyTeam ? (
-                isHiredInCurrent ? (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold bg-emerald-50 border border-emerald-200 text-emerald-800 whitespace-nowrap shrink-0">
-                    <Check className="w-3.5 h-3.5" />
-                    <span>已在当前项目群</span>
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onHire(drawerAgent.id)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer whitespace-nowrap shrink-0"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>拉入当前项目群</span>
-                  </button>
-                )
-              ) : (
+              {activeDrawer.tab === 'consult' ? (
                 <button
                   type="button"
                   onClick={() => onStartNegotiation(drawerAgent.id)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <ExternalLink className="w-3.5 h-3.5" />
-                  <span>进入正式询价协商</span>
+                  <span>进入协作会话</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onLeaseAgent(drawerAgent.id, selectedLeasePeriod, selectedLeaseWorkspaceId);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <CalendarClock className="w-3.5 h-3.5" />
+                  <span>{activeLease ? '更新租期 / 派驻' : '确认租赁'}</span>
                 </button>
               )}
             </div>
@@ -1671,112 +2133,154 @@ export function AgentMarketView({
         );
       })()}
 
-      {/* RIGHT SLIDE-IN DRAWER B: HUMAN EXPERT PRIVATE CHAT / NEGOTIATION */}
-      {drawerHuman && activeDrawer?.type === 'human' && (
-        <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[430px] lg:w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
-          <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex items-start justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <EntityAvatar
-                kind="human"
-                code={drawerHuman.avatarInitials}
-                accent={drawerHuman.avatarAccent}
-                size="md"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <h2 className="text-sm font-bold text-slate-900">{drawerHuman.name}</h2>
-                  <HumanMark label="真人专家" />
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5 truncate">{drawerHuman.title}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => setActiveDrawer(null)}
-              className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer shrink-0"
-              aria-label="关闭专家私聊"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-3.5 bg-slate-50/40">
-            <div className="flex flex-col items-start">
-              <span className="text-[11px] text-slate-500 mb-1">
-                {drawerHuman.name} · 1v1 专家私聊协商
-              </span>
-              <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">
-                你好！我是 {drawerHuman.name}（{drawerHuman.title}，信誉 {drawerHuman.reputationScore}）。我们可以先私聊对齐你的项目目标、技术边界与期望周期，确认方案后再商定合作方式与旗下 Agent 协同配置。
-              </div>
-            </div>
-
-            {(humanChatMap[drawerHuman.id] || []).map((msg) => {
-              const isMe = msg.sender === 'me';
-              return (
-                <div
-                  key={msg.id}
-                  className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
-                >
-                  <span className="text-[11px] text-slate-400 mb-1 font-mono tabular-nums">
-                    {isMe ? '我' : drawerHuman.name} · {msg.timestamp}
-                  </span>
-                  <div
-                    className={`rounded-xl px-3.5 py-2.5 text-xs leading-relaxed max-w-[90%] whitespace-pre-wrap ${
-                      isMe
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-white border border-slate-200 text-slate-800'
-                    }`}
-                  >
-                    {msg.content}
+      {/* RIGHT SLIDE-IN DRAWER B: HUMAN EXPERT OUTSOURCING CONSULTATION */}
+      {drawerHuman && activeDrawer?.type === 'human' && (() => {
+        const drawerTeamMember = teamExpertMap.get(drawerHuman.id);
+        return (
+          <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[430px] lg:w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
+            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 space-y-2.5">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <EntityAvatar
+                    kind="human"
+                    code={drawerHuman.avatarInitials}
+                    accent={drawerHuman.avatarAccent}
+                    size="md"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <h2 className="text-sm font-bold text-slate-900">{drawerHuman.name}</h2>
+                      <span className="px-1.5 py-0.5 rounded bg-violet-50 border border-violet-200 text-[10px] font-mono font-bold text-violet-700">
+                        {drawerHuman.ratingTier || 'A+'}级专家
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5 truncate">
+                      {drawerHuman.outsourcingDomain || drawerHuman.title}
+                    </p>
                   </div>
                 </div>
-              );
-            })}
-            <div ref={dmEndRef} />
-          </div>
-
-          <div className="p-3.5 border-t border-slate-200 bg-white space-y-2.5">
-            <div className="flex flex-wrap gap-1.5">
-              {quickHumanConsultQuestions.map((q, idx) => (
                 <button
-                  key={idx}
                   type="button"
-                  onClick={() => handleSendHumanMessage(drawerHuman, q)}
-                  className="text-left text-[11px] text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/70 px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+                  onClick={() => setActiveDrawer(null)}
+                  className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer shrink-0"
+                  aria-label="关闭专家咨询"
                 >
-                  {q}
+                  <X className="w-4 h-4" />
                 </button>
-              ))}
+              </div>
+
+              {!drawerHuman.isCurrentUser && (
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-[11px] text-slate-500 truncate">
+                    可互加好友或直接邀请进入当前项目合作
+                  </span>
+                  {drawerTeamMember ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 shrink-0">
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>
+                        专家团队({drawerTeamMember.relation === 'mutual_friend' ? '互关好友' : '项目合作'})
+                      </span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onInviteTeamExpert({
+                          expertId: drawerHuman.id,
+                          relation: 'project_collab',
+                          targetWorkspaceId: workspace.id,
+                          sourceZoneId: activeZone.id,
+                          outsourcingScope: drawerHuman.outsourcingDomain || drawerHuman.specialties[0] || '',
+                        })
+                      }
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                    >
+                      <UserPlus className="w-3 h-3" />
+                      <span>邀请进入当前项目</span>
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
 
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSendHumanMessage(drawerHuman);
-              }}
-              className="flex items-center gap-2"
-            >
-              <input
-                type="text"
-                value={humanDraft}
-                onChange={(e) => setHumanDraft(e.target.value)}
-                placeholder={`私聊专家 ${drawerHuman.name}，沟通需求与方案评估...`}
-                className="flex-1 min-w-0 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-              />
-              <button
-                type="submit"
-                disabled={!humanDraft.trim()}
-                className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45 shrink-0"
-                aria-label="发送专家私聊"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </form>
-          </div>
-        </aside>
-      )}
+            <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-3.5 bg-slate-50/40">
+              <div className="flex flex-col items-start">
+                <span className="text-[11px] text-slate-500 mb-1">
+                  {drawerHuman.name} · 人类专家咨询
+                </span>
+                <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">
+                  你好！我是 {drawerHuman.name}，擅长「{drawerHuman.outsourcingDomain || drawerHuman.title}」（信誉 {drawerHuman.reputationScore}），并内建了专属专业 Agent 集群。无论是方案讨论、技术交流还是项目合作交付，欢迎直接说明你的想法或目标。
+                </div>
+              </div>
 
-      {/* RIGHT SLIDE-IN DRAWER C: SKILL / MCP DETAIL & MOUNT TO PRIVATE AGENT */}
+              {(humanChatMap[drawerHuman.id] || []).map((msg) => {
+                const isMe = msg.sender === 'me';
+                return (
+                  <div
+                    key={msg.id}
+                    className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                  >
+                    <span className="text-[11px] text-slate-400 mb-1 font-mono tabular-nums">
+                      {isMe ? '我' : drawerHuman.name} · {msg.timestamp}
+                    </span>
+                    <div
+                      className={`rounded-xl px-3.5 py-2.5 text-xs leading-relaxed max-w-[90%] whitespace-pre-wrap ${
+                        isMe
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-white border border-slate-200 text-slate-800'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={dmEndRef} />
+            </div>
+
+            <div className="p-3.5 border-t border-slate-200 bg-white space-y-2.5">
+              <div className="flex flex-wrap gap-1.5">
+                {quickHumanConsultQuestions.map((q, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handleSendHumanMessage(drawerHuman, q)}
+                    className="text-left text-[11px] text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200/70 px-2.5 py-1 rounded-md transition-colors cursor-pointer"
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendHumanMessage(drawerHuman);
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={humanDraft}
+                  onChange={(e) => setHumanDraft(e.target.value)}
+                  placeholder={`向 ${drawerHuman.name} 咨询方案、合作或排期...`}
+                  className="flex-1 min-w-0 bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
+                <button
+                  type="submit"
+                  disabled={!humanDraft.trim()}
+                  className="p-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white cursor-pointer disabled:opacity-45 shrink-0"
+                  aria-label="发送咨询"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </form>
+            </div>
+          </aside>
+        );
+      })()}
+
+      {/* RIGHT SLIDE-IN DRAWER C: SKILL / MCP DETAIL, PURCHASE & MOUNT TO PRIVATE AGENT */}
       {drawerSkill && activeDrawer?.type === 'skill' && (() => {
         const mountedTargets = mountedSkillMap[drawerSkill.id] || [];
         const targetAgent = privateAgents.find((a) => a.id === selectedMountAgentId);
@@ -1784,6 +2288,8 @@ export function AgentMarketView({
           ? mountedTargets.includes(targetAgent.id) ||
             targetAgent.skills.includes(drawerSkill.name)
           : false;
+        const skillPricing = getSkillPurchasePricing(drawerSkill);
+        const isOwned = purchasedSkillIds.includes(drawerSkill.id);
 
         return (
           <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[430px] lg:w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
@@ -1795,10 +2301,19 @@ export function AgentMarketView({
                   >
                     {SKILL_KIND_LABELS[drawerSkill.kind]}
                   </span>
+                  <span className="px-1.5 py-0.5 rounded bg-violet-50 border border-violet-200 text-[10px] font-mono font-bold text-violet-700 leading-none">
+                    {skillPricing.ratingTier}级
+                  </span>
                   <span className="text-[11px] font-mono text-slate-500">
                     {drawerSkill.version}
                   </span>
-                  <span className="text-[11px] text-slate-400">· {drawerSkill.license}</span>
+                  <span
+                    className={`text-[11px] font-mono font-bold ${
+                      skillPricing.isFree ? 'text-emerald-700' : 'text-slate-900'
+                    }`}
+                  >
+                    · {skillPricing.priceLabel}
+                  </span>
                 </div>
                 <h2 className="text-sm font-bold text-slate-900 mt-1">{drawerSkill.name}</h2>
                 <div className="text-xs font-mono text-slate-500 mt-0.5">{drawerSkill.slug}</div>
@@ -1814,6 +2329,39 @@ export function AgentMarketView({
             </div>
 
             <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-5 bg-slate-50/40">
+              <div className="rounded-xl bg-white border border-slate-200 p-3.5 flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-bold text-slate-900 font-mono tabular-nums">
+                    {skillPricing.ratingTier}级能力包 · {skillPricing.priceLabel}
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    {skillPricing.isFree
+                      ? '开源免费授权，可永久免费装配至任意自建 Agent'
+                      : '一次购买永久授权，支持团队内无限次装配与后续更新'}
+                  </div>
+                </div>
+                {isOwned ? (
+                  <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold whitespace-nowrap shrink-0">
+                    <Check className="w-3.5 h-3.5" />
+                    <span>{skillPricing.isFree ? '已获取' : '已购买'}</span>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd)
+                    }
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
+                  >
+                    {skillPricing.isFree ? (
+                      <span>免费获取</span>
+                    ) : (
+                      <span>立即购买 {skillPricing.priceLabel}</span>
+                    )}
+                  </button>
+                )}
+              </div>
+
               <p className="text-xs text-slate-700 leading-relaxed">{drawerSkill.summary}</p>
 
               {/* CLI Install Command */}
@@ -1899,7 +2447,18 @@ export function AgentMarketView({
               <div className="text-[11px] font-semibold text-slate-700">
                 一键装配到我的自建 Agent
               </div>
-              {privateAgents.length === 0 ? (
+              {!isOwned && !skillPricing.isFree ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd)
+                  }
+                  className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>一次性购买 {skillPricing.priceLabel} · 立即解锁装配</span>
+                </button>
+              ) : privateAgents.length === 0 ? (
                 <button
                   type="button"
                   onClick={onJumpToMountPrivate}
@@ -1924,9 +2483,13 @@ export function AgentMarketView({
                   <button
                     type="button"
                     disabled={!targetAgent || alreadyMountedOnTarget}
-                    onClick={() =>
-                      targetAgent && handleMountSkillToPrivateAgent(drawerSkill, targetAgent.id)
-                    }
+                    onClick={() => {
+                      if (!targetAgent) return;
+                      if (!isOwned) {
+                        onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd);
+                      }
+                      handleMountSkillToPrivateAgent(drawerSkill, targetAgent.id);
+                    }}
                     className={`inline-flex items-center gap-1 px-3.5 py-2 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer disabled:cursor-default ${
                       alreadyMountedOnTarget
                         ? 'bg-emerald-50 border border-emerald-200 text-emerald-700'

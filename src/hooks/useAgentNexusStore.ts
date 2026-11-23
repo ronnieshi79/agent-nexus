@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
+  INITIAL_AGENT_LEASES,
   INITIAL_ASSISTANT_MESSAGES,
   INITIAL_AUDIT_LOGS,
   INITIAL_COMMUNITY_POSTS,
@@ -10,10 +11,15 @@ import {
   INITIAL_SETTLEMENTS,
   INITIAL_TASKS,
   INITIAL_TASK_SESSIONS,
+  INITIAL_TEAM_EXPERTS,
   INITIAL_WORKSPACES,
   INITIAL_ZONES,
   INITIAL_ZONE_PROJECTS,
 } from '../data/initialData';
+import {
+  LEASE_PERIOD_META,
+  getAgentLeasePricing,
+} from '../components/shared/EntityIdentity';
 import {
   executeKanbanTask,
   orchestrateGroupChat,
@@ -24,6 +30,7 @@ import {
 import type {
   ActiveChatChannel,
   AgentCategory,
+  AgentLeaseRecord,
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
@@ -31,6 +38,8 @@ import type {
   CommunityPostType,
   DirectMessage,
   ExpertAgent,
+  ExpertRelationType,
+  LeasePeriod,
   NavViewId,
   NegotiationThread,
   PlatformAuditLog,
@@ -39,6 +48,7 @@ import type {
   SettlementRecord,
   TaskSessionMessage,
   TaskStatus,
+  TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
   ZoneProjectOpportunity,
@@ -80,6 +90,7 @@ export function useAgentNexusStore() {
   const [followedEntityKeys, setFollowedEntityKeys] = useState<string[]>([
     'human:陈可心',
     'human:沈知行',
+    'human:顾承砚',
     'agent:架构审查员',
   ]);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
@@ -101,6 +112,14 @@ export function useAgentNexusStore() {
   );
   const [settlements, setSettlements] = useState<SettlementRecord[]>(INITIAL_SETTLEMENTS);
   const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>(INITIAL_AUDIT_LOGS);
+  const [agentLeases, setAgentLeases] =
+    useState<Record<string, AgentLeaseRecord>>(INITIAL_AGENT_LEASES);
+  const [purchasedSkillIds, setPurchasedSkillIds] = useState<string[]>([
+    'skill_ts_scaffold',
+    'skill_stripe_idempotency',
+    'skill_robot_cloud_mcp',
+  ]);
+  const [teamExperts, setTeamExperts] = useState<TeamExpertMembership[]>(INITIAL_TEAM_EXPERTS);
 
   const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
   const [dmError, setDmError] = useState<string | null>(null);
@@ -1782,6 +1801,277 @@ export function useAgentNexusStore() {
     );
   }, []);
 
+  const leaseAgent = useCallback(
+    (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => {
+      const target = agents.find((a) => a.id === agentId);
+      if (!target) return;
+      const pricing = getAgentLeasePricing({
+        runtimeAgent: target.runtimeAgent,
+        defaultModel: target.defaultModel,
+        capabilityTier: target.performance.capabilityTier,
+        ownership: target.ownership,
+        projectPriceUsd: target.projectPriceUsd,
+        monthlyLeaseUsd: target.monthlyLeaseUsd,
+      });
+      const priceUsd = pricing.getPriceForPeriod(period);
+      const periodMeta = LEASE_PERIOD_META[period];
+      const ts = nowTimeStr();
+      const workspaceId = targetWorkspaceId || activeWorkspace.id;
+      const targetProj = workspaces.find((w) => w.id === workspaceId) || activeWorkspace;
+      const alreadyInProj = targetProj.hiredAgentIds.includes(agentId);
+
+      setAgentLeases((prev) => ({
+        ...prev,
+        [agentId]: {
+          agentId,
+          period,
+          priceUsd,
+          startedAt: '刚刚',
+          expiresLabel: `${periodMeta.shortLabel} · 剩余 ${periodMeta.days} 天`,
+          autoRenew: true,
+        },
+      }));
+
+      if (!alreadyInProj) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === targetProj.id
+              ? {
+                  ...w,
+                  hiredAgentIds: [...w.hiredAgentIds, agentId],
+                  spentUsd: w.spentUsd + priceUsd,
+                }
+              : w,
+          ),
+        );
+        setAllMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_lease_${Date.now()}`,
+            sessionId: targetProj.id,
+            senderType: 'system',
+            senderId: 'system',
+            senderName: '系统协同同步',
+            senderHandle: '系统通知',
+            content: `已按${periodMeta.label}（${formatUsd(priceUsd)}${periodMeta.unitSuffix}）租赁 ${target.handle} 并派驻项目群「${targetProj.name}」。`,
+            timestamp: ts,
+          },
+        ]);
+      }
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_lease_${Date.now()}`,
+          category: 'order',
+          title: `已租赁专业 Agent：${target.handle}（${periodMeta.label}）`,
+          detail: `租期费用 ${formatUsd(priceUsd)}${periodMeta.unitSuffix}，已关联项目「${targetProj.name}」。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [activeWorkspace, agents, workspaces],
+  );
+
+  const acquireSkill = useCallback((skillId: string, skillName?: string, priceUsd = 0) => {
+    setPurchasedSkillIds((prev) => (prev.includes(skillId) ? prev : [skillId, ...prev]));
+    if (skillName) {
+      const ts = nowTimeStr();
+      setAuditLogs((prev) => [
+        {
+          id: `aud_skill_buy_${Date.now()}`,
+          category: 'order',
+          title:
+            priceUsd > 0
+              ? `已买断 Skill/MCP：${skillName}（${formatUsd(priceUsd)}）`
+              : `已免费获取 Skill/MCP：${skillName}`,
+          detail:
+            priceUsd > 0
+              ? '一次性买断永久授权生效，可在团队任意自建 Agent 中无限次装配与更新。'
+              : '免费开源授权生效，可直接装配至自建 Agent 或通过 CLI 安装。',
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    }
+  }, []);
+
+  const inviteTeamExpert = useCallback(
+    (input: {
+      expertId: string;
+      relation: ExpertRelationType;
+      targetWorkspaceId?: string;
+      sourceZoneId?: string;
+      outsourcingScope?: string;
+    }) => {
+      const expert = humanExperts.find((h) => h.id === input.expertId);
+      if (!expert) return;
+      const ts = nowTimeStr();
+      const targetProj = input.targetWorkspaceId
+        ? workspaces.find((w) => w.id === input.targetWorkspaceId)
+        : undefined;
+
+      setTeamExperts((prev) => {
+        const existing = prev.find((m) => m.expertId === input.expertId);
+        if (existing) {
+          const nextWorkspaceIds = targetProj
+            ? Array.from(new Set([...existing.assignedWorkspaceIds, targetProj.id]))
+            : existing.assignedWorkspaceIds;
+          return prev.map((m) =>
+            m.expertId === input.expertId
+              ? {
+                  ...m,
+                  relation: input.relation,
+                  assignedWorkspaceIds: nextWorkspaceIds,
+                  outsourcingScope: input.outsourcingScope || m.outsourcingScope,
+                }
+              : m,
+          );
+        }
+        return [
+          {
+            expertId: input.expertId,
+            relation: input.relation,
+            sourceZoneId: input.sourceZoneId || expert.zoneIds[0] || activeZone.id,
+            assignedWorkspaceIds: targetProj ? [targetProj.id] : [],
+            outsourcingScope:
+              input.outsourcingScope || expert.outsourcingDomain || expert.specialties[0] || '',
+            joinedAt: '刚刚',
+            status: 'active',
+          },
+          ...prev,
+        ];
+      });
+
+      if (input.relation === 'mutual_friend') {
+        const followKey = `human:${expert.name}`;
+        setFollowedEntityKeys((prev) => (prev.includes(followKey) ? prev : [...prev, followKey]));
+      }
+
+      if (targetProj) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === targetProj.id
+              ? {
+                  ...w,
+                  hiredExpertIds: Array.from(new Set([...(w.hiredExpertIds || []), input.expertId])),
+                }
+              : w,
+          ),
+        );
+      }
+
+      const sourceZoneName =
+        zones.find((z) => z.id === (input.sourceZoneId || expert.zoneIds[0] || activeZone.id))
+          ?.name || '开放空间';
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_exp_inv_${Date.now()}`,
+          category: 'order',
+          title: `已将 ${expert.name} 加入专家团队（${input.relation === 'mutual_friend' ? '互关好友' : '项目合作'}）`,
+          detail: targetProj
+            ? `来源空间：${sourceZoneName}；已同步派驻项目「${targetProj.name}」。`
+            : `来源空间：${sourceZoneName}；已加入 AGN 专家团队，可随时派驻项目。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [activeZone.id, humanExperts, workspaces, zones],
+  );
+
+  const assignExpertToWorkspace = useCallback(
+    (expertId: string, workspaceId: string) => {
+      const expert = humanExperts.find((h) => h.id === expertId);
+      const proj = workspaces.find((w) => w.id === workspaceId);
+      if (!expert || !proj) return;
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === workspaceId
+            ? {
+                ...w,
+                hiredExpertIds: Array.from(new Set([...(w.hiredExpertIds || []), expertId])),
+              }
+            : w,
+        ),
+      );
+
+      setTeamExperts((prev) => {
+        const exists = prev.some((m) => m.expertId === expertId);
+        if (exists) {
+          return prev.map((m) =>
+            m.expertId === expertId
+              ? {
+                  ...m,
+                  assignedWorkspaceIds: Array.from(new Set([...m.assignedWorkspaceIds, workspaceId])),
+                }
+              : m,
+          );
+        }
+        return [
+          {
+            expertId,
+            relation: 'project_collab',
+            sourceZoneId: expert.zoneIds[0] || activeZone.id,
+            assignedWorkspaceIds: [workspaceId],
+            outsourcingScope: expert.outsourcingDomain || expert.specialties[0] || '',
+            joinedAt: '刚刚',
+            status: 'active',
+          },
+          ...prev,
+        ];
+      });
+    },
+    [activeZone.id, humanExperts, workspaces],
+  );
+
+  const removeExpertFromWorkspace = useCallback((expertId: string, workspaceId: string) => {
+    setWorkspaces((prev) =>
+      prev.map((w) =>
+        w.id === workspaceId
+          ? {
+              ...w,
+              hiredExpertIds: (w.hiredExpertIds || []).filter((id) => id !== expertId),
+            }
+          : w,
+      ),
+    );
+    setTeamExperts((prev) =>
+      prev.map((m) =>
+        m.expertId === expertId
+          ? {
+              ...m,
+              assignedWorkspaceIds: m.assignedWorkspaceIds.filter((id) => id !== workspaceId),
+            }
+          : m,
+      ),
+    );
+  }, []);
+
+  const updateTeamExpertRelation = useCallback(
+    (expertId: string, relation: ExpertRelationType) => {
+      setTeamExperts((prev) =>
+        prev.map((m) => (m.expertId === expertId ? { ...m, relation } : m)),
+      );
+    },
+    [],
+  );
+
+  const removeTeamExpert = useCallback((expertId: string) => {
+    setTeamExperts((prev) => prev.filter((m) => m.expertId !== expertId));
+    setWorkspaces((prev) =>
+      prev.map((w) => ({
+        ...w,
+        hiredExpertIds: (w.hiredExpertIds || []).filter((id) => id !== expertId),
+      })),
+    );
+  }, []);
+
   return {
     zones,
     activeZoneId,
@@ -1822,6 +2112,16 @@ export function useAgentNexusStore() {
     clearDiscoverZoneSeed: () => setDiscoverZoneSeed(null),
     agents,
     humanExperts,
+    agentLeases,
+    purchasedSkillIds,
+    teamExperts,
+    leaseAgent,
+    acquireSkill,
+    inviteTeamExpert,
+    assignExpertToWorkspace,
+    removeExpertFromWorkspace,
+    updateTeamExpertRelation,
+    removeTeamExpert,
     marketplaceAgents,
     totalMarketExpertsCount,
     privateAgents,

@@ -31,10 +31,13 @@ import {
   evaluateAgentTierRating,
 } from '../shared/EntityIdentity';
 import {
+  RailNavButton,
+  RailSectionLabel,
   ToolbarSearch,
   ViewToolbar,
   WORKSPACE_GUTTER_CLASS,
   WORKSPACE_MAX_WIDTH_CLASS,
+  WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import type {
   CommunityPost,
@@ -596,9 +599,85 @@ export function CommunityDiscoverView({
       : postFilter;
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-white @container/view">
-      {/* Content-Level Functional Toolbar (Aligned Flush with 3-Column Workspace Below) */}
-      <ViewToolbar
+    <div className="h-full flex min-h-0 bg-white relative @container/shell">
+      {/* FAR-LEFT FULL-HEIGHT PRIMARY CHANNEL RAIL */}
+      <WorkspacePrimaryRail ariaLabel="交流社区主筛选">
+        <div className="space-y-0.5">
+          <RailSectionLabel>动态视角</RailSectionLabel>
+          {socialChannels.map((item) => {
+            const Icon = item.icon;
+            const active = postFilter === item.id;
+            return (
+              <RailNavButton
+                key={item.id}
+                active={active}
+                variant="primary"
+                disabled={!hasAccess}
+                label={item.label}
+                count={item.count}
+                icon={
+                  <Icon
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      active
+                        ? item.id === 'pinned'
+                          ? 'text-amber-300'
+                          : 'text-sky-300'
+                        : item.id === 'pinned'
+                          ? 'text-amber-500'
+                          : 'text-slate-400'
+                    }`}
+                  />
+                }
+                onClick={() => setPostFilter(item.id)}
+              />
+            );
+          })}
+        </div>
+
+        <div className="border-t border-slate-100 pt-2.5 space-y-0.5">
+          <RailSectionLabel>内容分类</RailSectionLabel>
+          {topicChannels.map((item) => {
+            const Icon = item.icon;
+            const active = postFilter === item.id;
+            return (
+              <RailNavButton
+                key={item.id}
+                active={active}
+                variant="primary"
+                disabled={!hasAccess}
+                label={item.label}
+                count={item.count}
+                icon={
+                  <Icon
+                    className={`w-3.5 h-3.5 shrink-0 ${
+                      active ? 'text-sky-300' : 'text-slate-400'
+                    }`}
+                  />
+                }
+                onClick={() => setPostFilter(item.id)}
+              />
+            );
+          })}
+        </div>
+
+        {hasAccess && (
+          <div className="pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => openComposer(resolveComposerMode())}
+              className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 cursor-pointer transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5 text-blue-600" />
+              <span>发布社区内容</span>
+            </button>
+          </div>
+        )}
+      </WorkspacePrimaryRail>
+
+      {/* RIGHT MAIN WORKSPACE COLUMN: Top Search & Actions Flush-Aligned with Content */}
+      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
+        {/* Content-Level Functional Toolbar (Aligned Flush with Content Stream Below) */}
+        <ViewToolbar
         left={
           <>
             {hasAccess ? (
@@ -651,12 +730,12 @@ export function CommunityDiscoverView({
         }
       />
 
-      {/* Weibo-Style Container-Responsive 3-Column Community Workspace */}
+      {/* Scrollable Community Workspace (Center Feed + Right Community Projects) */}
       <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
         <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-          {/* Compact Horizontal Channel Strip (< @[720px]) */}
+          {/* Compact Horizontal Channel Strip (< @[760px]/shell) */}
           {hasAccess && (
-            <div className="@[720px]:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
+            <div className="@[760px]/shell:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
               {allChannelItems.map((item) => {
                 const Icon = item.icon;
                 const active = postFilter === item.id;
@@ -682,111 +761,10 @@ export function CommunityDiscoverView({
             </div>
           )}
 
-          <div className="flex flex-col @[720px]:flex-row gap-4 @[1160px]:gap-5 items-start">
-            {/* COLUMN 1 (LEFT): Weibo-Style Sticky Category Channel Navigation */}
-            <nav
-              aria-label="社区内容分类"
-              className="hidden @[720px]:block w-[172px] @[1180px]:w-[192px] shrink-0 sticky top-5 space-y-3"
-            >
-              <div className="bg-white rounded-xl border border-slate-200 p-2 space-y-0.5">
-                <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold text-slate-400 tracking-wide">
-                  动态视角
-                </div>
-                {socialChannels.map((item) => {
-                  const Icon = item.icon;
-                  const active = postFilter === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      disabled={!hasAccess}
-                      onClick={() => setPostFilter(item.id)}
-                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
-                        active
-                          ? 'bg-slate-900 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-2 min-w-0 truncate">
-                        <Icon
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            active
-                              ? item.id === 'pinned'
-                                ? 'text-amber-300'
-                                : 'text-sky-300'
-                              : item.id === 'pinned'
-                                ? 'text-amber-500'
-                                : 'text-slate-400'
-                          }`}
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </span>
-                      <span
-                        className={`text-[11px] font-mono tabular-nums shrink-0 ${
-                          active ? 'text-slate-300' : 'text-slate-400'
-                        }`}
-                      >
-                        {item.count}
-                      </span>
-                    </button>
-                  );
-                })}
-
-                <div className="my-1.5 border-t border-slate-100" />
-                <div className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold text-slate-400 tracking-wide">
-                  内容分类
-                </div>
-                {topicChannels.map((item) => {
-                  const Icon = item.icon;
-                  const active = postFilter === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      disabled={!hasAccess}
-                      onClick={() => setPostFilter(item.id)}
-                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
-                        active
-                          ? 'bg-slate-900 text-white shadow-2xs'
-                          : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-2 min-w-0 truncate">
-                        <Icon
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            active ? 'text-sky-300' : 'text-slate-400'
-                          }`}
-                        />
-                        <span className="truncate">{item.label}</span>
-                      </span>
-                      <span
-                        className={`text-[11px] font-mono tabular-nums shrink-0 ${
-                          active ? 'text-slate-300' : 'text-slate-400'
-                        }`}
-                      >
-                        {item.count}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {hasAccess && (
-                <button
-                  type="button"
-                  onClick={() => openComposer(resolveComposerMode())}
-                  className="w-full inline-flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-xs font-semibold text-slate-800 cursor-pointer transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5 text-blue-600" />
-                  <span>发布社区内容</span>
-                </button>
-              )}
-            </nav>
-
-            {/* COLUMNS 2 & 3 WRAPPER: Reflows cleanly between 2-column and 3-column on resize / sidebar toggle */}
-            <div className="flex-1 min-w-0 w-full flex flex-col @[1020px]:flex-row gap-4 @[1160px]:gap-5 items-start">
-              {/* COLUMN 2 (CENTER): Main Community Feed Stream */}
-              <div className="flex-1 min-w-0 w-full space-y-3.5">
+          {/* CENTER FEED + RIGHT PROJECTS/RANKING SIDEBAR */}
+          <div className="flex flex-col @[840px]:flex-row gap-4 @[1100px]:gap-5 items-start">
+            {/* MAIN COMMUNITY FEED STREAM */}
+            <div className="flex-1 min-w-0 w-full space-y-3.5">
               {!hasAccess ? (
                 /* Private Community Access Gate */
                 <div className="bg-white rounded-xl border border-slate-200 p-8 text-center space-y-3">
@@ -1364,7 +1342,7 @@ export function CommunityDiscoverView({
             </div>
 
             {/* COLUMN 3 (RIGHT): Community Profile, Community Projects & Active User Ranking */}
-            <aside className="w-full @[1020px]:w-[276px] @[1200px]:w-[300px] shrink-0 space-y-4 @[1020px]:sticky @[1020px]:top-5">
+            <aside className="w-full @[840px]:w-[272px] @[1040px]:w-[296px] shrink-0 space-y-4 @[840px]:sticky @[840px]:top-5">
               {/* Community Overview Card */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -1602,9 +1580,9 @@ export function CommunityDiscoverView({
                 )}
               </section>
             </aside>
-            </div>
           </div>
         </div>
+      </div>
       </div>
 
       {/* Unified Project Consultation Modal */}

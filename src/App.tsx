@@ -145,6 +145,9 @@ export default function App() {
               onClearTabSeed={store.clearKanbanTabSeed}
               allTasks={store.allTasks}
               agents={store.agents}
+              humanExperts={store.humanExperts}
+              agentLeases={store.agentLeases}
+              teamExperts={store.teamExperts}
               negotiations={store.negotiations}
               settlements={store.settlements}
               executingTaskId={store.executingTaskId}
@@ -157,6 +160,9 @@ export default function App() {
               onJumpToZoneMarket={store.openMarketForZone}
               onJumpToDiscover={() => store.openCommunityDiscover()}
               onReleaseAgent={store.releaseAgent}
+              onLeaseAgent={store.leaseAgent}
+              onAssignExpertToWorkspace={store.assignExpertToWorkspace}
+              onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
               onUpdateAgentRuntimeConfig={store.updateAgentRuntimeConfig}
             />
           )}
@@ -168,6 +174,9 @@ export default function App() {
               workspace={store.activeWorkspace}
               workspaces={store.workspaces}
               allAgents={store.agents}
+              humanExperts={store.humanExperts}
+              agentLeases={store.agentLeases}
+              teamExperts={store.teamExperts}
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
               hiredIds={store.hiredIds}
@@ -175,6 +184,13 @@ export default function App() {
               openMountDrawerSignal={store.openMountDrawerSignal}
               onHireAgent={store.hireAgent}
               onReleaseAgent={store.releaseAgent}
+              onLeaseAgent={store.leaseAgent}
+              onInviteTeamExpert={store.inviteTeamExpert}
+              onAssignExpertToWorkspace={store.assignExpertToWorkspace}
+              onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
+              onUpdateTeamExpertRelation={store.updateTeamExpertRelation}
+              onRemoveTeamExpert={store.removeTeamExpert}
+              onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
               onSavePrivateAgent={store.savePrivateAgent}
               onToggleMarketListing={store.toggleMarketListing}
               onRecruitCategory={store.jumpToMarketWithCategory}
@@ -192,6 +208,9 @@ export default function App() {
               agents={store.marketplaceAgents}
               privateAgents={store.privateAgents}
               humanExperts={store.humanExperts}
+              agentLeases={store.agentLeases}
+              purchasedSkillIds={store.purchasedSkillIds}
+              teamExperts={store.teamExperts}
               hiredIds={store.hiredIds}
               dmHistories={store.dmHistories}
               dmBusyAgentId={store.dmBusyAgentId}
@@ -199,6 +218,9 @@ export default function App() {
               onClearDmError={store.clearDmError}
               onSendDm={store.sendDirectMessage}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+              onLeaseAgent={store.leaseAgent}
+              onAcquireSkill={store.acquireSkill}
+              onInviteTeamExpert={store.inviteTeamExpert}
               onSavePrivateAgent={store.savePrivateAgent}
               categorySeed={store.marketCategorySeed}
               onClearCategorySeed={store.clearMarketCategorySeed}

@@ -473,3 +473,149 @@ export function EntityAvatar({
     </div>
   );
 }
+
+export const LEASE_PERIOD_META: Record<
+  'week' | 'month' | 'quarter',
+  {
+    label: string;
+    shortLabel: string;
+    unitSuffix: string;
+    days: number;
+    multiplier: number;
+    hint: string;
+  }
+> = {
+  week: {
+    label: '1 周',
+    shortLabel: '周租',
+    unitSuffix: '/周',
+    days: 7,
+    multiplier: 0.35,
+    hint: '适合短期冲刺/试用',
+  },
+  month: {
+    label: '1 个月',
+    shortLabel: '月租',
+    unitSuffix: '/月',
+    days: 30,
+    multiplier: 1,
+    hint: '标准按月租赁',
+  },
+  quarter: {
+    label: '1 个季度',
+    shortLabel: '季租',
+    unitSuffix: '/季',
+    days: 90,
+    multiplier: 2.55,
+    hint: '享 85 折优惠',
+  },
+};
+
+export interface AgentLeasePricing {
+  rating: AgentTierRating;
+  monthlyUsd: number;
+  weeklyUsd: number;
+  quarterlyUsd: number;
+  getPriceForPeriod: (period: 'week' | 'month' | 'quarter') => number;
+}
+
+/**
+ * Computes transparent Agent lease pricing (weekly / monthly / quarterly) anchored on capability & cost rating.
+ */
+export function getAgentLeasePricing(params: {
+  runtimeAgent?: string;
+  defaultModel?: string;
+  capabilityTier?: string;
+  ownership?: 'marketplace' | 'private';
+  projectPriceUsd?: number;
+  monthlyLeaseUsd?: number;
+}): AgentLeasePricing {
+  const rating = evaluateAgentTierRating(params);
+  let monthlyUsd = params.monthlyLeaseUsd;
+  if (!monthlyUsd || monthlyUsd <= 0) {
+    if (rating.capability === 'S') {
+      monthlyUsd = rating.cost === 'H' ? 299 : 249;
+    } else if (rating.capability === 'A+') {
+      monthlyUsd = rating.cost === 'H' ? 219 : 159;
+    } else {
+      monthlyUsd = rating.cost === 'L' ? 79 : 119;
+    }
+    if (params.projectPriceUsd && params.projectPriceUsd >= 4000) {
+      monthlyUsd += 40;
+    }
+  }
+  const weeklyUsd = Math.max(29, Math.round((monthlyUsd * LEASE_PERIOD_META.week.multiplier) / 5) * 5);
+  const quarterlyUsd = Math.round((monthlyUsd * LEASE_PERIOD_META.quarter.multiplier) / 10) * 10 - 1;
+
+  return {
+    rating,
+    monthlyUsd,
+    weeklyUsd,
+    quarterlyUsd,
+    getPriceForPeriod: (period) =>
+      period === 'week' ? weeklyUsd : period === 'quarter' ? quarterlyUsd : monthlyUsd,
+  };
+}
+
+export interface SkillPurchasePricing {
+  ratingTier: 'S' | 'A+' | 'A';
+  isFree: boolean;
+  priceUsd: number;
+  priceLabel: string;
+  licenseLabel: string;
+}
+
+/**
+ * Computes transparent Skill / MCP rating tier & one-time purchase pricing (or free open source).
+ * Skills are never leased — they are either free or one-time purchase for permanent use.
+ */
+export function getSkillPurchasePricing(skill: {
+  rating: number;
+  ratingTier?: 'S' | 'A+' | 'A';
+  priceUsd?: number;
+  license: '免费开源' | '社区共享' | '付费买断';
+  kind: 'skill' | 'mcp' | 'workflow';
+}): SkillPurchasePricing {
+  const ratingTier: 'S' | 'A+' | 'A' =
+    skill.ratingTier || (skill.rating >= 4.95 ? 'S' : skill.rating >= 4.91 ? 'A+' : 'A');
+
+  if (skill.priceUsd !== undefined) {
+    const priceUsd = skill.priceUsd;
+    const isFree = priceUsd <= 0;
+    return {
+      ratingTier,
+      isFree,
+      priceUsd,
+      priceLabel: isFree ? '免费' : `$${priceUsd}`,
+      licenseLabel: isFree ? '免费开源' : '一次买断 · 永久使用',
+    };
+  }
+
+  if (skill.license === '免费开源') {
+    return {
+      ratingTier,
+      isFree: true,
+      priceUsd: 0,
+      priceLabel: '免费',
+      licenseLabel: '免费开源',
+    };
+  }
+
+  const priceUsd =
+    skill.license === '付费买断'
+      ? skill.kind === 'workflow'
+        ? 99
+        : 59
+      : skill.kind === 'mcp'
+        ? 39
+        : 29;
+
+  return {
+    ratingTier,
+    isFree: false,
+    priceUsd,
+    priceLabel: `$${priceUsd}`,
+    licenseLabel: '一次买断 · 永久使用',
+  };
+}
+
