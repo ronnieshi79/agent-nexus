@@ -25,12 +25,21 @@ export const AGENT_RUNTIME_PRESETS: AgentRuntimePreset[] = [
   },
   {
     id: 'Claude Code',
-    label: 'Claude Code',
+    label: 'Claude Code (CC)',
     shortCode: 'CC',
     defaultModel: 'Claude 4.5 Sonnet',
     models: ['Claude 4.5 Sonnet', 'Claude 4.5 Opus', 'Claude 4.5 Haiku'],
     badgeCls: 'bg-amber-50 text-amber-800 border-amber-200/80',
     prefixCls: 'text-amber-700',
+  },
+  {
+    id: 'Antigravity',
+    label: 'Antigravity CLI',
+    shortCode: 'AG',
+    defaultModel: 'Gemini 3.1 Pro',
+    models: ['Gemini 3.1 Pro', 'Claude 4.5 Sonnet', 'GPT-6.2'],
+    badgeCls: 'bg-blue-50 text-blue-700 border-blue-200/80',
+    prefixCls: 'text-blue-700',
   },
   {
     id: 'Gemini CLI',

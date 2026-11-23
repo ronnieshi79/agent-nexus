@@ -33,7 +33,7 @@ interface TopHeaderProps {
 }
 
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team', string> = {
-  kanban: '项目总览、费用与 Token 消耗洞察、多 Agent 任务流看板与实时闲忙状态',
+  kanban: '工作项目全周期协作编排，以及 Agent 空间的节点、存储与并发沙箱配置',
   team: 'Agent 成员、合作专家与我的好友',
 };
 
@@ -88,7 +88,7 @@ export function TopHeader({
     primaryLabel = '交流社区';
   } else {
     const labelMap: Record<'kanban' | 'team', string> = {
-      kanban: '工作看板',
+      kanban: '工作空间',
       team: 'AGN 团队',
     };
     primaryLabel = labelMap[activeView];

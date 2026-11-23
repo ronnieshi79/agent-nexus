@@ -180,7 +180,7 @@ export function Sidebar({
   }[] = [
     {
       id: 'kanban',
-      label: '工作看板',
+      label: '工作空间',
       icon: KanbanSquare,
       count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : `${workspaces.length} 项目`,
       highlight: reviewTaskCount > 0,

@@ -4,11 +4,14 @@ import {
   INITIAL_ASSISTANT_MESSAGES,
   INITIAL_AUDIT_LOGS,
   INITIAL_COMMUNITY_POSTS,
+  INITIAL_COMPUTE_NODES,
   INITIAL_EXPERT_AGENTS,
   INITIAL_HUMAN_EXPERTS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
+  INITIAL_PROJECT_PIPELINES,
   INITIAL_SETTLEMENTS,
+  INITIAL_STORAGE_VOLUMES,
   INITIAL_TASKS,
   INITIAL_TASK_SESSIONS,
   INITIAL_TEAM_EXPERTS,
@@ -34,23 +37,35 @@ import type {
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
+  CliAuthMode,
+  CliToolType,
   CommunityPost,
   CommunityPostType,
+  ComputeNode,
   DirectMessage,
   ExpertAgent,
   ExpertRelationType,
   LeasePeriod,
   NavViewId,
   NegotiationThread,
+  NodeCliConfig,
+  NodeCliEntry,
+  NodeOsType,
+  PipelineHandoffMode,
   PlatformAuditLog,
   PlatformServiceCategory,
+  ProjectLifecycleStatus,
+  ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
+  StorageBillingMode,
+  StorageVolume,
   TaskSessionMessage,
   TaskStatus,
   TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
+  WorkspaceTabId,
   ZoneProjectOpportunity,
 } from '../types/agentnexus';
 
@@ -120,6 +135,10 @@ export function useAgentNexusStore() {
     'skill_robot_cloud_mcp',
   ]);
   const [teamExperts, setTeamExperts] = useState<TeamExpertMembership[]>(INITIAL_TEAM_EXPERTS);
+  const [computeNodes, setComputeNodes] = useState<ComputeNode[]>(INITIAL_COMPUTE_NODES);
+  const [storageVolumes, setStorageVolumes] = useState<StorageVolume[]>(INITIAL_STORAGE_VOLUMES);
+  const [projectPipelines, setProjectPipelines] =
+    useState<Record<string, ProjectStageSlot[]>>(INITIAL_PROJECT_PIPELINES);
 
   const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
   const [dmError, setDmError] = useState<string | null>(null);
@@ -135,9 +154,7 @@ export function useAgentNexusStore() {
   const [marketCategorySeed, setMarketCategorySeed] = useState<'all' | AgentCategory>('all');
   const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
   const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
-  const [kanbanTabSeed, setKanbanTabSeed] = useState<
-    'overview' | 'my_projects' | 'kanban' | 'agents' | null
-  >(null);
+  const [kanbanTabSeed, setKanbanTabSeed] = useState<WorkspaceTabId | null>(null);
   const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
   const [account, setAccount] = useState<AgentNexusAccount | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -251,6 +268,11 @@ export function useAgentNexusStore() {
     setActiveView('kanban');
   }, []);
 
+  const openWorkspaceTab = useCallback((tab: WorkspaceTabId) => {
+    setKanbanTabSeed(tab);
+    setActiveView('kanban');
+  }, []);
+
   const openCommunityDiscover = useCallback((zoneId?: string) => {
     if (zoneId) {
       setActiveZoneId(zoneId);
@@ -271,15 +293,29 @@ export function useAgentNexusStore() {
   }, []);
 
   const createSession = useCallback(
-    (name: string, goal: string, sourceZoneId?: string) => {
+    (
+      name: string,
+      goal: string,
+      sourceZoneId?: string,
+      boundNodeIds?: string[],
+      storageVolumeId?: string,
+    ) => {
       const cleanedName = name.trim();
       if (!cleanedName) return '';
       const newId = `ses_${Date.now().toString().slice(-5)}`;
+      const resolvedNodes =
+        boundNodeIds && boundNodeIds.length > 0
+          ? boundNodeIds
+          : computeNodes.filter((n) => n.status === 'online').slice(0, 1).map((n) => n.id);
+      const resolvedVolumeId = storageVolumeId || storageVolumes[0]?.id;
       const newWorkspace: ProjectWorkspace = {
         id: newId,
         name: cleanedName,
         goal: goal.trim() || '协同产品与研发专家 Agent 按工作卡片推进项目交付',
         role: 'leading',
+        lifecycleStatus: 'active',
+        boundNodeIds: resolvedNodes,
+        storageVolumeId: resolvedVolumeId,
         sourceZoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
         budgetCapUsd: 8000,
@@ -288,6 +324,48 @@ export function useAgentNexusStore() {
       };
       const ts = nowTimeStr();
       setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [newId]: [
+          {
+            stage: 'planning',
+            roleTitle: '主产品架构师',
+            agentId: 'agent_pm_lin',
+            handoffMode: 'manual',
+            deliverableContract: 'PRD 规格书、功能范围与验收清单',
+          },
+          {
+            stage: 'development',
+            roleTitle: '核心研发工程师',
+            agentId: 'agent_dev_us',
+            handoffMode: 'auto',
+            deliverableContract: '核心功能代码、API 实现与构建产物',
+          },
+          {
+            stage: 'testing',
+            roleTitle: '质量验收工程师',
+            agentId: 'agent_qa_eu',
+            handoffMode: 'auto',
+            deliverableContract: '端到端自动化用例与回归验证报告',
+          },
+          {
+            stage: 'review',
+            roleTitle: '安全与架构审查官',
+            agentId: 'agent_review_my',
+            handoffMode: 'manual',
+            deliverableContract: '性能审计、安全复核与上线签字',
+          },
+        ],
+      }));
+      if (resolvedVolumeId) {
+        setStorageVolumes((prev) =>
+          prev.map((v) =>
+            v.id === resolvedVolumeId
+              ? { ...v, boundProjectIds: Array.from(new Set([...v.boundProjectIds, newId])) }
+              : v,
+          ),
+        );
+      }
       setActiveSessionId(newId);
       setActiveChatChannel({ type: 'group', projectId: newId });
       setAllMessages((prev) => [
@@ -299,7 +377,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已创建项目群「${newWorkspace.name}」，默认已签约 @产品策划师（$1,200/项目）。你可以直接在这里自然对话拆解需求，或在服务市场咨询与招募社区专家进群协同。`,
+          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 空间节点与持久化存储，默认接入 @产品策划师。你可以在工作编排中指定各阶段专业 Agent 身份。`,
           timestamp: ts,
         },
       ]);
@@ -308,7 +386,7 @@ export function useAgentNexusStore() {
           id: `aud_${Date.now()}`,
           category: 'audit',
           title: `新建主管项目「${newWorkspace.name}」`,
-          detail: `已开启加密持久化工作区，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
+          detail: `已挂载 Agent 空间算力节点与存储卷，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -316,7 +394,7 @@ export function useAgentNexusStore() {
       ]);
       return newId;
     },
-    [],
+    [computeNodes, storageVolumes],
   );
 
   const publishZoneProject = useCallback(
@@ -2072,6 +2150,683 @@ export function useAgentNexusStore() {
     );
   }, []);
 
+  // ================= DEDICATED SPACE (OS NODES, CLOUD STORAGE, CLI AGENTS) =================
+  const mountPrivateNode = useCallback(
+    (input: {
+      name: string;
+      os: NodeOsType;
+      osVersion: string;
+      region: string;
+      cpuCores: number;
+      memoryGb: number;
+      storageQuotaGb: number;
+      description: string;
+    }) => {
+      const cleaned = input.name.trim();
+      if (!cleaned) return '';
+      const id = `node_priv_${Date.now().toString().slice(-5)}`;
+      const slug = id.replace('node_priv_', '');
+      const newNode: ComputeNode = {
+        id,
+        name: cleaned,
+        os: input.os,
+        osVersion: input.osVersion,
+        origin: 'private',
+        region: input.region.trim() || '自有设备',
+        cpuCores: Math.max(2, Math.round(input.cpuCores || 8)),
+        memoryGb: Math.max(4, Math.round(input.memoryGb || 16)),
+        storageQuotaGb: Math.max(50, Math.round(input.storageQuotaGb || 256)),
+        storageUsedGb: 12,
+        status: 'online',
+        endpoint: `tunnel://${input.os}-${slug}.local`,
+        monthlyCostUsd: 0,
+        mountedAt: '刚刚挂载',
+        description:
+          input.description.trim() ||
+          `挂载的自有 ${input.osVersion} 设备，可在「Agent 配置」安装 Claude Code / Antigravity / Codex 等 CLI 并挂载共享存储。`,
+        installedClis: [],
+        mountedStorageIds: [],
+      };
+      setComputeNodes((prev) => [newNode, ...prev]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_node_${Date.now()}`,
+          category: 'audit',
+          title: `挂载自有设备节点「${newNode.name}」`,
+          detail: `${newNode.osVersion} · ${newNode.cpuCores}C / ${newNode.memoryGb}GB · 零月租费用`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [],
+  );
+
+  const provisionCloudNode = useCallback(
+    (input: {
+      name: string;
+      os: NodeOsType;
+      osVersion: string;
+      region: string;
+      cpuCores: number;
+      memoryGb: number;
+      gpuSpec?: string;
+      storageQuotaGb: number;
+      monthlyCostUsd: number;
+      description: string;
+    }) => {
+      const cleaned = input.name.trim();
+      if (!cleaned) return '';
+      const id = `node_cloud_${Date.now().toString().slice(-5)}`;
+      const slug = id.replace('node_cloud_', '');
+      const newNode: ComputeNode = {
+        id,
+        name: cleaned,
+        os: input.os,
+        osVersion: input.osVersion,
+        origin: 'cloud',
+        region: input.region.trim() || '华东-上海云区',
+        cpuCores: Math.max(4, Math.round(input.cpuCores || 8)),
+        memoryGb: Math.max(8, Math.round(input.memoryGb || 32)),
+        gpuSpec: input.gpuSpec?.trim() || undefined,
+        storageQuotaGb: Math.max(100, Math.round(input.storageQuotaGb || 256)),
+        storageUsedGb: 16,
+        status: 'online',
+        endpoint: `cloud://${input.os}-${slug}.agentnexus.io`,
+        monthlyCostUsd: Math.max(0, Math.round(input.monthlyCostUsd || 59)),
+        mountedAt: '刚刚租用',
+        description:
+          input.description.trim() ||
+          `云端租用的 7×24 在线 ${input.osVersion} 节点，可在「Agent 配置」安装多路 Agent CLI。`,
+        installedClis: [],
+        mountedStorageIds: [],
+      };
+      setComputeNodes((prev) => [newNode, ...prev]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_cloud_${Date.now()}`,
+          category: 'settlement',
+          title: `租用云端节点「${newNode.name}」`,
+          detail: `${newNode.osVersion} · ${newNode.region} · ${newNode.cpuCores}C/${newNode.memoryGb}GB · $${newNode.monthlyCostUsd}/月`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [],
+  );
+
+  const toggleNodeStatus = useCallback((nodeId: string) => {
+    setComputeNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? { ...n, status: n.status === 'online' ? 'standby' : 'online' }
+          : n,
+      ),
+    );
+  }, []);
+
+  const removeComputeNode = useCallback((nodeId: string) => {
+    setComputeNodes((prev) => prev.filter((n) => n.id !== nodeId));
+    setAgents((prev) =>
+      prev.map((a) =>
+        a.hostNodeId === nodeId ? { ...a, hostNodeId: undefined, hostCliId: undefined } : a,
+      ),
+    );
+    setStorageVolumes((prev) =>
+      prev.map((v) => ({
+        ...v,
+        boundNodeIds: v.boundNodeIds.filter((id) => id !== nodeId),
+      })),
+    );
+    setWorkspaces((prev) =>
+      prev.map((w) => ({
+        ...w,
+        boundNodeIds: (w.boundNodeIds || []).filter((id) => id !== nodeId),
+      })),
+    );
+  }, []);
+
+  const createStorageVolume = useCallback(
+    (input: {
+      name: string;
+      tierLabel: string;
+      region: string;
+      quotaGb: number;
+      billingMode: StorageBillingMode;
+      priceUsd: number;
+      encrypted: boolean;
+      boundNodeIds: string[];
+      boundProjectIds: string[];
+    }) => {
+      const cleaned = input.name.trim();
+      if (!cleaned) return '';
+      const id = `vol_${Date.now().toString().slice(-5)}`;
+      const newVol: StorageVolume = {
+        id,
+        name: cleaned,
+        tierLabel: input.tierLabel,
+        region: input.region || '华东-上海多可用区',
+        quotaGb: Math.max(50, Math.round(input.quotaGb || 200)),
+        usedGb: 2,
+        billingMode: input.billingMode,
+        priceUsd: Math.max(0, Math.round(input.priceUsd)),
+        encrypted: input.encrypted,
+        mountPath: `cloud://space-storage/${id}`,
+        boundNodeIds: input.boundNodeIds,
+        boundProjectIds: input.boundProjectIds,
+        updatedAt: '刚刚开通',
+      };
+      setStorageVolumes((prev) => [newVol, ...prev]);
+      if (input.boundNodeIds.length > 0) {
+        setComputeNodes((prev) =>
+          prev.map((n) =>
+            input.boundNodeIds.includes(n.id)
+              ? {
+                  ...n,
+                  mountedStorageIds: Array.from(new Set([...n.mountedStorageIds, id])),
+                }
+              : n,
+          ),
+        );
+      }
+      setAuditLogs((prev) => [
+        {
+          id: `aud_vol_${Date.now()}`,
+          category: 'settlement',
+          title: `${input.billingMode === 'permanent' ? '购买永久云存储' : '租用云存储'}「${newVol.name}」`,
+          detail: `${newVol.quotaGb}GB · ${
+            newVol.billingMode === 'permanent'
+              ? `$${newVol.priceUsd} 永久买断`
+              : `$${newVol.priceUsd}/月`
+          } · 供多 Agent 共同读写`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [],
+  );
+
+  const expandStorageVolume = useCallback((volumeId: string, addGb: number) => {
+    setStorageVolumes((prev) =>
+      prev.map((v) =>
+        v.id === volumeId
+          ? { ...v, quotaGb: v.quotaGb + Math.max(50, addGb), updatedAt: '刚刚扩容' }
+          : v,
+      ),
+    );
+  }, []);
+
+  const addNodeCli = useCallback(
+    (
+      nodeId: string,
+      input: {
+        cliTool: CliToolType;
+        runtimeAgent: string;
+        defaultModel: string;
+        authMode: CliAuthMode;
+        credentialLabel: string;
+        concurrency: number;
+      },
+    ) => {
+      const node = computeNodes.find((n) => n.id === nodeId);
+      if (!node) return '';
+      const cliVersionMap: Record<CliToolType, string> = {
+        claude_code: 'v1.4.2',
+        antigravity: 'v2.1.0',
+        codex: 'v0.38.0',
+        gemini_cli: 'v0.9.4',
+        qoder: 'v1.2.0',
+      };
+      const id = `cli_${Date.now().toString().slice(-5)}`;
+      const cleanCred = input.credentialLabel.trim();
+      const entry: NodeCliEntry = {
+        id,
+        cliTool: input.cliTool,
+        runtimeAgent: input.runtimeAgent,
+        cliVersion: cliVersionMap[input.cliTool] || 'v1.0.0',
+        defaultModel: input.defaultModel,
+        authMode: input.authMode,
+        credentialLabel:
+          cleanCred ||
+          (input.authMode === 'account_oauth' ? 'ronnie.shi@workspace.io' : 'sk-cli-••••••9a1f'),
+        authStatus: 'connected',
+        concurrency: Math.min(16, Math.max(1, Math.round(input.concurrency || 2))),
+        enabled: true,
+      };
+      setComputeNodes((prev) =>
+        prev.map((n) =>
+          n.id === nodeId ? { ...n, installedClis: [...n.installedClis, entry] } : n,
+        ),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_cli_add_${Date.now()}`,
+          category: 'audit',
+          title: `节点「${node.name}」新增 ${entry.runtimeAgent} CLI`,
+          detail: `默认模型 ${entry.defaultModel} · ${entry.concurrency} 路并发 · ${
+            entry.authMode === 'account_oauth' ? '账号登录' : 'API Key'
+          }`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [computeNodes],
+  );
+
+  const updateNodeCli = useCallback(
+    (nodeId: string, cliId: string, patch: Partial<Omit<NodeCliEntry, 'id'>>) => {
+      setComputeNodes((prev) =>
+        prev.map((n) => {
+          if (n.id !== nodeId) return n;
+          return {
+            ...n,
+            installedClis: n.installedClis.map((cli) =>
+              cli.id === cliId
+                ? {
+                    ...cli,
+                    ...patch,
+                    concurrency:
+                      patch.concurrency !== undefined
+                        ? Math.min(16, Math.max(1, Math.round(patch.concurrency)))
+                        : cli.concurrency,
+                  }
+                : cli,
+            ),
+          };
+        }),
+      );
+      // Keep any AGN Team professional Agent bound to this CLI entry in sync
+      setAgents((prev) =>
+        prev.map((ag) => {
+          if (ag.hostCliId !== cliId) return ag;
+          const nextModel = patch.defaultModel ?? ag.defaultModel;
+          const nextConcurrency =
+            patch.concurrency !== undefined
+              ? Math.min(16, Math.max(1, Math.round(patch.concurrency)))
+              : ag.cliConfig?.concurrency;
+          return {
+            ...ag,
+            defaultModel: nextModel,
+            cliConfig: ag.cliConfig
+              ? {
+                  ...ag.cliConfig,
+                  authMode: patch.authMode ?? ag.cliConfig.authMode,
+                  credentialLabel: patch.credentialLabel ?? ag.cliConfig.credentialLabel,
+                  concurrency: nextConcurrency ?? ag.cliConfig.concurrency,
+                }
+              : ag.cliConfig,
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const removeNodeCli = useCallback((nodeId: string, cliId: string) => {
+    setComputeNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? { ...n, installedClis: n.installedClis.filter((c) => c.id !== cliId) }
+          : n,
+      ),
+    );
+    setAgents((prev) =>
+      prev.map((ag) => (ag.hostCliId === cliId ? { ...ag, hostCliId: undefined } : ag)),
+    );
+  }, []);
+
+  const toggleNodeStorageMount = useCallback((nodeId: string, volumeId: string) => {
+    let mountedNow = false;
+    setComputeNodes((prev) =>
+      prev.map((n) => {
+        if (n.id !== nodeId) return n;
+        const exists = n.mountedStorageIds.includes(volumeId);
+        mountedNow = !exists;
+        return {
+          ...n,
+          mountedStorageIds: exists
+            ? n.mountedStorageIds.filter((id) => id !== volumeId)
+            : [...n.mountedStorageIds, volumeId],
+        };
+      }),
+    );
+    setStorageVolumes((prev) =>
+      prev.map((v) => {
+        if (v.id !== volumeId) return v;
+        const exists = v.boundNodeIds.includes(nodeId);
+        return {
+          ...v,
+          boundNodeIds: exists
+            ? v.boundNodeIds.filter((id) => id !== nodeId)
+            : [...v.boundNodeIds, nodeId],
+          updatedAt: mountedNow ? '刚刚挂载' : '刚刚卸载',
+        };
+      }),
+    );
+  }, []);
+
+  const deployAgentOnNode = useCallback(
+    (input: {
+      nodeId: string;
+      handle: string;
+      name: string;
+      title: string;
+      category: AgentCategory;
+      cliTool: CliToolType;
+      runtimeAgent: string;
+      defaultModel: string;
+      authMode: CliAuthMode;
+      credentialLabel: string;
+      concurrency: number;
+      storageVolumeId?: string;
+      skills: string[];
+      bio: string;
+      bindToProjectId?: string;
+    }) => {
+      const node = computeNodes.find((n) => n.id === input.nodeId);
+      const cleanedName = input.name.trim() || input.handle.replace(/^@/, '').trim();
+      if (!node || !cleanedName) return '';
+      const rawHandle = input.handle.trim() || cleanedName;
+      const normalizedHandle = rawHandle.startsWith('@') ? rawHandle : `@${rawHandle}`;
+      const id = `agent_space_${Date.now().toString().slice(-5)}`;
+      const accents = ['#0284c7', '#4f46e5', '#0f766e', '#7c3aed', '#b45309'];
+      const accent = accents[agents.length % accents.length];
+      const code =
+        cleanedName.replace(/[^A-Za-z0-9\u4e00-\u9fa5]/g, '').slice(0, 2).toUpperCase() || 'AG';
+
+      const cliVersionMap: Record<CliToolType, string> = {
+        claude_code: 'v1.4.2',
+        antigravity: 'v2.1.0',
+        codex: 'v0.38.0',
+        gemini_cli: 'v0.9.4',
+        qoder: 'v1.2.0',
+      };
+
+      const cleanCred = input.credentialLabel.trim();
+      const newAgent: ExpertAgent = {
+        id,
+        handle: normalizedHandle,
+        name: cleanedName,
+        title: input.title.trim() || `${input.runtimeAgent} CLI 节点实例`,
+        category: input.category,
+        region: node.region,
+        nodeTier: node.origin === 'cloud' ? 'official-cloud' : 'idle-peer',
+        serviceMode: 'pure-agent',
+        ownership: 'private',
+        ownerHumanId: 'human_me',
+        ownerHumanName: account?.name || '我（个人节点）',
+        ownerHumanTitle: '节点负责人',
+        listedZoneIds: [],
+        isListedInMarket: false,
+        runtimeAgent: input.runtimeAgent,
+        defaultModel: input.defaultModel,
+        engineModel: `${input.runtimeAgent} CLI (${input.defaultModel})`,
+        skills: input.skills.length > 0 ? input.skills : ['CLI 自动化编码', '多路并发交付'],
+        mcpTools: ['Cloud Work Storage', 'Git CLI'],
+        projectPriceUsd: 0,
+        bio:
+          input.bio.trim() ||
+          `配置在「${node.name}」的 ${input.runtimeAgent} CLI 专业 Agent，支持 ${Math.max(
+            1,
+            input.concurrency,
+          )} 路并发并自动调度隔离环境。`,
+        avatarAccent: accent,
+        avatarCode: code,
+        hostNodeId: node.id,
+        cliConfig: {
+          cliTool: input.cliTool,
+          cliVersion: cliVersionMap[input.cliTool] || 'v1.0.0',
+          authMode: input.authMode,
+          credentialLabel:
+            cleanCred ||
+            (input.authMode === 'account_oauth' ? 'workspace-pro@account' : 'sk-cli-••••••9a1f'),
+          authStatus: 'connected',
+          concurrency: Math.min(16, Math.max(1, Math.round(input.concurrency || 2))),
+          activeSlots: 0,
+          storageVolumeId: input.storageVolumeId || storageVolumes[0]?.id,
+        },
+        isOnlineForOrders: node.status === 'online',
+        performance: {
+          completedProjects: 0,
+          successRate: 100,
+          reputationScore: 95,
+          repeatHireRate: 100,
+          avgDeliveryDays: 1.0,
+          rating: 5.0,
+          capabilityTier: 'A 级专业',
+          demandStatus: '档期充裕',
+          demandNote: `运行于 ${node.name}`,
+          pricingBasis: '自有/租用节点 CLI 实例，按自身账号或 Key 配额消耗',
+          recentReviews: [],
+        },
+      };
+
+      setAgents((prev) => [newAgent, ...prev]);
+      if (input.bindToProjectId) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === input.bindToProjectId
+              ? {
+                  ...w,
+                  hiredAgentIds: Array.from(new Set([...w.hiredAgentIds, id])),
+                  boundNodeIds: Array.from(new Set([...(w.boundNodeIds || []), node.id])),
+                }
+              : w,
+          ),
+        );
+      }
+      setAuditLogs((prev) => [
+        {
+          id: `aud_dep_${Date.now()}`,
+          category: 'audit',
+          title: `配置节点 CLI Agent：${newAgent.handle}`,
+          detail: `节点 ${node.name} · ${newAgent.runtimeAgent} CLI · ${
+            newAgent.cliConfig?.concurrency || 1
+          } 路并发`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [account?.name, agents.length, computeNodes, storageVolumes],
+  );
+
+  const assignAgentHostNode = useCallback((agentId: string, nodeId: string | undefined) => {
+    setAgents((prev) =>
+      prev.map((a) => (a.id === agentId ? { ...a, hostNodeId: nodeId } : a)),
+    );
+  }, []);
+
+  const updateAgentCliConfig = useCallback(
+    (agentId: string, patch: Partial<NodeCliConfig>) => {
+      setAgents((prev) =>
+        prev.map((a) => {
+          if (a.id !== agentId) return a;
+          const base: NodeCliConfig = a.cliConfig || {
+            cliTool:
+              a.runtimeAgent === 'Antigravity'
+                ? 'antigravity'
+                : a.runtimeAgent === 'Codex'
+                  ? 'codex'
+                  : a.runtimeAgent === 'Gemini CLI'
+                    ? 'gemini_cli'
+                    : 'claude_code',
+            cliVersion: 'v1.4.2',
+            authMode: 'account_oauth',
+            credentialLabel: 'ronnie.shi@workspace.io',
+            authStatus: 'connected',
+            concurrency: 2,
+            activeSlots: 0,
+            storageVolumeId: storageVolumes[0]?.id,
+          };
+          return {
+            ...a,
+            cliConfig: {
+              ...base,
+              ...patch,
+              concurrency:
+                patch.concurrency !== undefined
+                  ? Math.min(16, Math.max(1, Math.round(patch.concurrency)))
+                  : base.concurrency,
+            },
+          };
+        }),
+      );
+    },
+    [storageVolumes],
+  );
+
+  // ================= WORK PROJECT LIFECYCLE & STAGE PIPELINE ORCHESTRATION =================
+  const updateProjectLifecycle = useCallback(
+    (workspaceId: string, status: ProjectLifecycleStatus) => {
+      const today = new Date().toISOString().slice(0, 10);
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === workspaceId
+            ? {
+                ...w,
+                lifecycleStatus: status,
+                completedAt: status === 'active' ? undefined : w.completedAt || today,
+              }
+            : w,
+        ),
+      );
+      const proj = workspaces.find((w) => w.id === workspaceId);
+      if (proj) {
+        const label =
+          status === 'completed' ? '标记已完成' : status === 'archived' ? '已归档' : '重新激活为开发中';
+        setAuditLogs((prev) => [
+          {
+            id: `aud_life_${Date.now()}`,
+            category: 'audit',
+            title: `项目状态变更：${proj.name}`,
+            detail: `生命周期已更新为「${label}」。`,
+            severity: 'info',
+            timestamp: nowTimeStr(),
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [workspaces],
+  );
+
+  const updateProjectSpaceBinding = useCallback(
+    (workspaceId: string, boundNodeIds: string[], storageVolumeId?: string) => {
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === workspaceId
+            ? { ...w, boundNodeIds, storageVolumeId: storageVolumeId || w.storageVolumeId }
+            : w,
+        ),
+      );
+      if (storageVolumeId) {
+        setStorageVolumes((prev) =>
+          prev.map((v) =>
+            v.id === storageVolumeId
+              ? { ...v, boundProjectIds: Array.from(new Set([...v.boundProjectIds, workspaceId])) }
+              : v,
+          ),
+        );
+      }
+    },
+    [],
+  );
+
+  const updateProjectStageSlot = useCallback(
+    (projectId: string, stage: WorkCardType, patch: Partial<Omit<ProjectStageSlot, 'stage'>>) => {
+      setProjectPipelines((prev) => {
+        const existing = prev[projectId] || [
+          {
+            stage: 'planning',
+            roleTitle: '主产品架构师',
+            agentId: 'agent_pm_lin',
+            handoffMode: 'manual' as PipelineHandoffMode,
+            deliverableContract: 'PRD 规格书与核心验收清单',
+          },
+          {
+            stage: 'development',
+            roleTitle: '核心研发工程师',
+            agentId: 'agent_dev_us',
+            handoffMode: 'auto' as PipelineHandoffMode,
+            deliverableContract: '核心功能实现与构建验证',
+          },
+          {
+            stage: 'testing',
+            roleTitle: '质量验收工程师',
+            agentId: 'agent_qa_eu',
+            handoffMode: 'auto' as PipelineHandoffMode,
+            deliverableContract: '自动化测试脚本与缺陷回归报告',
+          },
+          {
+            stage: 'review',
+            roleTitle: '安全与架构审查官',
+            agentId: 'agent_review_my',
+            handoffMode: 'manual' as PipelineHandoffMode,
+            deliverableContract: '架构合规复核与上线签字',
+          },
+        ];
+        return {
+          ...prev,
+          [projectId]: existing.map((slot) =>
+            slot.stage === stage ? { ...slot, ...patch } : slot,
+          ),
+        };
+      });
+    },
+    [],
+  );
+
+  const syncPipelineAgentsToProject = useCallback(
+    (projectId: string) => {
+      const slots = projectPipelines[projectId] || [];
+      const slotAgentIds = slots.map((s) => s.agentId).filter(Boolean);
+      const slotNodeIds = slotAgentIds
+        .map((aid) => agents.find((a) => a.id === aid)?.hostNodeId)
+        .filter((nid): nid is string => Boolean(nid));
+
+      if (slotAgentIds.length === 0) return;
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === projectId
+            ? {
+                ...w,
+                hiredAgentIds: Array.from(new Set([...w.hiredAgentIds, ...slotAgentIds])),
+                boundNodeIds: Array.from(new Set([...(w.boundNodeIds || []), ...slotNodeIds])),
+              }
+            : w,
+        ),
+      );
+      const proj = workspaces.find((w) => w.id === projectId);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_pipe_${Date.now()}`,
+          category: 'audit',
+          title: `工作编排已同步：${proj?.name || projectId}`,
+          detail: `已将 ${slotAgentIds.length} 个阶段工位 Agent 及其宿主机载体节点同步至项目协同阵容。`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [agents, projectPipelines, workspaces],
+  );
+
   return {
     zones,
     activeZoneId,
@@ -2102,6 +2857,7 @@ export function useAgentNexusStore() {
     openTaskSession,
     openNegotiationsHub,
     openKanbanForProject,
+    openWorkspaceTab,
     openCommunityDiscover,
     openMarketForZone,
     kanbanProjectSeed,
@@ -2115,6 +2871,26 @@ export function useAgentNexusStore() {
     agentLeases,
     purchasedSkillIds,
     teamExperts,
+    computeNodes,
+    storageVolumes,
+    projectPipelines,
+    mountPrivateNode,
+    provisionCloudNode,
+    toggleNodeStatus,
+    removeComputeNode,
+    createStorageVolume,
+    expandStorageVolume,
+    addNodeCli,
+    updateNodeCli,
+    removeNodeCli,
+    toggleNodeStorageMount,
+    deployAgentOnNode,
+    assignAgentHostNode,
+    updateAgentCliConfig,
+    updateProjectLifecycle,
+    updateProjectSpaceBinding,
+    updateProjectStageSlot,
+    syncPipelineAgentsToProject,
     leaseAgent,
     acquireSkill,
     inviteTeamExpert,

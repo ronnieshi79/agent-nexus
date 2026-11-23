@@ -139,6 +139,9 @@ export default function App() {
             <WorkflowKanbanView
               zones={store.zones}
               workspaces={store.workspaces}
+              computeNodes={store.computeNodes}
+              storageVolumes={store.storageVolumes}
+              projectPipelines={store.projectPipelines}
               projectSeed={store.kanbanProjectSeed}
               onClearProjectSeed={store.clearKanbanProjectSeed}
               tabSeed={store.kanbanTabSeed}
@@ -159,11 +162,25 @@ export default function App() {
               onJumpToMarket={() => store.setActiveView('market')}
               onJumpToZoneMarket={store.openMarketForZone}
               onJumpToDiscover={() => store.openCommunityDiscover()}
+              onJumpToTeam={() => store.setActiveView('team')}
               onReleaseAgent={store.releaseAgent}
               onLeaseAgent={store.leaseAgent}
               onAssignExpertToWorkspace={store.assignExpertToWorkspace}
               onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
               onUpdateAgentRuntimeConfig={store.updateAgentRuntimeConfig}
+              onMountPrivateNode={store.mountPrivateNode}
+              onProvisionCloudNode={store.provisionCloudNode}
+              onToggleNodeStatus={store.toggleNodeStatus}
+              onRemoveComputeNode={store.removeComputeNode}
+              onCreateStorageVolume={store.createStorageVolume}
+              onExpandStorageVolume={store.expandStorageVolume}
+              onAddNodeCli={store.addNodeCli}
+              onUpdateNodeCli={store.updateNodeCli}
+              onRemoveNodeCli={store.removeNodeCli}
+              onToggleNodeStorageMount={store.toggleNodeStorageMount}
+              onUpdateProjectLifecycle={store.updateProjectLifecycle}
+              onUpdateProjectStageSlot={store.updateProjectStageSlot}
+              onSyncPipelineAgentsToProject={store.syncPipelineAgentsToProject}
             />
           )}
 
@@ -174,6 +191,8 @@ export default function App() {
               workspace={store.activeWorkspace}
               workspaces={store.workspaces}
               allAgents={store.agents}
+              computeNodes={store.computeNodes}
+              storageVolumes={store.storageVolumes}
               humanExperts={store.humanExperts}
               agentLeases={store.agentLeases}
               teamExperts={store.teamExperts}
@@ -195,6 +214,7 @@ export default function App() {
               onToggleMarketListing={store.toggleMarketListing}
               onRecruitCategory={store.jumpToMarketWithCategory}
               onJumpToMarket={() => store.setActiveView('market')}
+              onJumpToSpaceConfig={store.openWorkspaceTab}
             />
           )}
 

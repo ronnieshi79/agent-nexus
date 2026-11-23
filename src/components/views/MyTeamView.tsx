@@ -5,12 +5,15 @@ import {
   CalendarClock,
   Check,
   Cpu,
+  Database,
   Globe,
   MessageCircle,
   MoreHorizontal,
   Plus,
+  Server,
   Settings2,
   Sparkles,
+  Terminal,
   UserCheck,
   UserMinus,
   UserPlus,
@@ -41,11 +44,13 @@ import type {
   AgentCategory,
   AgentLeaseRecord,
   CommunityZone,
+  ComputeNode,
   ExpertAgent,
   ExpertRelationType,
   HumanExpert,
   LeasePeriod,
   ProjectWorkspace,
+  StorageVolume,
   TeamExpertMembership,
   WorkflowTask,
 } from '../../types/agentnexus';
@@ -56,6 +61,8 @@ interface MyTeamViewProps {
   workspace: ProjectWorkspace;
   workspaces: ProjectWorkspace[];
   allAgents: ExpertAgent[];
+  computeNodes: ComputeNode[];
+  storageVolumes: StorageVolume[];
   humanExperts: HumanExpert[];
   agentLeases: Record<string, AgentLeaseRecord>;
   teamExperts: TeamExpertMembership[];
@@ -83,6 +90,7 @@ interface MyTeamViewProps {
   onToggleMarketListing: (agentId: string, targetZoneId?: string) => void;
   onRecruitCategory: (category: 'all' | AgentCategory) => void;
   onJumpToMarket: () => void;
+  onJumpToSpaceConfig: (tab: 'space_nodes' | 'space_agents') => void;
 }
 
 type TeamSectionTab = 'agents' | 'collaborators' | 'friends';
@@ -123,6 +131,8 @@ export function MyTeamView({
   workspace,
   workspaces,
   allAgents,
+  computeNodes,
+  storageVolumes,
   humanExperts,
   agentLeases,
   teamExperts,
@@ -144,6 +154,7 @@ export function MyTeamView({
   onToggleMarketListing,
   onRecruitCategory,
   onJumpToMarket,
+  onJumpToSpaceConfig,
 }: MyTeamViewProps) {
   const [teamSection, setTeamSection] = useState<TeamSectionTab>('agents');
   const [ownershipTab, setOwnershipTab] = useState<TeamOwnershipTab>('all');
@@ -188,7 +199,10 @@ export function MyTeamView({
   const [editingId, setEditingId] = useState<string | 'new'>('new');
   const [externalCatFilter, setExternalCatFilter] = useState<'all' | AgentCategory>('all');
 
-  // Private Agent Form State
+  // Private Agent Form State (built on mounted/rented Space Nodes & configured Agent CLIs)
+  const [hostNodeId, setHostNodeId] = useState<string>('');
+  const [hostCliId, setHostCliId] = useState<string>('');
+  const [storageVolumeId, setStorageVolumeId] = useState<string>('');
   const [handle, setHandle] = useState('@我的私有特工');
   const [name, setName] = useState('Nova · 领域私有交付 Agent');
   const [title, setTitle] = useState('自动化工作流执行与专项产出');
@@ -198,7 +212,7 @@ export function MyTeamView({
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '本地调优的私有 Agent 节点，默认零签约费加入自有项目工作，闲时可勾选上架至指定社区市场接单。',
+    '基于 Agent 空间已挂载节点与 Agent CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '自动化脚本执行', '产出质量自检']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
@@ -208,6 +222,30 @@ export function MyTeamView({
   const [aiOptimizing, setAiOptimizing] = useState(false);
   const [aiAdvice, setAiAdvice] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+
+  const nodeMap = useMemo(() => new Map(computeNodes.map((n) => [n.id, n])), [computeNodes]);
+  const volumeMap = useMemo(() => new Map(storageVolumes.map((v) => [v.id, v])), [storageVolumes]);
+  const getCliUsedSlots = (nodeId: string, cliId: string, excludeAgentId?: string) =>
+    privateAgents.filter(
+      (a) =>
+        a.id !== excludeAgentId &&
+        a.hostNodeId === nodeId &&
+        a.hostCliId === cliId,
+    ).length;
+
+  const excludeEditingId = editingId === 'new' ? undefined : editingId;
+  const selectedHostNode = hostNodeId ? nodeMap.get(hostNodeId) || null : null;
+  const selectedHostCli =
+    selectedHostNode?.installedClis.find((c) => c.id === hostCliId) || null;
+  const selectedCliUsed =
+    selectedHostNode && selectedHostCli
+      ? getCliUsedSlots(selectedHostNode.id, selectedHostCli.id, excludeEditingId)
+      : 0;
+  const selectedCliFull = Boolean(
+    selectedHostNode &&
+      selectedHostCli &&
+      selectedCliUsed >= selectedHostCli.concurrency,
+  );
 
   // All externally hired Agents across any project workspace
   const externalHiredAgents = useMemo(() => {
@@ -481,18 +519,80 @@ export function MyTeamView({
     workspaces,
   ]);
 
+  const handleSelectHostNode = (nextNodeId: string) => {
+    setHostNodeId(nextNodeId);
+    const node = computeNodes.find((n) => n.id === nextNodeId);
+    if (!node) {
+      setHostCliId('');
+      return;
+    }
+    setRegion(node.name);
+    const defaultCli =
+      node.installedClis.find(
+        (c) => c.enabled && getCliUsedSlots(node.id, c.id, excludeEditingId) < c.concurrency,
+      ) ||
+      node.installedClis.find(
+        (c) => getCliUsedSlots(node.id, c.id, excludeEditingId) < c.concurrency,
+      ) ||
+      node.installedClis.find((c) => c.enabled) ||
+      node.installedClis[0] ||
+      null;
+    if (defaultCli) {
+      setHostCliId(defaultCli.id);
+      setRuntimeAgent(defaultCli.runtimeAgent);
+      setDefaultModel(defaultCli.defaultModel);
+    } else {
+      setHostCliId('');
+    }
+    if (node.mountedStorageIds.length > 0) {
+      setStorageVolumeId(node.mountedStorageIds[0]);
+    }
+  };
+
+  const handleSelectHostCli = (nextCliId: string) => {
+    setHostCliId(nextCliId);
+    const cli = selectedHostNode?.installedClis.find((c) => c.id === nextCliId);
+    if (cli) {
+      setRuntimeAgent(cli.runtimeAgent);
+      setDefaultModel(cli.defaultModel);
+    }
+  };
+
   const openAddDrawer = (mode: AddDrawerMode = 'private', defaultZones: string[] = []) => {
     setDrawerMode(mode);
     setEditingId('new');
+    const preferredNode =
+      computeNodes.find(
+        (n) =>
+          n.status === 'online' &&
+          n.installedClis.some(
+            (c) => c.enabled && getCliUsedSlots(n.id, c.id) < c.concurrency,
+          ),
+      ) ||
+      computeNodes.find((n) => n.status === 'online' && n.installedClis.length > 0) ||
+      computeNodes[0] ||
+      null;
+    const preferredCli =
+      preferredNode?.installedClis.find(
+        (c) => c.enabled && getCliUsedSlots(preferredNode.id, c.id) < c.concurrency,
+      ) ||
+      preferredNode?.installedClis.find((c) => c.enabled) ||
+      preferredNode?.installedClis[0] ||
+      null;
+    setHostNodeId(preferredNode?.id || '');
+    setHostCliId(preferredCli?.id || '');
+    setStorageVolumeId(
+      preferredNode?.mountedStorageIds[0] || storageVolumes[0]?.id || '',
+    );
     setHandle('@私有专项特工');
     setName('Kestrel · 领域专项私有 Agent');
     setTitle('自动化任务执行、内容生成与质量校验');
     setCategory('engineering');
-    setRuntimeAgent('Claude Code');
-    setDefaultModel('Claude 4.5 Sonnet');
-    setRegion('本地 anx-worker 私有节点');
+    setRuntimeAgent(preferredCli?.runtimeAgent || 'Claude Code');
+    setDefaultModel(preferredCli?.defaultModel || 'Claude 4.5 Sonnet');
+    setRegion(preferredNode?.name || 'Agent 空间节点');
     setProjectPriceUsd(1800);
-    setBio('本地调优的私有 Agent 节点，支持加密工作区挂载。默认私有自用，按需勾选上架至市场对外承接项目。');
+    setBio('基于 Agent 空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
     setSkills(['接口契约联调', '边界单测补全', '自动化产出校验']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
     setListedZoneIds(defaultZones);
@@ -504,13 +604,27 @@ export function MyTeamView({
   const openEditDrawer = (agent: ExpertAgent) => {
     setDrawerMode('private');
     setEditingId(agent.id);
+    const boundNode = agent.hostNodeId ? nodeMap.get(agent.hostNodeId) || null : null;
+    const matchedCli =
+      boundNode?.installedClis.find((c) => c.id === agent.hostCliId) ||
+      boundNode?.installedClis.find((c) => c.runtimeAgent === agent.runtimeAgent) ||
+      boundNode?.installedClis[0] ||
+      null;
+    setHostNodeId(boundNode?.id || '');
+    setHostCliId(matchedCli?.id || '');
+    setStorageVolumeId(
+      agent.storageVolumeId ||
+        agent.cliConfig?.storageVolumeId ||
+        boundNode?.mountedStorageIds[0] ||
+        '',
+    );
     setHandle(agent.handle);
     setName(agent.name);
     setTitle(agent.title);
     setCategory(agent.category);
-    setRuntimeAgent(agent.runtimeAgent);
-    setDefaultModel(agent.defaultModel);
-    setRegion(agent.region);
+    setRuntimeAgent(matchedCli?.runtimeAgent || agent.runtimeAgent);
+    setDefaultModel(matchedCli?.defaultModel || agent.defaultModel);
+    setRegion(boundNode?.name || agent.region);
     setProjectPriceUsd(agent.projectPriceUsd);
     setBio(agent.bio);
     setSkills([...agent.skills]);
@@ -573,18 +687,25 @@ export function MyTeamView({
 
   const handleSaveDrawer = (e: FormEvent) => {
     e.preventDefault();
+    if (selectedCliFull) return;
     const isNew = editingId === 'new';
     const existing = isNew ? null : privateAgents.find((a) => a.id === editingId) || null;
     const normalizedHandle = handle.startsWith('@') ? handle.trim() : `@${handle.trim()}`;
+    const resolvedNode = hostNodeId ? nodeMap.get(hostNodeId) || null : null;
+    const resolvedCli =
+      resolvedNode?.installedClis.find((c) => c.id === hostCliId) || null;
+    const effectiveRuntime = resolvedCli?.runtimeAgent || runtimeAgent;
+    const effectiveModel = resolvedCli?.defaultModel || defaultModel;
+    const effectiveStorageId = storageVolumeId || undefined;
 
     const nextAgent: ExpertAgent = {
       id: isNew ? `agent_priv_${Date.now().toString().slice(-4)}` : editingId,
       handle: normalizedHandle,
-      name: name.trim() || '私有 Agent 节点',
+      name: name.trim() || '自建专业 Agent',
       title: title.trim() || '专业领域自主交付',
       category,
-      region: region.trim() || '本地私有节点',
-      nodeTier: 'idle-peer',
+      region: resolvedNode ? resolvedNode.name : region.trim() || 'Agent 空间节点',
+      nodeTier: resolvedNode?.origin === 'cloud' ? 'official-cloud' : 'idle-peer',
       serviceMode: 'pure-agent',
       ownership: 'private',
       ownerHumanId: 'human_me',
@@ -592,9 +713,11 @@ export function MyTeamView({
       ownerHumanTitle: '自有节点',
       listedZoneIds,
       isListedInMarket: listedZoneIds.length > 0,
-      runtimeAgent,
-      defaultModel,
-      engineModel: '自有私有节点 · anx-worker 直连',
+      runtimeAgent: effectiveRuntime,
+      defaultModel: effectiveModel,
+      engineModel: resolvedNode
+        ? `${resolvedNode.name} · ${effectiveRuntime} CLI`
+        : `${effectiveRuntime} CLI`,
       skills: skills.length > 0 ? skills : ['私有领域交付'],
       mcpTools: mcpTools.length > 0 ? mcpTools : ['Git-PR'],
       projectPriceUsd: Math.round(Number(projectPriceUsd)) || 1800,
@@ -615,7 +738,22 @@ export function MyTeamView({
                 : category === 'media'
                   ? 'MD'
                   : 'PV'),
-      isOnlineForOrders: true,
+      hostNodeId: resolvedNode?.id,
+      hostCliId: resolvedCli?.id,
+      storageVolumeId: effectiveStorageId,
+      cliConfig: resolvedCli
+        ? {
+            cliTool: resolvedCli.cliTool,
+            cliVersion: resolvedCli.cliVersion,
+            authMode: resolvedCli.authMode,
+            credentialLabel: resolvedCli.credentialLabel,
+            authStatus: resolvedCli.authStatus,
+            concurrency: resolvedCli.concurrency,
+            activeSlots: existing?.cliConfig?.activeSlots || 0,
+            storageVolumeId: effectiveStorageId,
+          }
+        : existing?.cliConfig,
+      isOnlineForOrders: resolvedNode ? resolvedNode.status === 'online' : true,
       performance: existing?.performance || {
         completedProjects: 12,
         successRate: 98.8,
@@ -625,7 +763,7 @@ export function MyTeamView({
         rating: 4.93,
         capabilityTier: 'A+ 资深',
         demandStatus: '档期充裕',
-        demandNote: '自有节点 · 内部自用免签约费',
+        demandNote: resolvedNode ? `运行于 ${resolvedNode.name}` : '自有节点 · 内部自用免签约费',
         pricingBasis: '基于自有能力配置设定的项目制签约价',
         recentReviews: [
           {
@@ -1035,6 +1173,53 @@ export function MyTeamView({
                                     )}
                                     {agent.skills.join(' · ')}
                                   </div>
+
+                                  {isPrivate && (() => {
+                                    const boundNode = agent.hostNodeId
+                                      ? nodeMap.get(agent.hostNodeId)
+                                      : undefined;
+                                    const boundCli = boundNode?.installedClis.find(
+                                      (c) => c.id === agent.hostCliId,
+                                    );
+                                    const boundVol = (agent.storageVolumeId ||
+                                      agent.cliConfig?.storageVolumeId)
+                                      ? volumeMap.get(
+                                          agent.storageVolumeId ||
+                                            agent.cliConfig?.storageVolumeId ||
+                                            '',
+                                        )
+                                      : undefined;
+                                    return (
+                                      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                                        {boundNode ? (
+                                          <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+                                            <Server className="w-3 h-3 text-blue-600 shrink-0" />
+                                            <span>
+                                              依托节点：{boundNode.name}
+                                              {boundCli
+                                                ? ` · ${boundCli.runtimeAgent} (${boundCli.concurrency} 沙箱)`
+                                                : ''}
+                                            </span>
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditDrawer(agent)}
+                                            className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline cursor-pointer"
+                                          >
+                                            <Server className="w-3 h-3 shrink-0" />
+                                            <span>未绑定 Agent 空间节点 · 点击绑定</span>
+                                          </button>
+                                        )}
+                                        {boundVol && (
+                                          <span className="inline-flex items-center gap-1 text-slate-500">
+                                            <Database className="w-3 h-3 text-indigo-500 shrink-0" />
+                                            <span>共享存储：{boundVol.name}</span>
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
 
                                   {(projectNames.length > 0 || (isPrivate && listedZoneNames.length > 0)) && (
                                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -1599,7 +1784,7 @@ export function MyTeamView({
                       : '添加 Agent 成员'}
                   </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  统一入口：挂载自建 Agent 节点，或直接引入外雇 Agent 专家协同工作。
+                  基于 Agent 空间已挂载/租用的节点与 Agent CLI 配置自建专业 Agent，或引入市场租赁 Agent。
                 </p>
               </div>
               <button
@@ -1623,7 +1808,7 @@ export function MyTeamView({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  挂载自建 Agent
+                  配置自建专业 Agent
                 </button>
                 <button
                   type="button"
@@ -1634,7 +1819,7 @@ export function MyTeamView({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  引入外雇 Agent
+                  租赁外部 Agent
                 </button>
               </div>
             )}
@@ -1756,9 +1941,158 @@ export function MyTeamView({
               className="flex-1 min-h-0 flex flex-col overflow-hidden"
             >
               <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4">
+                {/* Node & Installed Agent CLI Binding (from Agent Space) */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <Server className="w-3.5 h-3.5 text-blue-600" />
+                      <span>依托 Agent 空间节点与并发沙箱</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrawerOpen(false);
+                        onJumpToSpaceConfig('space_agents');
+                      }}
+                      className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                    >
+                      去 Agent 配置 →
+                    </button>
+                  </div>
+
+                  <label className="block">
+                    <span className="text-[11px] font-semibold text-slate-600">
+                      承载节点（自有挂载 / 云端租用）
+                    </span>
+                    <select
+                      value={hostNodeId}
+                      onChange={(e) => handleSelectHostNode(e.target.value)}
+                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    >
+                      <option value="">暂不绑定运行节点</option>
+                      {computeNodes.map((n) => {
+                        const nodeCap = n.installedClis
+                          .filter((c) => c.enabled)
+                          .reduce((s, c) => s + c.concurrency, 0);
+                        const nodeUsed = privateAgents.filter(
+                          (a) => a.id !== excludeEditingId && a.hostNodeId === n.id,
+                        ).length;
+                        return (
+                          <option key={n.id} value={n.id}>
+                            {n.name}（{n.origin === 'cloud' ? '云端租用' : '自有挂载'} · 沙箱{' '}
+                            {nodeUsed}/{nodeCap}）
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </label>
+
+                  {selectedHostNode && (
+                    <>
+                      {selectedHostNode.installedClis.length === 0 ? (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800 flex items-center justify-between gap-2">
+                          <span>该节点尚未配置 Agent CLI，请先安装 Claude Code / Antigravity / Codex。</span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDrawerOpen(false);
+                              onJumpToSpaceConfig('space_agents');
+                            }}
+                            className="font-semibold underline whitespace-nowrap cursor-pointer"
+                          >
+                            去配置
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="block">
+                          <span className="text-[11px] font-semibold text-slate-600">
+                            选择该节点已配置的 Agent CLI（按并发沙箱上限分配）
+                          </span>
+                          <select
+                            value={hostCliId}
+                            onChange={(e) => handleSelectHostCli(e.target.value)}
+                            className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                          >
+                            {selectedHostNode.installedClis.map((cli) => {
+                              const used = getCliUsedSlots(
+                                selectedHostNode.id,
+                                cli.id,
+                                excludeEditingId,
+                              );
+                              const remaining = Math.max(0, cli.concurrency - used);
+                              const disabledOption = remaining <= 0 && cli.id !== hostCliId;
+                              return (
+                                <option key={cli.id} value={cli.id} disabled={disabledOption}>
+                                  {cli.runtimeAgent} CLI · {cli.defaultModel} · 沙箱 {used}/
+                                  {cli.concurrency}（{remaining > 0 ? `余 ${remaining} 席位` : '已满'}）
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </label>
+                      )}
+
+                      {selectedHostCli && selectedCliFull && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 flex items-center justify-between gap-2">
+                          <span>
+                            该 CLI 并发沙箱已满（{selectedCliUsed}/{selectedHostCli.concurrency}），无法再绑定新的专业 Agent。
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDrawerOpen(false);
+                              onJumpToSpaceConfig('space_agents');
+                            }}
+                            className="font-semibold underline whitespace-nowrap cursor-pointer shrink-0"
+                          >
+                            调大沙箱数 →
+                          </button>
+                        </div>
+                      )}
+
+                      <label className="block">
+                        <span className="text-[11px] font-semibold text-slate-600">
+                          挂载的 Agent 共享存储（云存储）
+                        </span>
+                        <select
+                          value={storageVolumeId}
+                          onChange={(e) => setStorageVolumeId(e.target.value)}
+                          className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                        >
+                          <option value="">仅使用节点本地盘</option>
+                          {storageVolumes.map((v) => {
+                            const isMountedOnNode = selectedHostNode.mountedStorageIds.includes(v.id);
+                            return (
+                              <option key={v.id} value={v.id}>
+                                {v.name} ({v.quotaGb}GB)
+                                {isMountedOnNode ? ' · 节点已挂载' : ''}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </label>
+
+                      {selectedHostCli && !selectedCliFull && (
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-slate-600 pt-0.5">
+                          <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
+                            <Terminal className="w-3 h-3 text-blue-600" />
+                            <span>{selectedHostCli.runtimeAgent}</span>
+                          </span>
+                          <span className="font-mono">{selectedHostCli.defaultModel}</span>
+                          <span className="text-slate-300" aria-hidden="true">·</span>
+                          <span className="font-mono text-emerald-700 font-semibold">
+                            并发沙箱 {selectedCliUsed}/{selectedHostCli.concurrency}（余{' '}
+                            {Math.max(0, selectedHostCli.concurrency - selectedCliUsed)} 席位）
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="text-xs font-medium text-slate-700">Agent 名称</span>
+                    <span className="text-xs font-medium text-slate-700">专业 Agent 名称</span>
                     <input
                       type="text"
                       value={handle}
@@ -1769,7 +2103,7 @@ export function MyTeamView({
                   </label>
 
                   <label className="block">
-                    <span className="text-xs font-medium text-slate-700">Agent 类目</span>
+                    <span className="text-xs font-medium text-slate-700">专业类目</span>
                     <select
                       value={category}
                       onChange={(e) => setCategory(e.target.value as AgentCategory)}
@@ -1784,41 +2118,45 @@ export function MyTeamView({
                     </select>
                   </label>
 
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-700">本体 Agent 引擎</span>
-                    <select
-                      value={runtimeAgent}
-                      onChange={(e) => {
-                        const nextRuntime = e.target.value;
-                        setRuntimeAgent(nextRuntime);
-                        setDefaultModel(getRuntimePreset(nextRuntime).defaultModel);
-                      }}
-                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    >
-                      {AGENT_RUNTIME_PRESETS.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {!selectedHostCli && (
+                    <>
+                      <label className="block">
+                        <span className="text-xs font-medium text-slate-700">本体 Agent 引擎</span>
+                        <select
+                          value={runtimeAgent}
+                          onChange={(e) => {
+                            const nextRuntime = e.target.value;
+                            setRuntimeAgent(nextRuntime);
+                            setDefaultModel(getRuntimePreset(nextRuntime).defaultModel);
+                          }}
+                          className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                        >
+                          {AGENT_RUNTIME_PRESETS.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
 
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-700">默认底层模型</span>
-                    <select
-                      value={defaultModel}
-                      onChange={(e) => setDefaultModel(e.target.value)}
-                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    >
-                      {Array.from(
-                        new Set([defaultModel, ...getRuntimePreset(runtimeAgent).models]),
-                      ).map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                      <label className="block">
+                        <span className="text-xs font-medium text-slate-700">默认底层模型</span>
+                        <select
+                          value={defaultModel}
+                          onChange={(e) => setDefaultModel(e.target.value)}
+                          className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                        >
+                          {Array.from(
+                            new Set([defaultModel, ...getRuntimePreset(runtimeAgent).models]),
+                          ).map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  )}
 
                   <label className="block col-span-2">
                     <span className="text-xs font-medium text-slate-700">核心能力定位</span>
@@ -1831,8 +2169,10 @@ export function MyTeamView({
                     />
                   </label>
 
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-700">对外项目挂牌价 (USD)</span>
+                  <label className="block col-span-2">
+                    <span className="text-xs font-medium text-slate-700">
+                      对外项目挂牌价 (USD · 仅上架市场时生效，内部自用免租)
+                    </span>
                     <input
                       type="number"
                       step="100"
@@ -1841,16 +2181,6 @@ export function MyTeamView({
                       value={projectPriceUsd}
                       onChange={(e) => setProjectPriceUsd(Number(e.target.value))}
                       className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono tabular-nums text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                  </label>
-
-                  <label className="block">
-                    <span className="text-xs font-medium text-slate-700">运行节点位置</span>
-                    <input
-                      type="text"
-                      value={region}
-                      onChange={(e) => setRegion(e.target.value)}
-                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                     />
                   </label>
                 </div>
@@ -1987,11 +2317,14 @@ export function MyTeamView({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
+                  disabled={selectedCliFull}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-45 disabled:cursor-not-allowed text-white cursor-pointer"
                 >
-                  {listedZoneIds.length > 0
-                    ? `保存并上架 (${listedZoneIds.length} 个专区)`
-                    : '保存自建 Agent'}
+                  {selectedCliFull
+                    ? '沙箱已满 · 请调大配额'
+                    : listedZoneIds.length > 0
+                      ? `保存并上架 (${listedZoneIds.length} 个专区)`
+                      : '保存自建 Agent'}
                 </button>
               </div>
             </form>

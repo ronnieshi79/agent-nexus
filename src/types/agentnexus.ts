@@ -157,6 +157,14 @@ export interface ExpertAgent {
   bio: string;
   avatarAccent: string;
   avatarCode: string;
+  /** Optional physical/cloud Space ComputeNode ID hosting this Agent runtime */
+  hostNodeId?: string;
+  /** Optional NodeCliEntry ID configured on the host ComputeNode */
+  hostCliId?: string;
+  /** Optional shared cloud StorageVolume ID mounted for this Agent */
+  storageVolumeId?: string;
+  /** Optional CLI runtime configuration snapshot (Claude Code / Antigravity / Codex / Gemini CLI) */
+  cliConfig?: NodeCliConfig;
   isOnlineForOrders: boolean;
   performance: AgentPerformance;
 }
@@ -279,12 +287,120 @@ export interface ChatMessage {
 
 export type ProjectRole = 'leading' | 'participating';
 
+export type ProjectLifecycleStatus = 'active' | 'completed' | 'archived';
+
+export type NodeOsType = 'win11' | 'linux' | 'macos';
+export type ComputeNodeOrigin = 'private' | 'cloud';
+export type ComputeNodeStatus = 'online' | 'standby';
+
+export type CliToolType = 'claude_code' | 'antigravity' | 'codex' | 'gemini_cli' | 'qoder';
+export type CliAuthMode = 'account_oauth' | 'api_key';
+
+export interface NodeCliConfig {
+  cliTool: CliToolType;
+  cliVersion: string;
+  authMode: CliAuthMode;
+  /** Display identifier for OAuth account or masked API key reference */
+  credentialLabel: string;
+  authStatus: 'connected' | 'unconfigured';
+  /** Concurrent sessions / auto-managed isolated sandboxes (e.g. 4 = 4 concurrent Claude Code slots) */
+  concurrency: number;
+  activeSlots?: number;
+  /** Bound shared cloud work storage volume ID */
+  storageVolumeId?: string;
+}
+
+export interface NodeCliEntry {
+  id: string;
+  cliTool: CliToolType;
+  runtimeAgent: string;
+  cliVersion: string;
+  defaultModel: string;
+  authMode: CliAuthMode;
+  /** Display identifier for OAuth account or masked API key reference */
+  credentialLabel: string;
+  authStatus: 'connected' | 'unconfigured';
+  /** Concurrent CLI slots (auto-isolated internally by the node runtime) */
+  concurrency: number;
+  enabled: boolean;
+}
+
+export interface ComputeNode {
+  id: string;
+  name: string;
+  os: NodeOsType;
+  osVersion: string;
+  origin: ComputeNodeOrigin;
+  region: string;
+  cpuCores: number;
+  memoryGb: number;
+  gpuSpec?: string;
+  storageQuotaGb: number;
+  storageUsedGb: number;
+  status: ComputeNodeStatus;
+  endpoint: string;
+  /** 0 for self-mounted personal/office hardware; monthly USD rental for cloud nodes */
+  monthlyCostUsd: number;
+  mountedAt: string;
+  description: string;
+  /** Agent CLIs installed and configured on this node */
+  installedClis: NodeCliEntry[];
+  /** Shared cloud StorageVolume IDs mounted on this node */
+  mountedStorageIds: string[];
+}
+
+export type StorageBillingMode = 'monthly' | 'permanent';
+
+export interface StorageVolume {
+  id: string;
+  name: string;
+  tierLabel: string;
+  region: string;
+  quotaGb: number;
+  usedGb: number;
+  billingMode: StorageBillingMode;
+  /** Monthly fee (if monthly) or one-time permanent purchase fee (if permanent) */
+  priceUsd: number;
+  encrypted: boolean;
+  mountPath: string;
+  boundNodeIds: string[];
+  boundProjectIds: string[];
+  updatedAt: string;
+}
+
+export type PipelineHandoffMode = 'auto' | 'manual';
+
+export interface ProjectStageSlot {
+  stage: WorkCardType;
+  roleTitle: string;
+  agentId: string;
+  handoffMode: PipelineHandoffMode;
+  deliverableContract: string;
+}
+
+export type WorkspaceTabId =
+  | 'space_nodes'
+  | 'space_storage'
+  | 'space_agents'
+  | 'overview'
+  | 'my_projects'
+  | 'kanban'
+  | 'orchestration';
+
 export interface ProjectWorkspace {
   id: string;
   name: string;
   goal: string;
   /** Whether the user leads this project as employer or participates as an expert contributor */
   role: ProjectRole;
+  /** Project lifecycle state for filtering and archival */
+  lifecycleStatus?: ProjectLifecycleStatus;
+  /** Optional completion or archival date string */
+  completedAt?: string;
+  /** Dedicated Space compute nodes bound to this project */
+  boundNodeIds?: string[];
+  /** Dedicated Space persistent storage volume bound to this project */
+  storageVolumeId?: string;
   /** Optional community/enterprise zone this project is associated with or published to */
   sourceZoneId?: string;
   workspaceTier: '加密持久化工作区 (50GB)' | '24h 临时沙箱';
