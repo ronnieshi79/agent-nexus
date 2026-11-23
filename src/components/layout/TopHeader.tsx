@@ -1,4 +1,4 @@
-import { Check, Menu, PanelLeftOpen, Plus } from 'lucide-react';
+import { Compass, Menu, PanelLeftOpen } from 'lucide-react';
 import { INITIAL_MARKET_SKILLS } from '../../data/initialData';
 import { formatAgentDisplayName, formatShortModel } from '../shared/EntityIdentity';
 import { WORKSPACE_GUTTER_CLASS } from '../shared/ViewToolbar';
@@ -30,10 +30,11 @@ interface TopHeaderProps {
   onOpenMobileMenu: () => void;
   onSelectZone: (zoneId: string) => void;
   onToggleJoinZone: (zoneId: string) => void;
+  onManageCollabSpaces: () => void;
 }
 
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team', string> = {
-  kanban: '工作项目全周期协作编排，以及 Agent 空间的节点、存储与并发沙箱配置',
+  kanban: '工作项目协作编排、协作空间管理，以及 Agent 空间节点、存储与并发沙箱配置',
   team: 'Agent 成员、合作专家与我的好友',
 };
 
@@ -52,11 +53,10 @@ export function TopHeader({
   onToggleSidebarCollapse,
   onOpenMobileMenu,
   onSelectZone,
-  onToggleJoinZone,
+  onManageCollabSpaces,
 }: TopHeaderProps) {
   const isCommunityScopedView = activeView === 'discover' || activeView === 'market';
-  const isPublicZone = activeZone.kind === 'public';
-  const hasJoinedActiveZone = isPublicZone || joinedZoneIds.includes(activeZone.id);
+  const joinedZones = zones.filter((z) => z.isPlatformDefault || joinedZoneIds.includes(z.id));
 
   let primaryLabel: string;
   let subLabel = '';
@@ -130,14 +130,16 @@ export function TopHeader({
             <span className="text-slate-300 shrink-0" aria-hidden="true">/</span>
             <ZoneSelectorDropdown
               variant="header"
-              zones={zones}
+              zones={joinedZones}
               activeZoneId={activeZone.id}
               onSelectZone={onSelectZone}
-              joinedZoneIds={activeView === 'discover' ? joinedZoneIds : undefined}
-              onToggleJoinZone={activeView === 'discover' ? onToggleJoinZone : undefined}
+              onManageSpaces={onManageCollabSpaces}
               getZoneStat={(z) => {
                 if (activeView === 'market') {
-                  const agentCount = agents.filter((a) => a.listedZoneIds.includes(z.id)).length;
+                  const suspended = new Set(z.suspendedAgentIds || []);
+                  const agentCount = agents.filter(
+                    (a) => a.listedZoneIds.includes(z.id) && !suspended.has(a.id),
+                  ).length;
                   const skillCount = INITIAL_MARKET_SKILLS.filter((s) =>
                     s.zoneIds.includes(z.id),
                   ).length;
@@ -169,28 +171,15 @@ export function TopHeader({
         )}
       </div>
 
-      {/* Right: Private Community Membership Action (only when relevant in Discover) */}
-      {activeView === 'discover' && !isPublicZone && (
+      {/* Right: Direct Collaboration Spaces Management Entry in Market & Community */}
+      {isCommunityScopedView && (
         <button
           type="button"
-          onClick={() => onToggleJoinZone(activeZone.id)}
-          className={`inline-flex items-center gap-1 h-8 px-2.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer border ${
-            hasJoinedActiveZone
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-              : 'bg-blue-600 border-blue-600 text-white hover:bg-blue-700'
-          }`}
+          onClick={onManageCollabSpaces}
+          className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
-          {hasJoinedActiveZone ? (
-            <>
-              <Check className="w-3.5 h-3.5" />
-              <span>已加入</span>
-            </>
-          ) : (
-            <>
-              <Plus className="w-3.5 h-3.5" />
-              <span>加入社区</span>
-            </>
-          )}
+          <Compass className="w-3.5 h-3.5 text-blue-600" />
+          <span>协作空间 ({joinedZones.length})</span>
         </button>
       )}
     </header>

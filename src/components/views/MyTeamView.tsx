@@ -1552,7 +1552,7 @@ export function MyTeamView({
                         const assignedProjects = workspaces.filter((w) =>
                           (w.hiredExpertIds || []).includes(expert.id),
                         );
-                        const sourceZoneName = getZoneName(membership.sourceZoneId) || '开放空间';
+                        const sourceZoneName = getZoneName(membership.sourceZoneId) || '中文 AI 社区';
                         const isMenuOpen = openActionMenuId === `exp_${expert.id}`;
                         const openUpwards =
                           displayedTeamExperts.length >= 3 &&

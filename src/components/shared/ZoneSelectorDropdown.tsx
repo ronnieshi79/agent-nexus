@@ -11,6 +11,8 @@ interface ZoneSelectorDropdownProps {
   /** Optional membership controls (used in Community Discover) */
   joinedZoneIds?: string[];
   onToggleJoinZone?: (zoneId: string) => void;
+  /** Optional quick link to Workspace -> Collaboration Spaces */
+  onManageSpaces?: () => void;
   /** Visual density variant: 'header' sits cleanly inside TopHeader breadcrumb */
   variant?: 'default' | 'header';
 }
@@ -22,6 +24,7 @@ export function ZoneSelectorDropdown({
   getZoneStat,
   joinedZoneIds,
   onToggleJoinZone,
+  onManageSpaces,
   variant = 'default',
 }: ZoneSelectorDropdownProps) {
   const [open, setOpen] = useState(false);
@@ -187,7 +190,7 @@ export function ZoneSelectorDropdown({
           {publicZones.length > 0 && (
             <div className="space-y-0.5">
               <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                公共开放空间
+                已加入 · 平台开放空间
               </div>
               {publicZones.map(renderZoneItem)}
             </div>
@@ -196,9 +199,25 @@ export function ZoneSelectorDropdown({
           {privateZones.length > 0 && (
             <div className="pt-1 border-t border-slate-100 space-y-0.5">
               <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                私有 / 企业专属社区 ({privateZones.length})
+                已加入 · 开放社区与企业空间 ({privateZones.length})
               </div>
               {privateZones.map(renderZoneItem)}
+            </div>
+          )}
+
+          {onManageSpaces && (
+            <div className="pt-1 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onManageSpaces();
+                }}
+                className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
+              >
+                <span>管理 / 发现更多协作空间</span>
+                <span aria-hidden="true">→</span>
+              </button>
             </div>
           )}
         </div>

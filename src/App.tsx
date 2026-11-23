@@ -69,6 +69,7 @@ export default function App() {
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
           onSelectZone={store.setActiveZoneId}
           onToggleJoinZone={store.toggleJoinZone}
+          onManageCollabSpaces={() => store.openWorkspaceTab('collab_my')}
         />
 
         {store.aiError && (
@@ -138,6 +139,11 @@ export default function App() {
           {store.activeView === 'kanban' && (
             <WorkflowKanbanView
               zones={store.zones}
+              joinedZoneIds={store.joinedZoneIds}
+              activeZoneId={store.activeZone.id}
+              spaceSharedNodes={store.spaceSharedNodes}
+              communityPosts={store.communityPosts}
+              zoneProjects={store.zoneProjects}
               workspaces={store.workspaces}
               computeNodes={store.computeNodes}
               storageVolumes={store.storageVolumes}
@@ -162,6 +168,7 @@ export default function App() {
               onJumpToMarket={() => store.setActiveView('market')}
               onJumpToZoneMarket={store.openMarketForZone}
               onJumpToDiscover={() => store.openCommunityDiscover()}
+              onJumpToZoneDiscover={store.openCommunityDiscover}
               onJumpToTeam={() => store.setActiveView('team')}
               onReleaseAgent={store.releaseAgent}
               onLeaseAgent={store.leaseAgent}
@@ -181,12 +188,25 @@ export default function App() {
               onUpdateProjectLifecycle={store.updateProjectLifecycle}
               onUpdateProjectStageSlot={store.updateProjectStageSlot}
               onSyncPipelineAgentsToProject={store.syncPipelineAgentsToProject}
+              onToggleJoinZone={store.toggleJoinZone}
+              onCreateCollabZone={store.createCollabZone}
+              onDeleteCollabZone={store.deleteCollabZone}
+              onInviteSpaceMember={store.inviteSpaceMember}
+              onUpdateSpaceMemberRole={store.updateSpaceMemberRole}
+              onKickSpaceMember={store.kickSpaceMember}
+              onAddSpaceSharedNode={store.addSpaceSharedNode}
+              onToggleSpaceSharedNodeStatus={store.toggleSpaceSharedNodeStatus}
+              onUpdateSpaceSharedNode={store.updateSpaceSharedNode}
+              onRemoveSpaceSharedNode={store.removeSpaceSharedNode}
+              onToggleSpaceAgentOnline={store.toggleSpaceAgentOnline}
+              onPublishAgentToSpace={store.publishAgentToSpace}
+              onRemoveAgentFromSpace={store.removeAgentFromSpace}
             />
           )}
 
           {store.activeView === 'team' && (
             <MyTeamView
-              zones={store.zones}
+              zones={store.joinedZones}
               activeZone={store.activeZone}
               workspace={store.activeWorkspace}
               workspaces={store.workspaces}
@@ -220,7 +240,7 @@ export default function App() {
 
           {store.activeView === 'market' && (
             <AgentMarketView
-              zones={store.zones}
+              zones={store.joinedZones}
               activeZone={store.activeZone}
               workspace={store.activeWorkspace}
               workspaces={store.workspaces}
@@ -254,7 +274,7 @@ export default function App() {
 
           {store.activeView === 'discover' && (
             <CommunityDiscoverView
-              zones={store.zones}
+              zones={store.joinedZones}
               activeZone={store.activeZone}
               joinedZoneIds={store.joinedZoneIds}
               zoneProjects={store.zoneProjects}

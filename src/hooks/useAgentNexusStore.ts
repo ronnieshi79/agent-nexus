@@ -11,6 +11,7 @@ import {
   INITIAL_NEGOTIATIONS,
   INITIAL_PROJECT_PIPELINES,
   INITIAL_SETTLEMENTS,
+  INITIAL_SPACE_SHARED_NODES,
   INITIAL_STORAGE_VOLUMES,
   INITIAL_TASKS,
   INITIAL_TASK_SESSIONS,
@@ -41,6 +42,7 @@ import type {
   CliToolType,
   CommunityPost,
   CommunityPostType,
+  CommunityZone,
   ComputeNode,
   DirectMessage,
   ExpertAgent,
@@ -58,6 +60,9 @@ import type {
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
+  SpaceMember,
+  SpaceMemberRole,
+  SpaceSharedNode,
   StorageBillingMode,
   StorageVolume,
   TaskSessionMessage,
@@ -89,14 +94,19 @@ export interface CreateWorkCardInput {
 }
 
 export function useAgentNexusStore() {
-  const [zones] = useState(INITIAL_ZONES);
+  const [zones, setZones] = useState<CommunityZone[]>(INITIAL_ZONES);
   const [humanExperts] = useState(INITIAL_HUMAN_EXPERTS);
   const [activeZoneId, setActiveZoneId] = useState<string>('zone_public');
   const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>([
+    'zone_public',
+    'zone_my_company',
     'zone_hz_dnx',
     'zone_zj_opc',
     'zone_ai_robotics',
   ]);
+  const [spaceSharedNodes, setSpaceSharedNodes] = useState<SpaceSharedNode[]>(
+    INITIAL_SPACE_SHARED_NODES,
+  );
 
   const [activeView, setActiveView] = useState<NavViewId>('chat');
   const [workspaces, setWorkspaces] = useState<ProjectWorkspace[]>(INITIAL_WORKSPACES);
@@ -183,9 +193,14 @@ export function useAgentNexusStore() {
     setAccount(null);
   }, []);
 
+  const joinedZones = useMemo(
+    () => zones.filter((z) => z.isPlatformDefault || joinedZoneIds.includes(z.id)),
+    [joinedZoneIds, zones],
+  );
+
   const activeZone = useMemo(
-    () => zones.find((z) => z.id === activeZoneId) || zones[0],
-    [zones, activeZoneId],
+    () => joinedZones.find((z) => z.id === activeZoneId) || joinedZones[0] || zones[0],
+    [joinedZones, zones, activeZoneId],
   );
 
   const activeWorkspace = useMemo(
@@ -200,11 +215,13 @@ export function useAgentNexusStore() {
     [agents, hiredIds],
   );
 
-  // Zone-scoped Expert Market: controlled inside Expert Market view
-  const marketplaceAgents = useMemo(
-    () => agents.filter((a) => a.listedZoneIds.includes(activeZone.id)),
-    [agents, activeZone.id],
-  );
+  // Zone-scoped Expert Market: controlled inside Expert Market view (excludes space-suspended Agents)
+  const marketplaceAgents = useMemo(() => {
+    const suspended = new Set(activeZone.suspendedAgentIds || []);
+    return agents.filter(
+      (a) => a.listedZoneIds.includes(activeZone.id) && !suspended.has(a.id),
+    );
+  }, [agents, activeZone.id, activeZone.suspendedAgentIds]);
 
   const totalMarketExpertsCount = useMemo(
     () => agents.filter((a) => a.isListedInMarket).length,
@@ -286,11 +303,472 @@ export function useAgentNexusStore() {
     setActiveView('market');
   }, []);
 
-  const toggleJoinZone = useCallback((zoneId: string) => {
-    setJoinedZoneIds((prev) =>
-      prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId],
+  const toggleJoinZone = useCallback(
+    (zoneId: string) => {
+      const target = zones.find((z) => z.id === zoneId);
+      if (!target) return;
+      if (target.isPlatformDefault) return;
+
+      const currentlyJoined = joinedZoneIds.includes(zoneId);
+      setJoinedZoneIds((prev) =>
+        currentlyJoined ? prev.filter((id) => id !== zoneId) : [...prev, zoneId],
+      );
+      setZones((prev) =>
+        prev.map((z) =>
+          z.id === zoneId
+            ? { ...z, memberCount: Math.max(1, z.memberCount + (currentlyJoined ? -1 : 1)) }
+            : z,
+        ),
+      );
+      if (currentlyJoined && activeZoneId === zoneId) {
+        setActiveZoneId('zone_public');
+      }
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zone_${Date.now()}`,
+          category: 'general',
+          title: currentlyJoined ? `已退出协作空间：${target.name}` : `已加入协作空间：${target.name}`,
+          detail: currentlyJoined
+            ? '已从服务市场与交流社区的可切换空间列表中移除，可随时在「工作空间 → 协作空间」重新加入。'
+            : `空间类型：${target.typeLabel}；已同步开放至「服务市场」与「交流社区」空间切换器。`,
+          severity: currentlyJoined ? 'info' : 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [activeZoneId, joinedZoneIds, zones],
+  );
+
+  const createCollabZone = useCallback(
+    (input: {
+      name: string;
+      shortCode: string;
+      kind: 'community' | 'enterprise';
+      regionCulture: string;
+      tagline: string;
+      focusDomains: string[];
+      accentColor: string;
+      inviteCode?: string;
+    }) => {
+      const newId = `zone_custom_${Date.now().toString().slice(-5)}`;
+      const isEnterprise = input.kind === 'enterprise';
+      const ownerName = account?.name || '林致远（我）';
+      const newZone: CommunityZone = {
+        id: newId,
+        name: input.name.trim(),
+        shortCode: input.shortCode.trim().slice(0, 2) || input.name.trim().slice(0, 1),
+        kind: input.kind,
+        typeLabel: isEnterprise ? '企业封闭空间' : '开放社区',
+        regionCulture: input.regionCulture.trim(),
+        tagline: input.tagline.trim(),
+        focusDomains: input.focusDomains,
+        accentColor: input.accentColor,
+        memberCount: 1,
+        principalName: ownerName,
+        isCurrentUserPrincipal: true,
+        createdByMe: true,
+        inviteCode: isEnterprise ? input.inviteCode?.trim() || 'SPACE-2026' : undefined,
+        members: [
+          {
+            id: `mem_owner_${newId}`,
+            humanExpertId: 'human_me',
+            name: ownerName,
+            title: isEnterprise ? '空间创建者 · 负责人' : '社区发起人 · 主理人',
+            role: 'owner',
+            avatarInitials: account?.avatarInitials || '致远',
+            avatarAccent: input.accentColor,
+            joinedAt: nowTimeStr(),
+          },
+        ],
+        suspendedAgentIds: [],
+      };
+      setZones((prev) => [newZone, ...prev]);
+      setJoinedZoneIds((prev) => (prev.includes(newId) ? prev : [...prev, newId]));
+      setCommunityPosts((prev) => [
+        {
+          id: `post_init_${newId}`,
+          zoneId: newId,
+          type: 'announcement',
+          pinned: true,
+          pinnedBy: newZone.principalName,
+          authorName: newZone.principalName,
+          authorHandle: '@zhiyuan_opc',
+          authorRole: `${newZone.name} · 空间创建者`,
+          authorAccent: newZone.accentColor,
+          authorCode: newZone.shortCode,
+          title: `【空间公告】欢迎进入「${newZone.name}」${newZone.typeLabel}`,
+          content: `${newZone.tagline}${
+            newZone.inviteCode ? `（企业空间邀请码：${newZone.inviteCode}）` : ''
+          }`,
+          tags: newZone.focusDomains.slice(0, 3),
+          createdAt: nowTimeStr(),
+          likes: 1,
+          comments: [],
+        },
+        ...prev,
+      ]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zone_new_${Date.now()}`,
+          category: 'general',
+          title: `已创建协作空间：${newZone.name}`,
+          detail: `${newZone.typeLabel} · ${newZone.regionCulture || '自定义空间'}；已自动加入并同步至服务市场与交流社区。`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return newId;
+    },
+    [account?.name],
+  );
+
+  const deleteCollabZone = useCallback(
+    (zoneId: string) => {
+      const target = zones.find((z) => z.id === zoneId);
+      if (!target || target.isPlatformDefault || !target.createdByMe) return;
+      setZones((prev) => prev.filter((z) => z.id !== zoneId));
+      setJoinedZoneIds((prev) => prev.filter((id) => id !== zoneId));
+      setSpaceSharedNodes((prev) => prev.filter((n) => n.zoneId !== zoneId));
+      if (activeZoneId === zoneId) {
+        setActiveZoneId('zone_public');
+      }
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zone_del_${Date.now()}`,
+          category: 'general',
+          title: `已解散协作空间：${target.name}`,
+          detail: '该自建协作空间及其共享节点已从您的空间列表及市场/社区切换器中移除。',
+          severity: 'warning',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [activeZoneId, zones],
+  );
+
+  // ---------------- Self-Created Collaboration Space Governance ----------------
+
+  const inviteSpaceMember = useCallback(
+    (
+      zoneId: string,
+      input: {
+        humanExpertId?: string;
+        name: string;
+        title: string;
+        role: SpaceMemberRole;
+        avatarInitials?: string;
+        avatarAccent?: string;
+      },
+    ) => {
+      const target = zones.find((z) => z.id === zoneId);
+      if (!target) return;
+      const cleanName = input.name.trim();
+      if (!cleanName) return;
+      const newMember: SpaceMember = {
+        id: `mem_${Date.now().toString().slice(-5)}`,
+        humanExpertId: input.humanExpertId,
+        name: cleanName,
+        title: input.title.trim() || '协作空间成员',
+        role: input.role,
+        avatarInitials: input.avatarInitials || cleanName.slice(0, 2).toUpperCase(),
+        avatarAccent: input.avatarAccent || '#1d4ed8',
+        joinedAt: nowTimeStr(),
+      };
+      setZones((prev) =>
+        prev.map((z) => {
+          if (z.id !== zoneId) return z;
+          const existing = z.members || [];
+          if (
+            input.humanExpertId &&
+            existing.some((m) => m.humanExpertId === input.humanExpertId)
+          ) {
+            return z;
+          }
+          return {
+            ...z,
+            members: [...existing, newMember],
+            memberCount: Math.max(existing.length + 1, z.memberCount + 1),
+          };
+        }),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_mem_add_${Date.now()}`,
+          category: 'general',
+          title: `空间成员加入：${cleanName} → ${target.name}`,
+          detail: `角色：${input.role === 'admin' ? '空间管理员' : '普通成员'} · ${newMember.title}`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [zones],
+  );
+
+  const updateSpaceMemberRole = useCallback(
+    (zoneId: string, memberId: string, role: SpaceMemberRole) => {
+      setZones((prev) =>
+        prev.map((z) => {
+          if (z.id !== zoneId) return z;
+          return {
+            ...z,
+            members: (z.members || []).map((m) =>
+              m.id === memberId && m.role !== 'owner' ? { ...m, role } : m,
+            ),
+          };
+        }),
+      );
+    },
+    [],
+  );
+
+  const kickSpaceMember = useCallback(
+    (zoneId: string, memberId: string) => {
+      const target = zones.find((z) => z.id === zoneId);
+      const member = target?.members?.find((m) => m.id === memberId);
+      if (!target || !member || member.role === 'owner') return;
+      setZones((prev) =>
+        prev.map((z) => {
+          if (z.id !== zoneId) return z;
+          const nextMembers = (z.members || []).filter((m) => m.id !== memberId);
+          return {
+            ...z,
+            members: nextMembers,
+            memberCount: Math.max(nextMembers.length, z.memberCount - 1),
+          };
+        }),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_mem_kick_${Date.now()}`,
+          category: 'general',
+          title: `已将 ${member.name} 移出「${target.name}」`,
+          detail: '该成员已失去该协作空间的共享节点与内部服务市场访问权限。',
+          severity: 'warning',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [zones],
+  );
+
+  const addSpaceSharedNode = useCallback(
+    (
+      zoneId: string,
+      input: {
+        name: string;
+        os: NodeOsType;
+        osVersion: string;
+        origin: 'private' | 'cloud';
+        region: string;
+        cpuCores: number;
+        memoryGb: number;
+        gpuSpec?: string;
+        supportedClis: string[];
+        sharedSandboxQuota: number;
+        accessPolicy: 'all_members' | 'admins_only';
+        monthlyCostUsd: number;
+      },
+    ) => {
+      const target = zones.find((z) => z.id === zoneId);
+      if (!target) return;
+      const newNode: SpaceSharedNode = {
+        id: `snode_${Date.now().toString().slice(-5)}`,
+        zoneId,
+        name: input.name.trim() || `${target.shortCode} 共享节点`,
+        os: input.os,
+        osVersion: input.osVersion,
+        origin: input.origin,
+        region: input.region,
+        cpuCores: Math.max(2, Math.round(input.cpuCores)),
+        memoryGb: Math.max(4, Math.round(input.memoryGb)),
+        gpuSpec: input.gpuSpec,
+        status: 'online',
+        supportedClis: input.supportedClis.length > 0 ? input.supportedClis : ['Claude Code'],
+        sharedSandboxQuota: Math.max(1, Math.round(input.sharedSandboxQuota)),
+        usedSandboxes: 0,
+        accessPolicy: input.accessPolicy,
+        monthlyCostUsd: Math.max(0, Math.round(input.monthlyCostUsd)),
+        addedAt: nowTimeStr(),
+      };
+      setSpaceSharedNodes((prev) => [newNode, ...prev]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_snode_add_${Date.now()}`,
+          category: 'general',
+          title: `已为「${target.name}」接入共享 Agent 节点：${newNode.name}`,
+          detail: `${newNode.osVersion} · ${newNode.cpuCores}C/${newNode.memoryGb}G · 共享 ${newNode.sharedSandboxQuota} 并发沙箱。`,
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [zones],
+  );
+
+  const toggleSpaceSharedNodeStatus = useCallback((nodeId: string) => {
+    setSpaceSharedNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? { ...n, status: n.status === 'online' ? 'standby' : 'online' }
+          : n,
+      ),
     );
   }, []);
+
+  const updateSpaceSharedNode = useCallback(
+    (
+      nodeId: string,
+      patch: Partial<Pick<SpaceSharedNode, 'sharedSandboxQuota' | 'accessPolicy'>>,
+    ) => {
+      setSpaceSharedNodes((prev) =>
+        prev.map((n) => (n.id === nodeId ? { ...n, ...patch } : n)),
+      );
+    },
+    [],
+  );
+
+  const removeSpaceSharedNode = useCallback(
+    (nodeId: string) => {
+      const node = spaceSharedNodes.find((n) => n.id === nodeId);
+      setSpaceSharedNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      if (node) {
+        setAuditLogs((prev) => [
+          {
+            id: `aud_snode_del_${Date.now()}`,
+            category: 'general',
+            title: `已移除空间共享节点：${node.name}`,
+            detail: node.origin === 'cloud' ? '云端共享节点已退租释放。' : '自有共享节点已解除空间绑定。',
+            severity: 'info',
+            timestamp: nowTimeStr(),
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [spaceSharedNodes],
+  );
+
+  const toggleSpaceAgentOnline = useCallback(
+    (zoneId: string, agentId: string) => {
+      const targetZone = zones.find((z) => z.id === zoneId);
+      const targetAgent = agents.find((a) => a.id === agentId);
+      if (!targetZone || !targetAgent) return;
+      const currentlySuspended = (targetZone.suspendedAgentIds || []).includes(agentId);
+      setZones((prev) =>
+        prev.map((z) => {
+          if (z.id !== zoneId) return z;
+          const cur = z.suspendedAgentIds || [];
+          return {
+            ...z,
+            suspendedAgentIds: currentlySuspended
+              ? cur.filter((id) => id !== agentId)
+              : [...cur, agentId],
+          };
+        }),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zagent_toggle_${Date.now()}`,
+          category: 'general',
+          title: currentlySuspended
+            ? `已恢复上线：${targetAgent.handle}（${targetZone.name}）`
+            : `已下线停服：${targetAgent.handle}（${targetZone.name}）`,
+          detail: currentlySuspended
+            ? '该专业 Agent 已重新展示在该协作空间的服务市场并恢复接单。'
+            : '该专业 Agent 已从该协作空间服务市场暂时下线，不影响其他空间或历史项目。',
+          severity: currentlySuspended ? 'success' : 'warning',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [agents, zones],
+  );
+
+  const publishAgentToSpace = useCallback(
+    (zoneId: string, agentId: string) => {
+      const targetZone = zones.find((z) => z.id === zoneId);
+      const targetAgent = agents.find((a) => a.id === agentId);
+      if (!targetZone || !targetAgent) return;
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId
+            ? {
+                ...a,
+                isListedInMarket: true,
+                listedZoneIds: Array.from(new Set([...a.listedZoneIds, zoneId])),
+              }
+            : a,
+        ),
+      );
+      setZones((prev) =>
+        prev.map((z) =>
+          z.id === zoneId
+            ? {
+                ...z,
+                suspendedAgentIds: (z.suspendedAgentIds || []).filter((id) => id !== agentId),
+              }
+            : z,
+        ),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zagent_pub_${Date.now()}`,
+          category: 'general',
+          title: `已发布专业 Agent 至「${targetZone.name}」：${targetAgent.handle}`,
+          detail: '已在空间服务市场上线，空间成员可直接咨询与雇佣。',
+          severity: 'success',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [agents, zones],
+  );
+
+  const removeAgentFromSpace = useCallback(
+    (zoneId: string, agentId: string) => {
+      const targetZone = zones.find((z) => z.id === zoneId);
+      const targetAgent = agents.find((a) => a.id === agentId);
+      if (!targetZone || !targetAgent) return;
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.id === agentId
+            ? { ...a, listedZoneIds: a.listedZoneIds.filter((id) => id !== zoneId) }
+            : a,
+        ),
+      );
+      setZones((prev) =>
+        prev.map((z) =>
+          z.id === zoneId
+            ? {
+                ...z,
+                suspendedAgentIds: (z.suspendedAgentIds || []).filter((id) => id !== agentId),
+              }
+            : z,
+        ),
+      );
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zagent_rm_${Date.now()}`,
+          category: 'general',
+          title: `已从「${targetZone.name}」移除专业 Agent：${targetAgent.handle}`,
+          detail: '该 Agent 已取消在该协作空间的服务市场发布。',
+          severity: 'info',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+    },
+    [agents, zones],
+  );
 
   const createSession = useCallback(
     (
@@ -2043,7 +2521,7 @@ export function useAgentNexusStore() {
 
       const sourceZoneName =
         zones.find((z) => z.id === (input.sourceZoneId || expert.zoneIds[0] || activeZone.id))
-          ?.name || '开放空间';
+          ?.name || '中文 AI 社区';
 
       setAuditLogs((prev) => [
         {
@@ -2829,11 +3307,25 @@ export function useAgentNexusStore() {
 
   return {
     zones,
+    joinedZones,
     activeZoneId,
     activeZone,
     setActiveZoneId,
     joinedZoneIds,
+    spaceSharedNodes,
     toggleJoinZone,
+    createCollabZone,
+    deleteCollabZone,
+    inviteSpaceMember,
+    updateSpaceMemberRole,
+    kickSpaceMember,
+    addSpaceSharedNode,
+    toggleSpaceSharedNodeStatus,
+    updateSpaceSharedNode,
+    removeSpaceSharedNode,
+    toggleSpaceAgentOnline,
+    publishAgentToSpace,
+    removeAgentFromSpace,
     activeView,
     setActiveView,
     activeChatChannel,

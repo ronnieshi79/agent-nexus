@@ -70,6 +70,39 @@ export interface HumanExpert {
   isCurrentUser?: boolean;
 }
 
+export type SpaceMemberRole = 'owner' | 'admin' | 'member';
+
+export interface SpaceMember {
+  id: string;
+  humanExpertId?: string;
+  name: string;
+  title: string;
+  role: SpaceMemberRole;
+  avatarInitials: string;
+  avatarAccent: string;
+  joinedAt: string;
+}
+
+export interface SpaceSharedNode {
+  id: string;
+  zoneId: string;
+  name: string;
+  os: NodeOsType;
+  osVersion: string;
+  origin: ComputeNodeOrigin;
+  region: string;
+  cpuCores: number;
+  memoryGb: number;
+  gpuSpec?: string;
+  status: ComputeNodeStatus;
+  supportedClis: string[];
+  sharedSandboxQuota: number;
+  usedSandboxes: number;
+  accessPolicy: 'all_members' | 'admins_only';
+  monthlyCostUsd: number;
+  addedAt: string;
+}
+
 export interface CommunityZone {
   id: string;
   name: string;
@@ -82,6 +115,18 @@ export interface CommunityZone {
   memberCount: number;
   principalName: string;
   isCurrentUserPrincipal?: boolean;
+  /** Cultural / regional or organizational identity label (e.g., 中文 · 华语圈, 新加坡 / 东南亚 · English) */
+  regionCulture?: string;
+  /** Platform-provided default open space every user enters by default */
+  isPlatformDefault?: boolean;
+  /** True when created by the current user in Collaboration Spaces */
+  createdByMe?: boolean;
+  /** Optional invite code for enterprise closed spaces */
+  inviteCode?: string;
+  /** Member roster for collaboration space governance */
+  members?: SpaceMember[];
+  /** Agent IDs temporarily taken offline (suspended) in this collaboration space */
+  suspendedAgentIds?: string[];
 }
 
 export type CapabilityTier = 'S 级稀缺' | 'A+ 资深' | 'A 级专业';
@@ -382,6 +427,9 @@ export type WorkspaceTabId =
   | 'space_nodes'
   | 'space_storage'
   | 'space_agents'
+  | 'collab_my'
+  | 'collab_manage'
+  | 'collab_discover'
   | 'overview'
   | 'my_projects'
   | 'kanban'
