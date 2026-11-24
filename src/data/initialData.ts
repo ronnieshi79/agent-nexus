@@ -6,6 +6,7 @@ import type {
   CommunityZone,
   ComputeNode,
   ExpertAgent,
+  HumanDirectThread,
   HumanExpert,
   MarketSkill,
   NegotiationThread,
@@ -478,7 +479,7 @@ export const INITIAL_WORKSPACES: ProjectWorkspace[] = [
     workspaceTier: '加密持久化工作区 (50GB)',
     budgetCapUsd: 6000,
     spentUsd: 2700,
-    hiredAgentIds: ['agent_pm_lin', 'agent_review_my', 'agent_media_muse'],
+    hiredAgentIds: ['agent_pm_lin', 'agent_dev_us', 'agent_review_my', 'agent_media_muse'],
     hiredExpertIds: ['human_kexin', 'human_shen'],
   },
   {
@@ -929,6 +930,24 @@ export const INITIAL_COMMUNITY_POSTS: CommunityPost[] = [
     createdAt: '3 小时前',
     likes: 22,
     linkedAgentId: 'agent_arch_sg',
+    comments: [],
+  },
+  {
+    id: 'post_pub_skill_1',
+    zoneId: 'zone_public',
+    type: 'skill_share',
+    authorName: '周潮',
+    authorHandle: '@zhouchao_mcp',
+    authorRole: '云端 MCP 与机器人 Skills 架构专家',
+    authorAccent: '#0d9488',
+    authorCode: '周潮',
+    title: '【发布 Skill】助理机器人云端 MCP 协议底座 v2.3 已开源同步至服务市场',
+    content:
+      '把我们近期在多个端云语音硬件里打磨成熟的云端 MCP 底座整理开源了：内置设备鉴权、全双工流式打断、智能家居与飞书日历 8 个标准工具，已同步上架「服务市场 → Skills / MCP」，支持免费安装与直接挂载到自建 Agent！',
+    tags: ['发布 Skill', 'MCP 协议', '开源工具'],
+    createdAt: '1 小时前',
+    likes: 34,
+    linkedSkillId: 'skill_robot_cloud_mcp',
     comments: [],
   },
   {
@@ -1555,6 +1574,33 @@ export const INITIAL_COMMUNITY_POSTS: CommunityPost[] = [
     likes: 33,
     linkedProjectId: 'zproj_aib_02',
     comments: [],
+  },
+  {
+    id: 'post_aib_skill_1',
+    zoneId: 'zone_aibuilder',
+    type: 'skill_share',
+    authorName: '唐星河',
+    authorHandle: '@xinghe_dev',
+    authorRole: '超级全栈 AI 创客',
+    authorAccent: '#0891b2',
+    authorCode: '星河',
+    title: '【发布 Skill】AIBuilder 72h 全栈 MVP 启动套件 v3.1 免费开源，已同步至社区服务市场',
+    content:
+      '把最近 12 款独立产品反复复用的全栈骨架打包成了标准 Workflow Skill：涵盖 React + Supabase Auth + Stripe 订阅幂等 + LLM Tool-Calling 路由与一键部署检查。已同步至本社区「服务市场 → Skills / MCP」，参加 72h 共创营的伙伴直接复制命令安装即可！',
+    tags: ['发布 Skill', '全栈 MVP', '开源工作流'],
+    createdAt: '32 分钟前',
+    likes: 58,
+    linkedSkillId: 'skill_aib_mvp_kit',
+    comments: [
+      {
+        id: 'cmt_aib_sk_1',
+        authorName: '许知夏',
+        authorHandle: '@zhixia_ui',
+        authorRole: 'AI 原生交互设计师',
+        content: '刚装好测了一遍，配合 Agentic UI Token Skill 简直起飞，15 分钟就跑通了完整原型壳子！',
+        timestamp: '16 分钟前',
+      },
+    ],
   },
 ];
 
@@ -3143,6 +3189,40 @@ export const INITIAL_TASKS: WorkflowTask[] = [
     sourceMessageId: 'msg_s2_1',
   },
   {
+    id: 'tsk_202',
+    sessionId: 'ses_saas_billing',
+    featureModule: 'B功能 · 阶梯计费与 RBAC',
+    workType: 'development',
+    title: '实现阶梯用量计费引擎与套餐平滑升降级补差价',
+    description: '支持按座位数与调用量阶梯计费，按日折算补差价并生成不可变账单快照。',
+    assigneeId: 'agent_dev_us',
+    assigneeHandle: '@全栈开发员',
+    status: 'in_progress',
+    priority: '高',
+    deliverableSummary: '已完成用量阶梯计费引擎核心算法，正在补齐月度/季度切档 proration 边界用例。',
+    deliverableArtifact: 'src/billing/tiered_proration.ts',
+    createdAt: '11:18',
+    updatedAt: '11:36',
+    sourceMessageId: 'msg_s2_1',
+  },
+  {
+    id: 'tsk_203',
+    sessionId: 'ses_saas_billing',
+    featureModule: 'B功能 · 阶梯计费与 RBAC',
+    workType: 'planning',
+    title: '输出多租户 RBAC 角色矩阵与席位超限引导方案',
+    description: '定义 Owner/Admin/Member/Billing 四类角色权限表及席位超限时的平滑降级体验。',
+    assigneeId: 'agent_pm_lin',
+    assigneeHandle: '@产品策划师',
+    status: 'review',
+    priority: '中',
+    deliverableSummary: '已完成 4 角色 × 18 项权限矩阵表及席位超限宽限期提示文案，待确认冻结。',
+    deliverableArtifact: 'docs/rbac_matrix_v2.md',
+    createdAt: '11:12',
+    updatedAt: '11:28',
+    sourceMessageId: 'msg_s2_1',
+  },
+  {
     id: 'tsk_301',
     sessionId: 'ses_zj_clinic_audit',
     featureModule: 'C功能 · 临床字段脱敏与审计',
@@ -3223,7 +3303,7 @@ export const INITIAL_MESSAGES: ChatMessage[] = [
     content:
       '「SaaS 订阅计费与权限重构」项目群已就绪，在群专家为 @产品策划师 与 @代码评审员，首项多租户 RBAC 越权审计任务已挂出等待批准。',
     timestamp: '11:10',
-    linkedTaskIds: ['tsk_201'],
+    linkedTaskIds: ['tsk_201', 'tsk_202', 'tsk_203'],
   },
   {
     id: 'msg_s3_1',
@@ -3787,7 +3867,97 @@ export const INITIAL_TASK_SESSIONS: Record<string, TaskSessionMessage[]> = {
       awaitingConfirmation: true,
     },
   ],
+  tsk_202: [
+    {
+      id: 'tsm_202_1',
+      taskId: 'tsk_202',
+      sender: 'employer',
+      content: '先把阶梯用量计费和月中升档补差价（proration）的核心计算模块实现出来，保证跨时区 UTC 零误差。',
+      timestamp: '11:20',
+    },
+    {
+      id: 'tsm_202_2',
+      taskId: 'tsk_202',
+      sender: 'agent',
+      content:
+        '已在「SaaS 订阅计费与权限重构」工作区完成按秒折算的 proration 计费核心，全部金额改用 BigInt 分（cents）避免浮点误差。目前遇到一个产品口径需要确认：当租户在周期内降档产生负差额时，是自动折算成下一周期 Credit 抵扣，还是走原路退款？',
+      timestamp: '11:36',
+      executionSteps: [
+        '读取 packages/billing/schema.ts 现有订阅周期定义',
+        '实现 calculateTieredProration() 整数分精度引擎',
+        '跑通 9 组升档/跨月/闰年边界单测',
+      ],
+      artifactPath: 'src/billing/tiered_proration.ts',
+      artifactSnippet: `export function calculateProrationCents(prevCents: bigint, nextCents: bigint, ratioBps: bigint): bigint {
+  const delta = nextCents - prevCents;
+  return (delta * ratioBps) / 10_000n;
+}`,
+      suggestedActions: [
+        '降档负差额自动沉淀为下周期 Account Credit 抵扣',
+        '允许租户选择原路退款或 Credit 抵扣',
+      ],
+      awaitingConfirmation: true,
+    },
+  ],
+  tsk_203: [
+    {
+      id: 'tsm_203_1',
+      taskId: 'tsk_203',
+      sender: 'agent',
+      content:
+        '已完成多租户 RBAC 权限矩阵与席位超限引导 PRD（docs/rbac_matrix_v2.md），覆盖 Owner/Admin/Member/Billing 四类角色。关键决策点：建议超限时给 7 天只读宽限期而非立刻锁死登录，请确认后即可归档并移交 @代码评审员 同步审计。',
+      timestamp: '11:28',
+      executionSteps: [
+        '梳理 18 项租户级权限与账单操作隔离边界',
+        '起草 7 天宽限期 Banner 与席位扩容转化路径',
+      ],
+      artifactPath: 'docs/rbac_matrix_v2.md',
+      suggestedActions: [
+        '同意 7 天宽限期策略，直接定稿并同步项目群',
+        '宽限期缩减为 3 天，并增加邮件提醒规则',
+      ],
+      awaitingConfirmation: true,
+      milestoneSynced: true,
+    },
+  ],
 };
+
+export const INITIAL_HUMAN_DMS: HumanDirectThread[] = [
+  {
+    expertId: 'human_kexin',
+    updatedAt: '10:52',
+    messages: [
+      {
+        id: 'hdm_1',
+        sender: 'human',
+        content:
+          '致远，我这边刚复核完 @产品策划师 在「跨境电商智能结算引擎」产出的多币种 PRD，整体状态机边界很扎实。SaaS 计费那边的 RBAC 权限矩阵我也让它同步起草好了，你可以直接点进任务卡确认宽限期口径。',
+        timestamp: '10:48',
+        linkedTaskId: 'tsk_203',
+      },
+      {
+        id: 'hdm_2',
+        sender: 'employer',
+        content: '收到可心！我一会儿直接切到 @产品策划师 的任务 Session 把宽限期口径定下来，顺便把多币种的压测指标同步一下。',
+        timestamp: '10:52',
+      },
+    ],
+  },
+  {
+    expertId: 'human_chen',
+    updatedAt: '10:35',
+    messages: [
+      {
+        id: 'hdm_3',
+        sender: 'human',
+        content:
+          '看群里 @全栈开发员 已经把幂等回调网关和 15s Watchdog 分布式锁提审了。如果这周要上 500 TPS 压测，我可以先安排我的 @架构审查员 提前介入看一眼锁粒度，避免上线前返工。',
+        timestamp: '10:35',
+        linkedTaskId: 'tsk_102',
+      },
+    ],
+  },
+];
 
 export const INITIAL_MARKET_SKILLS: MarketSkill[] = [
   {

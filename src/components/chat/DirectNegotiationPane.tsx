@@ -7,7 +7,9 @@ import type {
   NegotiationThread,
   ProjectWorkspace,
   ServiceMode,
+  WorkflowTask,
 } from '../../types/agentnexus';
+import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 import {
   AgentIdentityName,
   EntityAvatar,
@@ -21,6 +23,7 @@ interface DirectNegotiationPaneProps {
   agent: ExpertAgent;
   thread: NegotiationThread;
   workspaces: ProjectWorkspace[];
+  agentTasks?: WorkflowTask[];
   account: AgentNexusAccount | null;
   isBusy: boolean;
   error: string | null;
@@ -36,6 +39,7 @@ interface DirectNegotiationPaneProps {
     >,
   ) => void;
   onConfirmHire: (agentId: string, createFirstCard: boolean) => void;
+  onOpenTaskSession?: (taskId: string) => void;
 }
 
 const STATUS_META: Record<NegotiationStatus, { label: string; cls: string }> = {
@@ -53,6 +57,7 @@ export function DirectNegotiationPane({
   agent,
   thread,
   workspaces,
+  agentTasks = [],
   account,
   isBusy,
   error,
@@ -60,6 +65,7 @@ export function DirectNegotiationPane({
   onSendMessage,
   onUpdateTerms,
   onConfirmHire,
+  onOpenTaskSession,
 }: DirectNegotiationPaneProps) {
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
@@ -352,6 +358,41 @@ export function DirectNegotiationPane({
               />
               <span>确认雇佣后自动在项目群与「项目看板」立项该首张工作卡片</span>
             </label>
+
+            {agentTasks.length > 0 && onOpenTaskSession && (
+              <div className="pt-3 border-t border-slate-200 space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="font-bold text-slate-800">
+                    该 Agent 汇聚任务 ({agentTasks.length})
+                  </span>
+                  <span className="text-[11px] text-slate-400">跨项目</span>
+                </div>
+                <div className="space-y-1.5">
+                  {agentTasks.map((t) => {
+                    const ws = workspaces.find((w) => w.id === t.sessionId);
+                    const tSt = WORK_STATUS_META[t.status];
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => onOpenTaskSession(t.id)}
+                        className="w-full text-left bg-white hover:border-blue-300 rounded-lg border border-slate-200 p-2.5 transition-colors cursor-pointer space-y-1"
+                      >
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500 truncate">{ws?.name || '项目'}</span>
+                          <span className={`font-semibold shrink-0 ${tSt.textCls}`}>
+                            {tSt.label}
+                          </span>
+                        </div>
+                        <div className="text-xs font-semibold text-slate-900 truncate">
+                          {t.title}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
           </div>
 

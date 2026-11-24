@@ -6,6 +6,8 @@ import type {
   ChatMessage,
   CommunityZone,
   ExpertAgent,
+  HumanDirectThread,
+  HumanExpert,
   NegotiationThread,
   PlatformAuditLog,
   ProjectWorkspace,
@@ -16,6 +18,7 @@ import type {
 } from '../../types/agentnexus';
 import { GroupChatView } from '../views/GroupChatView';
 import { DirectNegotiationPane } from './DirectNegotiationPane';
+import { HumanDirectChatPane } from './HumanDirectChatPane';
 import { PlatformAssistantPane } from './PlatformAssistantPane';
 import { TaskSessionPane } from './TaskSessionPane';
 
@@ -25,6 +28,7 @@ interface UnifiedChatViewProps {
   workspaces: ProjectWorkspace[];
   activeWorkspace: ProjectWorkspace;
   agents: ExpertAgent[];
+  humanExperts: HumanExpert[];
   hiredAgents: ExpertAgent[];
   privateAgents: ExpertAgent[];
   allTasks: WorkflowTask[];
@@ -34,6 +38,7 @@ interface UnifiedChatViewProps {
   taskSessionBusyId: string | null;
   taskSessionError: string | null;
   negotiations: NegotiationThread[];
+  humanDmThreads: HumanDirectThread[];
   assistantMessages: AssistantMessage[];
   settlements: SettlementRecord[];
   spaceApplications: SpaceJoinApplication[];
@@ -50,9 +55,12 @@ interface UnifiedChatViewProps {
   onClearTaskSessionError: () => void;
   onSelectProjectChat: (projectId: string) => void;
   onOpenTaskSession: (taskId: string) => void;
+  onOpenAgentTaskSession: (agentId: string) => void;
+  onCreateAndOpenTaskSession: (input: CreateWorkCardInput) => void;
   onSendTaskSessionTurn: (taskId: string, text: string) => Promise<void>;
   onSyncTaskSummaryToGroup: (taskId: string) => void;
   onStartNegotiation: (agentId: string) => void;
+  onSendHumanDm: (expertId: string, text: string, linkedTaskId?: string) => void;
   onSendGroupMessage: (text: string) => Promise<void>;
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
@@ -83,6 +91,7 @@ export function UnifiedChatView({
   workspaces,
   activeWorkspace,
   agents,
+  humanExperts,
   hiredAgents,
   privateAgents,
   allTasks,
@@ -92,6 +101,7 @@ export function UnifiedChatView({
   taskSessionBusyId,
   taskSessionError,
   negotiations,
+  humanDmThreads,
   assistantMessages,
   settlements,
   spaceApplications,
@@ -108,9 +118,12 @@ export function UnifiedChatView({
   onClearTaskSessionError,
   onSelectProjectChat,
   onOpenTaskSession,
+  onOpenAgentTaskSession,
+  onCreateAndOpenTaskSession,
   onSendTaskSessionTurn,
   onSyncTaskSummaryToGroup,
   onStartNegotiation,
+  onSendHumanDm,
   onSendGroupMessage,
   onCreateWorkCard,
   onRunTask,
@@ -133,6 +146,22 @@ export function UnifiedChatView({
   const activeDmAgent = activeDmThread
     ? agents.find((a) => a.id === activeDmThread.agentId) || null
     : null;
+  const activeDmAgentTasks = activeDmAgent
+    ? allTasks.filter((t) => t.assigneeId === activeDmAgent.id)
+    : [];
+
+  const activeHumanExpert =
+    activeChannel.type === 'human_dm'
+      ? humanExperts.find((h) => h.id === activeChannel.expertId) || null
+      : null;
+  const activeHumanThread: HumanDirectThread | null =
+    activeChannel.type === 'human_dm' && activeHumanExpert
+      ? humanDmThreads.find((t) => t.expertId === activeHumanExpert.id) || {
+          expertId: activeHumanExpert.id,
+          updatedAt: '刚刚',
+          messages: [],
+        }
+      : null;
 
   const activeTask =
     activeChannel.type === 'task_session'
@@ -182,8 +211,10 @@ export function UnifiedChatView({
         <TaskSessionPane
           task={activeTask}
           workspace={activeTaskWorkspace}
+          workspaces={workspaces}
           agent={activeTaskAgent}
           agents={agents}
+          allTasks={allTasks}
           siblingTasks={activeTaskSiblings}
           messages={taskSessions[activeTask.id] || []}
           allTaskSessions={taskSessions}
@@ -198,6 +229,7 @@ export function UnifiedChatView({
           onSyncSummaryToGroup={onSyncTaskSummaryToGroup}
           onBackToGroup={onSelectProjectChat}
           onSelectTaskSession={onOpenTaskSession}
+          onCreateAndOpenTaskSession={onCreateAndOpenTaskSession}
         />
       )}
 
@@ -206,6 +238,7 @@ export function UnifiedChatView({
           agent={activeDmAgent}
           thread={activeDmThread}
           workspaces={workspaces}
+          agentTasks={activeDmAgentTasks}
           account={account}
           isBusy={dmBusyAgentId === activeDmAgent.id}
           error={dmError}
@@ -213,6 +246,23 @@ export function UnifiedChatView({
           onSendMessage={onSendDm}
           onUpdateTerms={onUpdateNegotiationTerms}
           onConfirmHire={onConfirmHire}
+          onOpenTaskSession={onOpenTaskSession}
+        />
+      )}
+
+      {activeChannel.type === 'human_dm' && activeHumanExpert && activeHumanThread && (
+        <HumanDirectChatPane
+          expert={activeHumanExpert}
+          thread={activeHumanThread}
+          agents={agents}
+          workspaces={workspaces}
+          allTasks={allTasks}
+          taskSessions={taskSessions}
+          account={account}
+          onSendMessage={onSendHumanDm}
+          onOpenTaskSession={onOpenTaskSession}
+          onOpenAgentTaskSession={onOpenAgentTaskSession}
+          onSelectProjectChat={onSelectProjectChat}
         />
       )}
 

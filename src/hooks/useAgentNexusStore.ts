@@ -6,7 +6,9 @@ import {
   INITIAL_COMMUNITY_POSTS,
   INITIAL_COMPUTE_NODES,
   INITIAL_EXPERT_AGENTS,
+  INITIAL_HUMAN_DMS,
   INITIAL_HUMAN_EXPERTS,
+  INITIAL_MARKET_SKILLS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
   INITIAL_PROJECT_ARTIFACTS,
@@ -49,10 +51,13 @@ import type {
   CommunityPostType,
   CommunityZone,
   ComputeNode,
+  ConversationInteractionMode,
   DirectMessage,
   ExpertAgent,
   ExpertRelationType,
+  HumanDirectThread,
   LeasePeriod,
+  MarketSkill,
   NavViewId,
   NegotiationThread,
   NodeCliConfig,
@@ -66,6 +71,7 @@ import type {
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
+  SkillKind,
   SpaceJoinApplication,
   SpaceMember,
   SpaceMemberRole,
@@ -131,11 +137,21 @@ export function useAgentNexusStore() {
   ]);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
 
-  // Unified Chat Channel: Platform Assistant | Project Group | External Expert DM
+  // Unified Chat Channel: Platform Assistant | Project Group | Human DM | Agent DM | Task Session
   const [activeChatChannel, setActiveChatChannel] = useState<ActiveChatChannel>({
     type: 'group',
     projectId: INITIAL_WORKSPACES[0].id,
   });
+  const [lastChatChannel, setLastChatChannel] = useState<ActiveChatChannel>({
+    type: 'group',
+    projectId: INITIAL_WORKSPACES[0].id,
+  });
+  const [lastTaskSessionId, setLastTaskSessionId] = useState<string>(
+    INITIAL_TASKS[1]?.id || INITIAL_TASKS[0]?.id || '',
+  );
+
+  const conversationMode: ConversationInteractionMode =
+    activeChatChannel.type === 'task_session' ? 'task' : 'chat';
 
   const [agents, setAgents] = useState<ExpertAgent[]>(INITIAL_EXPERT_AGENTS);
   const [allTasks, setAllTasks] = useState<WorkflowTask[]>(INITIAL_TASKS);
@@ -143,6 +159,7 @@ export function useAgentNexusStore() {
   const [taskSessions, setTaskSessions] =
     useState<Record<string, TaskSessionMessage[]>>(INITIAL_TASK_SESSIONS);
   const [negotiations, setNegotiations] = useState<NegotiationThread[]>(INITIAL_NEGOTIATIONS);
+  const [humanDmThreads, setHumanDmThreads] = useState<HumanDirectThread[]>(INITIAL_HUMAN_DMS);
   const [assistantMessages, setAssistantMessages] = useState<AssistantMessage[]>(
     INITIAL_ASSISTANT_MESSAGES,
   );
@@ -164,6 +181,7 @@ export function useAgentNexusStore() {
   const [projectPipelines, setProjectPipelines] =
     useState<Record<string, ProjectStageSlot[]>>(INITIAL_PROJECT_PIPELINES);
   const [artifacts, setArtifacts] = useState<ProjectArtifact[]>(INITIAL_PROJECT_ARTIFACTS);
+  const [marketSkills, setMarketSkills] = useState<MarketSkill[]>(INITIAL_MARKET_SKILLS);
   const [activeCommunityTab, setActiveCommunityTab] = useState<CommunityHubTab>('social_all');
 
   const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
@@ -1224,15 +1242,36 @@ export function useAgentNexusStore() {
       tags?: string[];
       pinned?: boolean;
       pinnedBy?: string;
+      linkedAgentId?: string;
+      linkedSkillId?: string;
     }) => {
       const cleanedContent = input.content.trim();
       const cleanedTitle = input.title.trim() || cleanedContent.slice(0, 32);
       if (!cleanedContent) return;
       const defaultTagMap: Record<Exclude<CommunityPostType, 'project'>, string> = {
         discussion: '分享讨论',
-        agn_recommend: 'AGN 推荐',
+        skill_share: '发布 Skill',
+        agn_recommend: '发布专家 Agent',
         announcement: '社区公告',
       };
+
+      // If publishing/showcasing an Agent in this community, automatically ensure it is listed in the community's Service Market
+      if (input.linkedAgentId) {
+        setAgents((prev) =>
+          prev.map((ag) => {
+            if (ag.id !== input.linkedAgentId) return ag;
+            const listedZoneIds = ag.listedZoneIds.includes(input.zoneId)
+              ? ag.listedZoneIds
+              : [...ag.listedZoneIds, input.zoneId];
+            return {
+              ...ag,
+              isListedInMarket: true,
+              listedZoneIds,
+            };
+          }),
+        );
+      }
+
       const newPost: CommunityPost = {
         id: `post_${Date.now().toString().slice(-6)}`,
         zoneId: input.zoneId,
@@ -1253,11 +1292,78 @@ export function useAgentNexusStore() {
         likedByMe: false,
         pinned: Boolean(input.pinned),
         pinnedBy: input.pinned ? input.pinnedBy || (account ? account.name : '林致远（我）') : undefined,
+        linkedAgentId: input.linkedAgentId,
+        linkedSkillId: input.linkedSkillId,
         comments: [],
       };
       setCommunityPosts((prev) => [newPost, ...prev]);
     },
     [account],
+  );
+
+  const publishCommunitySkill = useCallback(
+    (input: {
+      zoneId: string;
+      name: string;
+      summary: string;
+      kind: SkillKind;
+      category: AgentCategory;
+      priceUsd: number;
+      postContent?: string;
+    }) => {
+      const cleanedName = input.name.trim();
+      const cleanedSummary = input.summary.trim();
+      if (!cleanedName) return '';
+      const id = `skill_${Date.now().toString().slice(-6)}`;
+      const slugBase = cleanedName
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 24) || 'custom-skill';
+      const prefix = input.kind === 'mcp' ? 'mcp' : input.kind === 'workflow' ? 'workflow' : 'skill';
+      const slug = `${prefix}/${slugBase}`;
+      const author = account ? account.name : '林致远（我）';
+      const price = Math.max(0, Math.round(input.priceUsd));
+
+      const newSkill: MarketSkill = {
+        id,
+        slug,
+        name: cleanedName,
+        summary: cleanedSummary || '社区成员发布的标准化能力包，可直接挂载至 Agent 节点复用。',
+        category: input.category,
+        kind: input.kind,
+        compatibleRuntimes: ['Claude Code', 'Codex', 'Gemini CLI', 'Qoder'],
+        authorName: author,
+        version: 'v1.0.0',
+        installs: 1,
+        rating: 5.0,
+        ratingTier: 'A+',
+        priceUsd: price,
+        license: price === 0 ? '免费开源' : '社区共享',
+        zoneIds: [input.zoneId],
+        installCommand:
+          input.kind === 'mcp' ? `anx mcp install ${slug}` : `anx skill add ${slug}`,
+        highlights: [
+          cleanedSummary || '开箱即用的标准化 Prompt / MCP 能力封装',
+          '由社区成员公开发布，自动同步至服务市场供按需复用',
+        ],
+        readmeSnippet: `---\nname: ${slugBase}\nkind: ${input.kind}\n---\n${cleanedSummary || cleanedName}`,
+      };
+
+      setMarketSkills((prev) => [newSkill, ...prev]);
+      createCommunityPost({
+        zoneId: input.zoneId,
+        type: 'skill_share',
+        title: `【发布 Skill】${cleanedName}${price === 0 ? '（免费开源）' : `（$${price}）`}已同步上架服务市场`,
+        content:
+          (input.postContent || cleanedSummary || cleanedName).trim() +
+          `\n\n安装命令：${newSkill.installCommand}`,
+        tags: ['发布 Skill', input.kind === 'mcp' ? 'MCP' : input.kind === 'workflow' ? '工作流' : 'Skill'],
+        linkedSkillId: id,
+      });
+      return id;
+    },
+    [account, createCommunityPost],
   );
 
   const togglePinPost = useCallback(
@@ -1349,6 +1455,77 @@ export function useAgentNexusStore() {
           linkedTaskIds: [newTask.id],
         },
       ]);
+      return newTask;
+    },
+    [activeWorkspace.id, agents],
+  );
+
+  const createAndOpenTaskSession = useCallback(
+    (input: CreateWorkCardInput) => {
+      const targetSessionId = input.sessionId || activeWorkspace.id;
+      const assignee = agents.find((a) => a.id === input.assigneeId);
+      const ts = nowTimeStr();
+      const newTask: WorkflowTask = {
+        id: `tsk_${Date.now().toString().slice(-4)}`,
+        sessionId: targetSessionId,
+        featureModule: input.featureModule.trim() || '核心功能模块',
+        workType: input.workType,
+        title: input.title.trim(),
+        description: input.description.trim() || '按项目目标执行并输出可验收产物。',
+        assigneeId: assignee?.id || 'butler',
+        assigneeHandle: assignee?.handle || '@Nexa',
+        status: 'in_progress',
+        priority: input.priority,
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+      setAllTasks((prev) => [newTask, ...prev]);
+      setTaskSessions((prev) => ({
+        ...prev,
+        [newTask.id]: [
+          {
+            id: `tsm_init_${Date.now()}`,
+            taskId: newTask.id,
+            sender: 'agent',
+            content: `已挂载至目标项目工作区并开启专属任务 Session（#${newTask.id} · ${newTask.title}）。我是 ${assignee?.handle || newTask.assigneeHandle}（${assignee?.runtimeAgent || 'Agent'} · ${assignee?.defaultModel || 'Default'}），本会话将专注于该任务的多轮拆解、执行与产物迭代，关键里程碑会自动以任务卡片同步至所属项目群。请补充你的具体要求或直接点击快捷操作启动。`,
+            timestamp: ts,
+            executionSteps: [
+              `绑定项目上下文与任务卡 #${newTask.id}`,
+              `初始化 ${assignee?.runtimeAgent || 'Agent'} 独立执行沙箱`,
+            ],
+            suggestedActions: [
+              '先输出执行计划与关键边界确认项',
+              '按任务描述直接开始编码/产出初稿',
+            ],
+            awaitingConfirmation: true,
+          },
+        ],
+      }));
+
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_card_${Date.now()}`,
+          sessionId: targetSessionId,
+          senderType: 'butler',
+          senderId: 'butler',
+          senderName: 'Nexa 助理',
+          senderHandle: '@Nexa',
+          content: `已新建任务卡片「${newTask.title}」并指派给 ${newTask.assigneeHandle} 开启专属任务对话，可点击下方任务卡片直接进入协作。`,
+          timestamp: ts,
+          linkedTaskIds: [newTask.id],
+        },
+      ]);
+
+      setActiveSessionId(targetSessionId);
+      setActiveChatChannel({
+        type: 'task_session',
+        taskId: newTask.id,
+        projectId: targetSessionId,
+      });
+      setActiveView('chat');
+      setTaskSessionError(null);
       return newTask;
     },
     [activeWorkspace.id, agents],
@@ -2263,6 +2440,186 @@ export function useAgentNexusStore() {
       setTaskSessionError(null);
     },
     [agents, allTasks],
+  );
+
+  const openAgentTaskSession = useCallback(
+    (agentId: string) => {
+      const agentTasks = allTasks.filter((t) => t.assigneeId === agentId);
+      if (agentTasks.length > 0) {
+        const statusOrder: Record<TaskStatus, number> = {
+          in_progress: 0,
+          review: 1,
+          pending: 2,
+          done: 3,
+        };
+        const sorted = [...agentTasks].sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+        openTaskSession(sorted[0].id);
+        return;
+      }
+      const targetAgent = agents.find((a) => a.id === agentId);
+      if (!targetAgent) return;
+      const hostWs =
+        workspaces.find((w) => w.hiredAgentIds.includes(agentId)) || activeWorkspace;
+      createAndOpenTaskSession({
+        sessionId: hostWs.id,
+        featureModule: '核心协作任务',
+        workType: 'development',
+        title: `与 ${targetAgent.handle} 协同推进：${hostWs.name} 专项任务`,
+        description: `围绕「${hostWs.name}」的当前目标开启专属 Agent 任务 Session。`,
+        assigneeId: agentId,
+        priority: '中',
+      });
+    },
+    [activeWorkspace, agents, allTasks, createAndOpenTaskSession, openTaskSession, workspaces],
+  );
+
+  const switchConversationMode = useCallback(
+    (nextMode: ConversationInteractionMode) => {
+      if (nextMode === 'task') {
+        if (activeChatChannel.type !== 'task_session') {
+          setLastChatChannel(activeChatChannel);
+        }
+        // Pick the most contextually relevant task session
+        const statusOrder: Record<TaskStatus, number> = {
+          in_progress: 0,
+          review: 1,
+          pending: 2,
+          done: 3,
+        };
+        const sortedAll = [...allTasks].sort(
+          (a, b) => statusOrder[a.status] - statusOrder[b.status],
+        );
+
+        let targetTask: WorkflowTask | undefined;
+        if (activeChatChannel.type === 'task_session') {
+          targetTask = allTasks.find((t) => t.id === activeChatChannel.taskId);
+        } else if (activeChatChannel.type === 'group') {
+          targetTask = sortedAll.find((t) => t.sessionId === activeChatChannel.projectId);
+        } else if (activeChatChannel.type === 'dm') {
+          targetTask = sortedAll.find((t) => t.assigneeId === activeChatChannel.agentId);
+        } else if (activeChatChannel.type === 'human_dm') {
+          const ownedIds = new Set(
+            agents
+              .filter((a) => a.ownerHumanId === activeChatChannel.expertId)
+              .map((a) => a.id),
+          );
+          targetTask = sortedAll.find((t) => ownedIds.has(t.assigneeId));
+        }
+
+        if (!targetTask && lastTaskSessionId) {
+          targetTask = allTasks.find((t) => t.id === lastTaskSessionId);
+        }
+        if (!targetTask) {
+          targetTask = sortedAll[0];
+        }
+
+        if (targetTask) {
+          setLastTaskSessionId(targetTask.id);
+          openTaskSession(targetTask.id);
+        } else {
+          setActiveView('chat');
+        }
+        return;
+      }
+
+      // Switching back to 'chat' (IM dialog mode)
+      if (activeChatChannel.type === 'task_session') {
+        setLastTaskSessionId(activeChatChannel.taskId);
+        const fallbackGroup: ActiveChatChannel = {
+          type: 'group',
+          projectId: activeChatChannel.projectId,
+        };
+        const target =
+          lastChatChannel.type !== 'task_session' ? lastChatChannel : fallbackGroup;
+        if (target.type === 'group') {
+          setActiveSessionId(target.projectId);
+        }
+        setActiveChatChannel(target);
+        setActiveView('chat');
+      } else {
+        setActiveView('chat');
+      }
+    },
+    [activeChatChannel, agents, allTasks, lastChatChannel, lastTaskSessionId, openTaskSession],
+  );
+
+  const openHumanDm = useCallback((expertId: string) => {
+    setHumanDmThreads((prev) => {
+      if (prev.some((t) => t.expertId === expertId)) return prev;
+      return [
+        {
+          expertId,
+          updatedAt: nowTimeStr(),
+          messages: [],
+        },
+        ...prev,
+      ];
+    });
+    setActiveChatChannel({ type: 'human_dm', expertId });
+    setActiveView('chat');
+  }, []);
+
+  const sendHumanDmMessage = useCallback(
+    (expertId: string, rawText: string, linkedTaskId?: string) => {
+      const cleaned = rawText.trim();
+      if (!cleaned) return;
+      const ts = nowTimeStr();
+      const expert = humanExperts.find((h) => h.id === expertId);
+      const ownedAgents = agents.filter((a) => a.ownerHumanId === expertId);
+      const primaryOwned = ownedAgents[0];
+
+      setHumanDmThreads((prev) => {
+        const exists = prev.some((t) => t.expertId === expertId);
+        const userMsg = {
+          id: `hdm_u_${Date.now()}`,
+          sender: 'employer' as const,
+          content: cleaned,
+          timestamp: ts,
+          linkedTaskId,
+        };
+        if (!exists) {
+          return [{ expertId, updatedAt: ts, messages: [userMsg] }, ...prev];
+        }
+        return prev.map((t) =>
+          t.expertId === expertId
+            ? { ...t, updatedAt: ts, messages: [...t.messages, userMsg] }
+            : t,
+        );
+      });
+
+      // Simulated prompt human expert reply keeping multi-agent collaboration loop alive
+      setTimeout(() => {
+        const replyTs = nowTimeStr();
+        const linkedTask = linkedTaskId ? allTasks.find((t) => t.id === linkedTaskId) : undefined;
+        const replyText = linkedTask
+          ? `收到，我刚看了任务卡 #${linkedTask.id}「${linkedTask.title}」的进展。细节确认可以直接在 ${linkedTask.assigneeHandle} 的任务 Session 里敲定，我这边会同步把关关键验收标准。`
+          : primaryOwned
+            ? `好的，明白了！这件事我可以先安排我名下的 ${primaryOwned.handle}（${primaryOwned.runtimeAgent}）起一个任务卡片 Session 来落地，方案出来后我们再在项目群对齐。`
+            : `收到，我已同步记录你的想法。需要拉我进哪个项目群或开新任务卡，直接告诉我即可。`;
+
+        setHumanDmThreads((prev) =>
+          prev.map((t) =>
+            t.expertId === expertId
+              ? {
+                  ...t,
+                  updatedAt: replyTs,
+                  messages: [
+                    ...t.messages,
+                    {
+                      id: `hdm_h_${Date.now()}`,
+                      sender: 'human',
+                      content: expert ? replyText : `收到：${cleaned}`,
+                      timestamp: replyTs,
+                      linkedTaskId,
+                    },
+                  ],
+                }
+              : t,
+          ),
+        );
+      }, 450);
+    },
+    [agents, allTasks, humanExperts],
   );
 
   const openNegotiationsHub = useCallback(() => {
@@ -3594,6 +3951,8 @@ export function useAgentNexusStore() {
     setActiveView,
     activeChatChannel,
     setActiveChatChannel,
+    conversationMode,
+    switchConversationMode,
     workspaces,
     zoneProjects,
     communityPosts,
@@ -3604,6 +3963,7 @@ export function useAgentNexusStore() {
     publishZoneProject,
     claimZoneProject,
     createCommunityPost,
+    publishCommunitySkill,
     togglePinPost,
     toggleLikePost,
     addPostComment,
@@ -3611,6 +3971,11 @@ export function useAgentNexusStore() {
     toggleFollowEntity,
     openAssistantChat,
     openTaskSession,
+    openAgentTaskSession,
+    createAndOpenTaskSession,
+    openHumanDm,
+    sendHumanDmMessage,
+    humanDmThreads,
     openNegotiationsHub,
     openKanbanForProject,
     openWorkspaceTab,
@@ -3621,6 +3986,7 @@ export function useAgentNexusStore() {
     activeCommunityTab,
     setActiveCommunityTab,
     artifacts,
+    marketSkills,
     createProjectArtifact,
     shareArtifactToProjectChat,
     toggleStarArtifact,

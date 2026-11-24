@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
-import { Blocks, Briefcase, Cpu, Flame, Pin, UserCheck } from 'lucide-react';
-import { INITIAL_MARKET_SKILLS } from '../../data/initialData';
+import { Blocks, Briefcase, Cpu, Flame, Pin, Rocket, UserCheck } from 'lucide-react';
 import type {
   AgentCategory,
   AgentLeaseRecord,
@@ -13,7 +12,9 @@ import type {
   ExpertRelationType,
   HumanExpert,
   LeasePeriod,
+  MarketSkill,
   ProjectWorkspace,
+  SkillKind,
   TeamExpertMembership,
   ZoneProjectOpportunity,
 } from '../../types/agentnexus';
@@ -25,7 +26,7 @@ import {
 } from '../shared/ViewToolbar';
 import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import { AgentMarketView, type MarketEntityTab } from './AgentMarketView';
-import { CommunityDiscoverView } from './CommunityDiscoverView';
+import { CommunityDiscoverView, type SocialFeedScope } from './CommunityDiscoverView';
 
 interface CommunityHubViewProps {
   activeTab: CommunityHubTab;
@@ -39,6 +40,7 @@ interface CommunityHubViewProps {
   marketplaceAgents: ExpertAgent[];
   privateAgents: ExpertAgent[];
   humanExperts: HumanExpert[];
+  marketSkills: MarketSkill[];
   agentLeases: Record<string, AgentLeaseRecord>;
   purchasedSkillIds: string[];
   teamExperts: TeamExpertMembership[];
@@ -81,7 +83,18 @@ interface CommunityHubViewProps {
     tags?: string[];
     pinned?: boolean;
     pinnedBy?: string;
+    linkedAgentId?: string;
+    linkedSkillId?: string;
   }) => void;
+  onPublishSkill: (input: {
+    zoneId: string;
+    name: string;
+    summary: string;
+    kind: SkillKind;
+    category: AgentCategory;
+    priceUsd: number;
+    postContent?: string;
+  }) => string;
   onTogglePinPost: (postId: string, principalName?: string) => void;
   onToggleLikePost: (postId: string) => void;
   onAddPostComment: (postId: string, content: string) => void;
@@ -117,6 +130,7 @@ export function CommunityHubView({
   marketplaceAgents,
   privateAgents,
   humanExperts,
+  marketSkills,
   agentLeases,
   purchasedSkillIds,
   teamExperts,
@@ -146,6 +160,7 @@ export function CommunityHubView({
   onToggleJoinZone,
   onToggleFollowEntity,
   onCreatePost,
+  onPublishSkill,
   onTogglePinPost,
   onToggleLikePost,
   onAddPostComment,
@@ -162,12 +177,14 @@ export function CommunityHubView({
         ? 'skills'
         : 'agents';
 
-  const socialFeedScope: 'all' | 'following' | 'pinned' =
-    activeTab === 'social_following'
-      ? 'following'
-      : activeTab === 'social_pinned'
-        ? 'pinned'
-        : 'all';
+  const socialFeedScope: SocialFeedScope =
+    activeTab === 'social_projects'
+      ? 'projects'
+      : activeTab === 'social_following'
+        ? 'following'
+        : activeTab === 'social_pinned'
+          ? 'pinned'
+          : 'all';
 
   // Live rail counts for activeZone
   const zoneHumansCount = useMemo(
@@ -181,13 +198,18 @@ export function CommunityHubView({
   );
 
   const zoneSkillsCount = useMemo(
-    () => INITIAL_MARKET_SKILLS.filter((s) => s.zoneIds.includes(activeZone.id)).length,
-    [activeZone.id],
+    () => marketSkills.filter((s) => s.zoneIds.includes(activeZone.id)).length,
+    [activeZone.id, marketSkills],
   );
 
   const zonePosts = useMemo(
     () => communityPosts.filter((p) => p.zoneId === activeZone.id),
     [activeZone.id, communityPosts],
+  );
+
+  const zoneProjectsCount = useMemo(
+    () => zoneProjects.filter((p) => p.zoneId === activeZone.id).length,
+    [activeZone.id, zoneProjects],
   );
 
   const followedSet = useMemo(() => new Set(followedEntityKeys), [followedEntityKeys]);
@@ -225,6 +247,43 @@ export function CommunityHubView({
     return `${agentCnt} Agent · ${postCnt} 动态 · ${z.memberCount} 成员`;
   };
 
+  const socialItems: {
+    id: CommunityHubTab;
+    label: string;
+    count: number;
+    icon: typeof Flame;
+    tint: string;
+  }[] = [
+    {
+      id: 'social_all',
+      label: '全部动态',
+      count: zonePosts.length,
+      icon: Flame,
+      tint: 'text-sky-600',
+    },
+    {
+      id: 'social_projects',
+      label: '项目共创',
+      count: zoneProjectsCount,
+      icon: Rocket,
+      tint: 'text-blue-600',
+    },
+    {
+      id: 'social_following',
+      label: '我的关注',
+      count: followingPostsCount,
+      icon: UserCheck,
+      tint: 'text-indigo-600',
+    },
+    {
+      id: 'social_pinned',
+      label: '主理置顶',
+      count: pinnedPostsCount,
+      icon: Pin,
+      tint: 'text-amber-500',
+    },
+  ];
+
   const serviceItems: {
     id: CommunityHubTab;
     label: string;
@@ -255,50 +314,10 @@ export function CommunityHubView({
     },
   ];
 
-  const socialItems: {
-    id: CommunityHubTab;
-    label: string;
-    count: number;
-    icon: typeof Flame;
-    tint: string;
-  }[] = [
-    {
-      id: 'social_all',
-      label: '全部动态',
-      count: zonePosts.length,
-      icon: Flame,
-      tint: 'text-sky-600',
-    },
-    {
-      id: 'social_following',
-      label: '我的关注',
-      count: followingPostsCount,
-      icon: UserCheck,
-      tint: 'text-blue-600',
-    },
-    {
-      id: 'social_pinned',
-      label: '主理置顶',
-      count: pinnedPostsCount,
-      icon: Pin,
-      tint: 'text-amber-500',
-    },
-  ];
-
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Current Community Selector + Community Exchange + Service Market + Bottom Slogan */}
-      <WorkspacePrimaryRail
-        ariaLabel="AGN社区导航"
-        footer={
-          <div className="px-2.5 pt-3 border-t border-slate-100 select-none">
-            <div className="text-[11px] font-bold tracking-tight text-slate-500">AGN社区</div>
-            <div className="text-[11px] text-slate-400 mt-0.5 leading-relaxed">
-              为 FDE / OPC Agent 协作而建
-            </div>
-          </div>
-        }
-      >
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Current Community Selector + Community Exchange + Service Market + Whitespace Slogan Backdrop */}
+      <WorkspacePrimaryRail ariaLabel="AGN社区导航">
         {/* Top First Section: Current Community Switcher */}
         <div className="pb-3 border-b border-slate-100 space-y-1.5">
           <RailSectionLabel>当前社区</RailSectionLabel>
@@ -368,6 +387,21 @@ export function CommunityHubView({
             );
           })}
         </div>
+
+        {/* Subtle Typographic Backdrop in Open Whitespace Below Service Market */}
+        <div
+          aria-hidden="true"
+          className="pt-10 px-2.5 select-none pointer-events-none"
+        >
+          <div className="font-display text-2xl font-black tracking-tight text-slate-200/70 leading-none">
+            AGN
+          </div>
+          <p className="mt-2 text-[11px] font-medium leading-relaxed text-slate-300/90 tracking-wide">
+            为 FDE / OPC
+            <br />
+            Agent 协作而生
+          </p>
+        </div>
       </WorkspacePrimaryRail>
 
       {/* RIGHT MAIN CONTENT: Narrow-Screen Selector Bar + Embedded Service or Social View */}
@@ -428,6 +462,7 @@ export function CommunityHubView({
               agents={marketplaceAgents}
               privateAgents={privateAgents}
               humanExperts={humanExperts}
+              marketSkills={marketSkills}
               agentLeases={agentLeases}
               purchasedSkillIds={purchasedSkillIds}
               teamExperts={teamExperts}
@@ -450,7 +485,7 @@ export function CommunityHubView({
               onJumpToMountPrivate={onJumpToMountPrivate}
               onJumpToZoneProjects={(zoneId) => {
                 onSelectZone(zoneId);
-                onChangeTab('social_all');
+                onChangeTab('social_projects');
               }}
             />
           ) : (
@@ -458,7 +493,8 @@ export function CommunityHubView({
               embeddedMode
               controlledFeedScope={socialFeedScope}
               onChangeFeedScope={(next) => {
-                if (next === 'following') onChangeTab('social_following');
+                if (next === 'projects') onChangeTab('social_projects');
+                else if (next === 'following') onChangeTab('social_following');
                 else if (next === 'pinned') onChangeTab('social_pinned');
                 else onChangeTab('social_all');
               }}
@@ -469,13 +505,18 @@ export function CommunityHubView({
               communityPosts={communityPosts}
               followedEntityKeys={followedEntityKeys}
               allAgents={allAgents}
+              privateAgents={privateAgents}
               humanExperts={humanExperts}
+              marketSkills={marketSkills}
+              purchasedSkillIds={purchasedSkillIds}
               zoneSeed={zoneSeed}
               onClearZoneSeed={onClearZoneSeed}
               onSelectZone={onSelectZone}
               onToggleJoinZone={onToggleJoinZone}
               onToggleFollowEntity={onToggleFollowEntity}
               onCreatePost={onCreatePost}
+              onPublishSkill={onPublishSkill}
+              onAcquireSkill={onAcquireSkill}
               onTogglePinPost={onTogglePinPost}
               onToggleLikePost={onToggleLikePost}
               onAddPostComment={onAddPostComment}

@@ -1,8 +1,15 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
+  ArrowLeftRight,
   Bot,
+  Check,
+  ChevronDown,
+  ChevronRight,
   Compass,
+  FolderKanban,
+  FolderPlus,
   KanbanSquare,
+  ListFilter,
   LogIn,
   MessageSquare,
   MessageSquareCode,
@@ -12,17 +19,23 @@ import {
   UserPlus,
   X,
 } from 'lucide-react';
+import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   ActiveChatChannel,
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
   CommunityZone,
+  ConversationInteractionMode,
   ExpertAgent,
+  HumanDirectThread,
+  HumanExpert,
   NavViewId,
   NegotiationThread,
   ProjectWorkspace,
   TaskSessionMessage,
+  TaskStatus,
+  WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
 import { AccountFooter } from '../account/AccountPanel';
@@ -30,20 +43,22 @@ import {
   AgentIdentityName,
   EntityAvatar,
   displayEntityName,
-  formatShortModel,
 } from '../shared/EntityIdentity';
 import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 
 interface SidebarProps {
   activeView: NavViewId;
   activeChatChannel: ActiveChatChannel;
+  conversationMode: ConversationInteractionMode;
   zones: CommunityZone[];
   workspaces: ProjectWorkspace[];
   agents: ExpertAgent[];
+  humanExperts: HumanExpert[];
   allMessages: ChatMessage[];
   allTasks: WorkflowTask[];
   taskSessions: Record<string, TaskSessionMessage[]>;
   negotiations: NegotiationThread[];
+  humanDmThreads: HumanDirectThread[];
   assistantMessages: AssistantMessage[];
   assistantPendingCount: number;
   awaitingTaskSessionCount: number;
@@ -58,14 +73,21 @@ interface SidebarProps {
   onSelectView: (v: NavViewId) => void;
   onSelectProjectChat: (projectId: string) => void;
   onSelectDm: (agentId: string) => void;
+  onSelectHumanDm: (expertId: string) => void;
   onSelectAssistant: () => void;
   onSelectTaskSession: (taskId: string) => void;
+  onCreateAndOpenTaskSession: (input: CreateWorkCardInput) => void;
   onCreateProject: (name: string, goal: string, sourceZoneId?: string) => void;
+  onSwitchConversationMode: (mode: ConversationInteractionMode) => void;
   onOpenLogin: () => void;
   onLogout: () => void;
 }
 
-type ChatModeTab = 'regular' | 'task_session';
+type TaskGroupBy = 'agent' | 'project' | 'none';
+type TaskSortBy = 'last_updated' | 'attention' | 'status';
+type TaskStatusFilter = 'all' | TaskStatus;
+type HeaderDropdownMenu = 'none' | 'mode' | 'filter' | 'create';
+type PopoverSubMenu = 'none' | 'group' | 'sort' | 'filter';
 
 const DM_STATUS_LABEL: Record<NegotiationThread['status'], { text: string; cls: string }> = {
   negotiating: { text: '协商中', cls: 'text-slate-500' },
@@ -73,16 +95,85 @@ const DM_STATUS_LABEL: Record<NegotiationThread['status'], { text: string; cls: 
   hired: { text: '已雇佣', cls: 'text-emerald-700 font-semibold' },
 };
 
+const GROUP_BY_LABELS: Record<TaskGroupBy, string> = {
+  agent: '按 Agent',
+  project: '按项目',
+  none: '不分组（时间流）',
+};
+
+const SORT_BY_LABELS: Record<TaskSortBy, string> = {
+  last_updated: '最近更新',
+  attention: '待确认优先',
+  status: '按状态',
+};
+
+const STATUS_FILTER_LABELS: Record<TaskStatusFilter, string> = {
+  all: '全部状态',
+  in_progress: '执行中',
+  review: '待验证',
+  pending: '待批准',
+  done: '已完成',
+};
+
+/** Parse HH:MM / 刚刚 / 今天 HH:MM into a comparable descending rank */
+function parseTimeRank(ts?: string): number {
+  if (!ts) return 0;
+  const trimmed = ts.trim();
+  if (trimmed.includes('刚刚')) return 9999;
+  const match = trimmed.match(/(\d{1,2}):(\d{2})/);
+  if (match) {
+    return Number(match[1]) * 60 + Number(match[2]);
+  }
+  return 100;
+}
+
+type UnifiedChatItem =
+  | {
+      kind: 'assistant';
+      key: string;
+      timeRank: number;
+      timestamp: string;
+    }
+  | {
+      kind: 'group';
+      key: string;
+      workspace: ProjectWorkspace;
+      lastMsg?: ChatMessage;
+      taskCount: number;
+      reviewCount: number;
+      timeRank: number;
+      timestamp: string;
+    }
+  | {
+      kind: 'human_dm';
+      key: string;
+      thread: HumanDirectThread;
+      expert: HumanExpert;
+      timeRank: number;
+      timestamp: string;
+    }
+  | {
+      kind: 'agent_dm';
+      key: string;
+      thread: NegotiationThread;
+      agent: ExpertAgent;
+      timeRank: number;
+      timestamp: string;
+    };
+
 export function Sidebar({
   activeView,
   activeChatChannel,
+  conversationMode,
   zones,
   workspaces,
   agents,
+  humanExperts,
   allMessages,
   allTasks,
   taskSessions,
   negotiations,
+  humanDmThreads,
   assistantMessages,
   assistantPendingCount,
   awaitingTaskSessionCount,
@@ -97,74 +188,255 @@ export function Sidebar({
   onSelectView,
   onSelectProjectChat,
   onSelectDm,
+  onSelectHumanDm,
   onSelectAssistant,
   onSelectTaskSession,
+  onCreateAndOpenTaskSession,
   onCreateProject,
+  onSwitchConversationMode,
   onOpenLogin,
   onLogout,
 }: SidebarProps) {
-  const [modeTab, setModeTab] = useState<ChatModeTab>('regular');
-  const [taskProjectFilter, setTaskProjectFilter] = useState<string>('all');
+  // Unified inline drawers triggered from the conversation header create menu
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showDmPicker, setShowDmPicker] = useState(false);
+  const [dmPickerTab, setDmPickerTab] = useState<'human' | 'agent'>('human');
   const [newName, setNewName] = useState('');
   const [newGoal, setNewGoal] = useState('');
   const [newSourceZoneId, setNewSourceZoneId] = useState<string>('');
 
-  // Keep mode switcher synced with active channel
+  // Task mode (Codex / Antigravity style) filter, group, sort & new task state
+  const [taskGroupBy, setTaskGroupBy] = useState<TaskGroupBy>('project');
+  const [taskSortBy, setTaskSortBy] = useState<TaskSortBy>('last_updated');
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatusFilter>('all');
+  const [onlyWaitingConfirm, setOnlyWaitingConfirm] = useState(false);
+  const [hideDoneTasks, setHideDoneTasks] = useState(false);
+
+  // Unified header dropdown menu state (mode switch | filter/group | create actions)
+  const [openHeaderMenu, setOpenHeaderMenu] = useState<HeaderDropdownMenu>('none');
+  const [activeSubMenu, setActiveSubMenu] = useState<PopoverSubMenu>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+  const headerMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // New Task Session inline drawer (global or scoped to a specific Agent/Project)
+  const [showNewTaskDrawer, setShowNewTaskDrawer] = useState(false);
+  const [quickTaskProjectId, setQuickTaskProjectId] = useState<string>(workspaces[0]?.id || '');
+  const [quickTaskAgentId, setQuickTaskAgentId] = useState<string>(agents[0]?.id || '');
+  const [quickTaskTitle, setQuickTaskTitle] = useState('');
+  const [quickTaskType, setQuickTaskType] = useState<WorkCardType>('development');
+
+  // Close header dropdown popover on outside click
   useEffect(() => {
-    if (activeView === 'chat') {
-      if (activeChatChannel.type === 'task_session') {
-        setModeTab('task_session');
-      } else {
-        setModeTab('regular');
+    if (openHeaderMenu === 'none') return;
+    const handleOutside = (e: MouseEvent) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target as Node)) {
+        setOpenHeaderMenu('none');
+        setActiveSubMenu('none');
       }
-    }
-  }, [activeChatChannel.type, activeView]);
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [openHeaderMenu]);
 
   const zoneMap = useMemo(() => new Map(zones.map((z) => [z.id, z])), [zones]);
-
-  const workspaceMap = useMemo(() => {
-    const map = new Map<string, ProjectWorkspace>();
-    workspaces.forEach((w) => map.set(w.id, w));
-    return map;
-  }, [workspaces]);
-
-  const agentMap = useMemo(() => {
-    const map = new Map<string, ExpertAgent>();
-    agents.forEach((a) => map.set(a.id, a));
-    return map;
-  }, [agents]);
+  const workspaceMap = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
+  const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const humanMap = useMemo(() => new Map(humanExperts.map((h) => [h.id, h])), [humanExperts]);
 
   const availableDmAgents = useMemo(() => {
     const existingIds = new Set(negotiations.map((n) => n.agentId));
     return agents.filter((a) => !existingIds.has(a.id));
   }, [agents, negotiations]);
 
-  // Sort 1v1 Task Card Sessions: awaiting confirmation -> in_progress -> review -> pending -> done
-  const sortedTaskSessions = useMemo(() => {
-    const statusWeight: Record<WorkflowTask['status'], number> = {
+  const availableDmHumans = useMemo(() => {
+    const existingIds = new Set(humanDmThreads.map((t) => t.expertId));
+    return humanExperts.filter((h) => !h.isCurrentUser && !existingIds.has(h.id));
+  }, [humanDmThreads, humanExperts]);
+
+  const lastAssistantMsg = assistantMessages[assistantMessages.length - 1];
+
+  // Mode 1 (对话模式): WeChat-style unified chronological event stream — NO category headers!
+  const unifiedChatStream = useMemo<UnifiedChatItem[]>(() => {
+    const items: UnifiedChatItem[] = [];
+
+    // 1. Nexa Assistant
+    const assistTs = lastAssistantMsg?.timestamp || '09:00';
+    items.push({
+      kind: 'assistant',
+      key: 'assistant',
+      timestamp: assistTs,
+      timeRank: parseTimeRank(assistTs),
+    });
+
+    // 2. Project Groups
+    workspaces.forEach((ws, idx) => {
+      const wsMsgs = allMessages.filter((m) => m.sessionId === ws.id);
+      const lastMsg = wsMsgs[wsMsgs.length - 1];
+      const wsTasks = allTasks.filter((t) => t.sessionId === ws.id);
+      const reviewCount = wsTasks.filter((t) => t.status === 'review').length;
+      const ts = lastMsg?.timestamp || '';
+      items.push({
+        kind: 'group',
+        key: `group:${ws.id}`,
+        workspace: ws,
+        lastMsg,
+        taskCount: wsTasks.length,
+        reviewCount,
+        timestamp: ts,
+        timeRank: ts ? parseTimeRank(ts) : Math.max(1, 50 - idx),
+      });
+    });
+
+    // 3. Human Expert 1v1 Chats
+    humanDmThreads.forEach((thread) => {
+      const expert = humanMap.get(thread.expertId);
+      if (!expert) return;
+      const lastMsg = thread.messages[thread.messages.length - 1];
+      const ts = lastMsg?.timestamp || thread.updatedAt;
+      items.push({
+        kind: 'human_dm',
+        key: `human_dm:${thread.expertId}`,
+        thread,
+        expert,
+        timestamp: ts,
+        timeRank: parseTimeRank(ts),
+      });
+    });
+
+    // 4. Agent 1v1 Chats
+    negotiations.forEach((thread) => {
+      const dmAgent = agentMap.get(thread.agentId);
+      if (!dmAgent) return;
+      const lastDm = thread.messages[thread.messages.length - 1];
+      const ts = lastDm?.timestamp || thread.updatedAt;
+      items.push({
+        kind: 'agent_dm',
+        key: `agent_dm:${thread.agentId}`,
+        thread,
+        agent: dmAgent,
+        timestamp: ts,
+        timeRank: parseTimeRank(ts),
+      });
+    });
+
+    return items.sort((a, b) => b.timeRank - a.timeRank);
+  }, [
+    agentMap,
+    allMessages,
+    allTasks,
+    humanDmThreads,
+    humanMap,
+    lastAssistantMsg?.timestamp,
+    negotiations,
+    workspaces,
+  ]);
+
+  // Mode 2 (任务模式): Codex / Antigravity filtered & sorted task list
+  const filteredAndSortedTasks = useMemo(() => {
+    const statusWeight: Record<TaskStatus, number> = {
       in_progress: 0,
       review: 1,
       pending: 2,
       done: 3,
     };
-    const filtered =
-      taskProjectFilter === 'all'
-        ? allTasks
-        : allTasks.filter((t) => t.sessionId === taskProjectFilter);
-    return [...filtered].sort((a, b) => {
-      const aMsgs = taskSessions[a.id] || [];
-      const bMsgs = taskSessions[b.id] || [];
-      const aWait = a.status !== 'done' && aMsgs[aMsgs.length - 1]?.awaitingConfirmation ? 0 : 1;
-      const bWait = b.status !== 'done' && bMsgs[bMsgs.length - 1]?.awaitingConfirmation ? 0 : 1;
-      if (aWait !== bWait) return aWait - bWait;
-      return statusWeight[a.status] - statusWeight[b.status];
-    });
-  }, [allTasks, taskProjectFilter, taskSessions]);
 
-  const lastAssistantMsg = assistantMessages[assistantMessages.length - 1];
-  const regularTotalCount = 1 + workspaces.length + negotiations.length;
+    const list = allTasks.filter((t) => {
+      if (hideDoneTasks && t.status === 'done') return false;
+      if (taskStatusFilter !== 'all' && t.status !== taskStatusFilter) return false;
+      if (onlyWaitingConfirm) {
+        const turns = taskSessions[t.id] || [];
+        const isWait = t.status !== 'done' && Boolean(turns[turns.length - 1]?.awaitingConfirmation);
+        if (!isWait) return false;
+      }
+      return true;
+    });
+
+    const getTaskTimeRank = (t: WorkflowTask) => {
+      const turns = taskSessions[t.id] || [];
+      const lastTs = turns[turns.length - 1]?.timestamp || t.updatedAt;
+      return parseTimeRank(lastTs);
+    };
+
+    return [...list].sort((a, b) => {
+      if (taskSortBy === 'last_updated') {
+        const diff = getTaskTimeRank(b) - getTaskTimeRank(a);
+        if (diff !== 0) return diff;
+        return statusWeight[a.status] - statusWeight[b.status];
+      }
+      if (taskSortBy === 'attention') {
+        const aTurns = taskSessions[a.id] || [];
+        const bTurns = taskSessions[b.id] || [];
+        const aWait = a.status !== 'done' && aTurns[aTurns.length - 1]?.awaitingConfirmation ? 0 : 1;
+        const bWait = b.status !== 'done' && bTurns[bTurns.length - 1]?.awaitingConfirmation ? 0 : 1;
+        if (aWait !== bWait) return aWait - bWait;
+        if (statusWeight[a.status] !== statusWeight[b.status]) {
+          return statusWeight[a.status] - statusWeight[b.status];
+        }
+        return getTaskTimeRank(b) - getTaskTimeRank(a);
+      }
+      // status
+      if (statusWeight[a.status] !== statusWeight[b.status]) {
+        return statusWeight[a.status] - statusWeight[b.status];
+      }
+      return getTaskTimeRank(b) - getTaskTimeRank(a);
+    });
+  }, [allTasks, hideDoneTasks, onlyWaitingConfirm, taskSessions, taskSortBy, taskStatusFilter]);
+
+  const tasksGroupedByAgent = useMemo(() => {
+    const map = new Map<string, WorkflowTask[]>();
+    filteredAndSortedTasks.forEach((task) => {
+      const list = map.get(task.assigneeId) || [];
+      list.push(task);
+      map.set(task.assigneeId, list);
+    });
+    return Array.from(map.entries()).map(([agentId, tasks]) => {
+      const agent = agentMap.get(agentId);
+      const distinctProjects = new Set(tasks.map((t) => t.sessionId)).size;
+      return {
+        agentId,
+        agent,
+        handle: agent?.handle || tasks[0]?.assigneeHandle || '@Agent',
+        tasks,
+        distinctProjects,
+      };
+    });
+  }, [agentMap, filteredAndSortedTasks]);
+
+  const tasksGroupedByProject = useMemo(() => {
+    const map = new Map<string, WorkflowTask[]>();
+    filteredAndSortedTasks.forEach((task) => {
+      const list = map.get(task.sessionId) || [];
+      list.push(task);
+      map.set(task.sessionId, list);
+    });
+    return Array.from(map.entries()).map(([projectId, tasks]) => ({
+      projectId,
+      workspace: workspaceMap.get(projectId),
+      tasks,
+    }));
+  }, [filteredAndSortedTasks, workspaceMap]);
+
+  const hasActiveTaskFilter =
+    taskStatusFilter !== 'all' || onlyWaitingConfirm || hideDoneTasks;
+
+  const handleResetTaskView = () => {
+    setTaskGroupBy('project');
+    setTaskSortBy('last_updated');
+    setTaskStatusFilter('all');
+    setOnlyWaitingConfirm(false);
+    setHideDoneTasks(false);
+    setOpenHeaderMenu('none');
+    setActiveSubMenu('none');
+  };
+
+  const handleSelectMode = (nextMode: ConversationInteractionMode) => {
+    setOpenHeaderMenu('none');
+    setActiveSubMenu('none');
+    setShowCreateProject(false);
+    setShowDmPicker(false);
+    setShowNewTaskDrawer(false);
+    onSwitchConversationMode(nextMode);
+  };
 
   const handleCreateProject = (e: FormEvent) => {
     e.preventDefault();
@@ -174,8 +446,38 @@ export function Sidebar({
     setNewGoal('');
     setNewSourceZoneId('');
     setShowCreateProject(false);
-    setModeTab('regular');
     onCloseMobile();
+  };
+
+  const handleOpenNewTaskDrawer = (preset?: { projectId?: string; agentId?: string }) => {
+    setQuickTaskProjectId(preset?.projectId || workspaces[0]?.id || '');
+    setQuickTaskAgentId(preset?.agentId || agents[0]?.id || '');
+    setShowNewTaskDrawer(true);
+    setShowCreateProject(false);
+    setShowDmPicker(false);
+    setOpenHeaderMenu('none');
+    setActiveSubMenu('none');
+  };
+
+  const handleQuickCreateTask = (e: FormEvent) => {
+    e.preventDefault();
+    if (!quickTaskTitle.trim()) return;
+    onCreateAndOpenTaskSession({
+      sessionId: quickTaskProjectId || workspaces[0]?.id || '',
+      featureModule: '专项任务',
+      workType: quickTaskType,
+      title: quickTaskTitle.trim(),
+      description: '在任务模式中直接发起的单 Agent 专项任务 Session。',
+      assigneeId: quickTaskAgentId || agents[0]?.id || '',
+      priority: '高',
+    });
+    setQuickTaskTitle('');
+    setShowNewTaskDrawer(false);
+    onCloseMobile();
+  };
+
+  const toggleGroupCollapse = (key: string) => {
+    setCollapsedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const navItems: {
@@ -216,6 +518,90 @@ export function Sidebar({
 
   const isChatView = activeView === 'chat';
 
+  const renderTaskRow = (task: WorkflowTask, context: 'flat' | 'agent' | 'project') => {
+    const isSelected =
+      isChatView &&
+      activeChatChannel.type === 'task_session' &&
+      activeChatChannel.taskId === task.id;
+    const agent = agentMap.get(task.assigneeId);
+    const proj = workspaceMap.get(task.sessionId);
+    const turns = taskSessions[task.id] || [];
+    const lastTurn = turns[turns.length - 1];
+    const displayTs = lastTurn?.timestamp || task.updatedAt;
+    const isWaiting = Boolean(task.status !== 'done' && lastTurn?.awaitingConfirmation);
+    const st = WORK_STATUS_META[task.status];
+
+    return (
+      <button
+        key={task.id}
+        type="button"
+        onClick={() => {
+          onSelectTaskSession(task.id);
+          onCloseMobile();
+        }}
+        className={`w-full text-left px-2.5 py-2 rounded-lg transition-colors cursor-pointer space-y-1 ${
+          isSelected
+            ? 'bg-slate-200/80 text-slate-900'
+            : 'hover:bg-slate-200/45 text-slate-700'
+        }`}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span
+            className={`text-[12.5px] leading-snug truncate ${
+              isSelected ? 'font-semibold text-slate-950' : 'font-medium text-slate-800'
+            }`}
+          >
+            {task.title}
+          </span>
+          <span className="text-[10.5px] font-mono tabular-nums text-slate-400 shrink-0">
+            {displayTs}
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1.5 min-w-0 truncate">
+            {context !== 'agent' && (
+              <span className="inline-flex items-center gap-1 truncate text-slate-600 font-medium">
+                <span
+                  className="w-3.5 h-3.5 rounded text-[8px] font-bold text-white inline-flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: agent?.avatarAccent || '#334155' }}
+                >
+                  {agent?.avatarCode?.slice(0, 1) || 'A'}
+                </span>
+                <span className="truncate">{displayEntityName(task.assigneeHandle)}</span>
+              </span>
+            )}
+            {context === 'flat' && proj && (
+              <span className="text-slate-300 shrink-0" aria-hidden="true">
+                ·
+              </span>
+            )}
+            {context !== 'project' && proj && (
+              <span className="truncate text-slate-500">{proj.name}</span>
+            )}
+            {context === 'project' && agent?.runtimeAgent && (
+              <>
+                <span className="text-slate-300 shrink-0" aria-hidden="true">
+                  ·
+                </span>
+                <span className="font-mono text-[10px] text-slate-400 shrink-0">
+                  {agent.runtimeAgent}
+                </span>
+              </>
+            )}
+          </div>
+          <span
+            className={`text-[10.5px] font-semibold shrink-0 whitespace-nowrap ${
+              isWaiting ? 'text-blue-700' : st.textCls
+            }`}
+          >
+            {isWaiting ? '待确认' : st.label}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   const sidebarContent = (
     <div className="h-full flex flex-col bg-slate-50 border-r border-slate-200 select-none">
       {/* Platform Brand Header */}
@@ -249,7 +635,7 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Top Vertical Primary Navigation (Extensible Claude/Agent Style) */}
+      {/* Top Vertical Primary Navigation */}
       <div className="px-2.5 py-2.5 border-b border-slate-200/80 bg-white shrink-0">
         <nav aria-label="主导航" className="space-y-0.5">
           {navItems.map((item) => {
@@ -297,105 +683,502 @@ export function Sidebar({
         </nav>
       </div>
 
-      {/* Lower Core Section: Regular IM Sessions (Project Groups + DMs + Nexa Assistant) vs. Task Card 1v1 Sessions */}
+      {/* Lower Core Section: Single Active Interaction Mode (对话模式 OR 任务模式) with Figure-2 Icon Header */}
       <div className="flex-1 min-h-0 flex flex-col">
-        <div className="px-3 pt-3 pb-2 space-y-2 shrink-0">
+        {/* Unified Conversation Header Row: Mode Title + Top-Right Hover-Tooltip Icon Triggers & Dropdowns */}
+        <div className="px-3 pt-3 pb-2 space-y-2 shrink-0 relative" ref={headerMenuRef}>
           <div className="flex items-center justify-between gap-1.5 px-0.5">
-            <span className="text-xs font-bold text-slate-700">协作对话</span>
-            {modeTab === 'regular' ? (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowCreateProject((v) => !v);
-                    setShowDmPicker(false);
-                  }}
-                  title="新建项目群"
-                  className={`inline-flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                    showCreateProject
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>建项目群</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowDmPicker((v) => !v);
-                    setShowCreateProject(false);
-                  }}
-                  title="发起专家/Agent单聊"
-                  className={`inline-flex items-center gap-0.5 px-1.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                    showDmPicker
-                      ? 'bg-slate-900 text-white'
-                      : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  <UserPlus className="w-3 h-3" />
-                  <span>单聊</span>
-                </button>
-              </div>
-            ) : (
-              <span className="text-[11px] font-mono tabular-nums text-slate-500">
-                {awaitingTaskSessionCount > 0
-                  ? `${awaitingTaskSessionCount} 项待确认`
-                  : `${allTasks.length} 个 Session`}
-              </span>
-            )}
-          </div>
-
-          {/* Dual Mode Switcher: 消息会话 vs Agent 任务 (Agent Execution Sessions) */}
-          <div className="grid grid-cols-2 gap-1 p-1 bg-slate-200/75 rounded-lg">
-            <button
-              type="button"
-              onClick={() => setModeTab('regular')}
-              className={`py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap ${
-                modeTab === 'regular'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
-              <span>消息会话</span>
-              <span className="text-[10px] font-mono tabular-nums opacity-70">
-                {regularTotalCount}
-              </span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setModeTab('task_session')}
-              className={`py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer inline-flex items-center justify-center gap-1.5 whitespace-nowrap ${
-                modeTab === 'task_session'
-                  ? 'bg-white text-slate-900 shadow-2xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
-              <span>Agent 任务</span>
-              <span
-                className={`text-[10px] font-mono tabular-nums ${
-                  awaitingTaskSessionCount > 0 && modeTab !== 'task_session'
-                    ? 'text-blue-700 font-bold'
-                    : 'opacity-70'
-                }`}
+            {/* Left Mode Label (clickable to open Mode Switch dropdown) */}
+            <div className="relative group/tip min-w-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenHeaderMenu((cur) => (cur === 'mode' ? 'none' : 'mode'));
+                  setActiveSubMenu('none');
+                }}
+                aria-expanded={openHeaderMenu === 'mode'}
+                className="inline-flex items-center gap-1 py-0.5 px-1 -ml-1 rounded-md text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 transition-colors cursor-pointer max-w-full"
               >
-                {allTasks.length}
-              </span>
-            </button>
+                <span className="truncate">
+                  {conversationMode === 'chat'
+                    ? '消息列表'
+                    : taskGroupBy === 'project'
+                      ? '项目任务'
+                      : taskGroupBy === 'agent'
+                        ? 'Agent 任务'
+                        : '全部任务流'}
+                </span>
+                <span className="font-mono tabular-nums text-[11px] font-normal text-slate-400 shrink-0">
+                  {conversationMode === 'chat'
+                    ? unifiedChatStream.length
+                    : filteredAndSortedTasks.length}
+                </span>
+                <ChevronDown
+                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ${
+                    openHeaderMenu === 'mode' ? 'rotate-180 text-slate-700' : ''
+                  }`}
+                />
+              </button>
+              {openHeaderMenu !== 'mode' && (
+                <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 left-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
+                  切换对话模式 / 任务模式
+                </div>
+              )}
+            </div>
+
+            {/* Right Minimal Icon Toolbar (Hover Tooltip + Click Dropdown) */}
+            <div className="flex items-center gap-0.5 shrink-0">
+              {/* 1. Switch Mode Icon */}
+              <div className="relative group/tip">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenHeaderMenu((cur) => (cur === 'mode' ? 'none' : 'mode'));
+                    setActiveSubMenu('none');
+                  }}
+                  aria-label="切换对话模式或任务模式"
+                  aria-expanded={openHeaderMenu === 'mode'}
+                  className={`relative p-1.5 rounded-md transition-colors cursor-pointer ${
+                    openHeaderMenu === 'mode'
+                      ? 'bg-slate-200/80 text-slate-900'
+                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <ArrowLeftRight className="w-3.5 h-3.5" />
+                  {conversationMode === 'chat' && awaitingTaskSessionCount > 0 && (
+                    <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-600" />
+                  )}
+                </button>
+                {openHeaderMenu !== 'mode' && (
+                  <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
+                    切换模式 · 当前：{conversationMode === 'chat' ? '对话模式' : '任务模式'}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Task Mode Filter / Group / Sort Icon */}
+              {conversationMode === 'task' && (
+                <div className="relative group/tip">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenHeaderMenu((cur) => (cur === 'filter' ? 'none' : 'filter'));
+                      setActiveSubMenu('none');
+                    }}
+                    aria-label="分组、排序与筛选"
+                    aria-expanded={openHeaderMenu === 'filter'}
+                    className={`relative p-1.5 rounded-md transition-colors cursor-pointer ${
+                      openHeaderMenu === 'filter' || hasActiveTaskFilter
+                        ? 'bg-slate-200/80 text-slate-900'
+                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+                    }`}
+                  >
+                    <ListFilter className="w-3.5 h-3.5" />
+                    {hasActiveTaskFilter && (
+                      <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-600" />
+                    )}
+                  </button>
+                  {openHeaderMenu !== 'filter' && (
+                    <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
+                      分组、排序与筛选
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 3. Create / New Project / Start Chat / New Task Icon */}
+              <div className="relative group/tip">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpenHeaderMenu((cur) => (cur === 'create' ? 'none' : 'create'));
+                    setActiveSubMenu('none');
+                  }}
+                  aria-label="新建项目、单聊或任务"
+                  aria-expanded={openHeaderMenu === 'create'}
+                  className={`p-1.5 rounded-md transition-colors cursor-pointer ${
+                    openHeaderMenu === 'create' ||
+                    showCreateProject ||
+                    showDmPicker ||
+                    showNewTaskDrawer
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
+                  }`}
+                >
+                  <FolderPlus className="w-3.5 h-3.5" />
+                </button>
+                {openHeaderMenu !== 'create' && (
+                  <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
+                    新建项目 / 发起单聊与任务
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Dropdown 1: Mode Switcher Popover (对话模式 / 任务模式) */}
+          {openHeaderMenu === 'mode' && (
+            <div className="absolute left-2.5 right-2.5 top-10 z-40 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs text-slate-700">
+              <div className="px-3 py-1 text-[10.5px] font-semibold text-slate-400">
+                切换交互模式
+              </div>
+              <button
+                type="button"
+                onClick={() => handleSelectMode('chat')}
+                className="w-full px-3 py-2 hover:bg-slate-100/80 flex items-center justify-between gap-2 text-left cursor-pointer"
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <MessageSquare
+                    className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
+                      conversationMode === 'chat' ? 'text-slate-900' : 'text-slate-400'
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div
+                      className={`text-xs ${
+                        conversationMode === 'chat'
+                          ? 'font-bold text-slate-900'
+                          : 'font-medium text-slate-700'
+                      }`}
+                    >
+                      对话模式
+                    </div>
+                    <div className="text-[10.5px] text-slate-400 truncate">
+                      统一消息时间流 · 群聊 / 单聊 / 助理
+                    </div>
+                  </div>
+                </div>
+                {conversationMode === 'chat' && (
+                  <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleSelectMode('task')}
+                className="w-full px-3 py-2 hover:bg-slate-100/80 flex items-center justify-between gap-2 text-left cursor-pointer"
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <MessageSquareCode
+                    className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
+                      conversationMode === 'task' ? 'text-slate-900' : 'text-slate-400'
+                    }`}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`text-xs ${
+                          conversationMode === 'task'
+                            ? 'font-bold text-slate-900'
+                            : 'font-medium text-slate-700'
+                        }`}
+                      >
+                        任务模式
+                      </span>
+                      {awaitingTaskSessionCount > 0 && (
+                        <span className="font-mono tabular-nums text-[10px] font-semibold text-blue-700">
+                          {awaitingTaskSessionCount} 待确认
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10.5px] text-slate-400 truncate">
+                      单 Agent 任务 Session · 分组与筛选
+                    </div>
+                  </div>
+                </div>
+                {conversationMode === 'task' && (
+                  <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Dropdown 2: Task Mode Antigravity / Codex-Style Filter, Group & Sort Popover */}
+          {openHeaderMenu === 'filter' && conversationMode === 'task' && (
+            <div className="absolute left-2.5 right-2.5 top-10 z-40 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs text-slate-700">
+              {/* Group By */}
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveSubMenu((cur) => (cur === 'group' ? 'none' : 'group'))
+                }
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="font-medium text-slate-800">分组方式</span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                  <span>{GROUP_BY_LABELS[taskGroupBy]}</span>
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      activeSubMenu === 'group' ? 'rotate-90 text-slate-800' : ''
+                    }`}
+                  />
+                </span>
+              </button>
+              {activeSubMenu === 'group' && (
+                <div className="mx-2 my-1 py-1 rounded-lg bg-slate-50 border border-slate-200/70 space-y-0.5">
+                  {(['project', 'agent', 'none'] as TaskGroupBy[]).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setTaskGroupBy(opt);
+                        setActiveSubMenu('none');
+                      }}
+                      className="w-full px-2.5 py-1 hover:bg-white flex items-center justify-between text-[11.5px] cursor-pointer"
+                    >
+                      <span
+                        className={
+                          taskGroupBy === opt ? 'font-semibold text-slate-900' : 'text-slate-600'
+                        }
+                      >
+                        {GROUP_BY_LABELS[opt]}
+                      </span>
+                      {taskGroupBy === opt && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Sort Tasks */}
+              <button
+                type="button"
+                onClick={() => setActiveSubMenu((cur) => (cur === 'sort' ? 'none' : 'sort'))}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="font-medium text-slate-800">任务排序</span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                  <span>{SORT_BY_LABELS[taskSortBy]}</span>
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      activeSubMenu === 'sort' ? 'rotate-90 text-slate-800' : ''
+                    }`}
+                  />
+                </span>
+              </button>
+              {activeSubMenu === 'sort' && (
+                <div className="mx-2 my-1 py-1 rounded-lg bg-slate-50 border border-slate-200/70 space-y-0.5">
+                  {(['last_updated', 'attention', 'status'] as TaskSortBy[]).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setTaskSortBy(opt);
+                        setActiveSubMenu('none');
+                      }}
+                      className="w-full px-2.5 py-1 hover:bg-white flex items-center justify-between text-[11.5px] cursor-pointer"
+                    >
+                      <span
+                        className={
+                          taskSortBy === opt ? 'font-semibold text-slate-900' : 'text-slate-600'
+                        }
+                      >
+                        {SORT_BY_LABELS[opt]}
+                      </span>
+                      {taskSortBy === opt && <Check className="w-3.5 h-3.5 text-blue-600" />}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="my-1.5 border-t border-slate-100" />
+
+              {/* Filter by Status */}
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveSubMenu((cur) => (cur === 'filter' ? 'none' : 'filter'))
+                }
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="font-medium text-slate-800">状态筛选</span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-slate-500">
+                  <span>{STATUS_FILTER_LABELS[taskStatusFilter]}</span>
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 transition-transform ${
+                      activeSubMenu === 'filter' ? 'rotate-90 text-slate-800' : ''
+                    }`}
+                  />
+                </span>
+              </button>
+              {activeSubMenu === 'filter' && (
+                <div className="mx-2 my-1 py-1 rounded-lg bg-slate-50 border border-slate-200/70 space-y-0.5">
+                  {(
+                    ['all', 'in_progress', 'review', 'pending', 'done'] as TaskStatusFilter[]
+                  ).map((opt) => (
+                    <button
+                      key={opt}
+                      type="button"
+                      onClick={() => {
+                        setTaskStatusFilter(opt);
+                        setActiveSubMenu('none');
+                      }}
+                      className="w-full px-2.5 py-1 hover:bg-white flex items-center justify-between text-[11.5px] cursor-pointer"
+                    >
+                      <span
+                        className={
+                          taskStatusFilter === opt
+                            ? 'font-semibold text-slate-900'
+                            : 'text-slate-600'
+                        }
+                      >
+                        {STATUS_FILTER_LABELS[opt]}
+                      </span>
+                      {taskStatusFilter === opt && (
+                        <Check className="w-3.5 h-3.5 text-blue-600" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Quick Boolean Toggles */}
+              <button
+                type="button"
+                onClick={() => setOnlyWaitingConfirm((v) => !v)}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="font-medium text-slate-800">仅看待确认</span>
+                {onlyWaitingConfirm && <Check className="w-3.5 h-3.5 text-blue-600" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setHideDoneTasks((v) => !v)}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center justify-between gap-2 cursor-pointer"
+              >
+                <span className="font-medium text-slate-800">隐藏已完成</span>
+                {hideDoneTasks && <Check className="w-3.5 h-3.5 text-blue-600" />}
+              </button>
+
+              <div className="my-1.5 border-t border-slate-100" />
+
+              <button
+                type="button"
+                onClick={handleResetTaskView}
+                className="w-full px-3 py-1.5 text-left text-[11.5px] text-slate-500 hover:text-slate-900 hover:bg-slate-100/80 cursor-pointer"
+              >
+                恢复默认视图
+              </button>
+            </div>
+          )}
+
+          {/* Dropdown 3: Create Action Menu (新建项目群 / 发起单聊 / 新建任务 Session) */}
+          {openHeaderMenu === 'create' && (
+            <div className="absolute left-2.5 right-2.5 top-10 z-40 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs text-slate-700">
+              <div className="px-3 py-1 text-[10.5px] font-semibold text-slate-400">
+                新建与发起
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateProject(true);
+                  setShowDmPicker(false);
+                  setShowNewTaskDrawer(false);
+                  setOpenHeaderMenu('none');
+                }}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center gap-2 text-left cursor-pointer"
+              >
+                <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800">新建项目群</div>
+                  <div className="text-[10.5px] text-slate-400 truncate">
+                    创建工作项目并自动建群
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDmPickerTab('human');
+                  setShowDmPicker(true);
+                  setShowCreateProject(false);
+                  setShowNewTaskDrawer(false);
+                  setOpenHeaderMenu('none');
+                }}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center gap-2 text-left cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800">发起人类专家单聊</div>
+                  <div className="text-[10.5px] text-slate-400 truncate">
+                    1v1 对齐需求与交付验收
+                  </div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setDmPickerTab('agent');
+                  setShowDmPicker(true);
+                  setShowCreateProject(false);
+                  setShowNewTaskDrawer(false);
+                  setOpenHeaderMenu('none');
+                }}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center gap-2 text-left cursor-pointer"
+              >
+                <Bot className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800">发起 Agent 单聊</div>
+                  <div className="text-[10.5px] text-slate-400 truncate">
+                    1v1 洽谈报价与雇佣条件
+                  </div>
+                </div>
+              </button>
+
+              <div className="my-1.5 border-t border-slate-100" />
+
+              <button
+                type="button"
+                onClick={() => handleOpenNewTaskDrawer()}
+                className="w-full px-3 py-1.5 hover:bg-slate-100/80 flex items-center gap-2 text-left cursor-pointer"
+              >
+                <MessageSquareCode className="w-3.5 h-3.5 text-slate-900 shrink-0" />
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-800">新建任务 Session</div>
+                  <div className="text-[10.5px] text-slate-400 truncate">
+                    向指定 Agent 指派专项任务
+                  </div>
+                </div>
+              </button>
+            </div>
+          )}
+
+          {/* Subtle Active View/Filter Status Line (Task Mode) */}
+          {conversationMode === 'task' &&
+            (hasActiveTaskFilter ||
+              taskGroupBy !== 'project' ||
+              taskSortBy !== 'last_updated') && (
+              <div className="flex items-center justify-between gap-2 px-1 text-[10.5px] text-slate-500">
+                <span className="truncate">
+                  {GROUP_BY_LABELS[taskGroupBy]} · {SORT_BY_LABELS[taskSortBy]}
+                  {taskStatusFilter !== 'all' ? ` · ${STATUS_FILTER_LABELS[taskStatusFilter]}` : ''}
+                  {onlyWaitingConfirm ? ' · 仅待确认' : ''}
+                  {hideDoneTasks ? ' · 隐藏已完成' : ''}
+                </span>
+                {hasActiveTaskFilter && (
+                  <button
+                    type="button"
+                    onClick={handleResetTaskView}
+                    className="text-blue-700 hover:underline font-medium shrink-0 cursor-pointer"
+                  >
+                    重置
+                  </button>
+                )}
+              </div>
+            )}
 
           {/* Inline Create Project Group Form */}
-          {modeTab === 'regular' && showCreateProject && (
+          {showCreateProject && (
             <form
               onSubmit={handleCreateProject}
               className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2"
             >
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-700">
-                  新建工作项目（同步创建项目群）
+                  新建项目并创建项目群
                 </span>
                 <button
                   type="button"
@@ -442,38 +1225,11 @@ export function Sidebar({
             </form>
           )}
 
-          {/* Task Session Mode: Project Filter & 1:1 Kanban Mapping Hint */}
-          {modeTab === 'task_session' && (
-            <div className="space-y-1">
-              <select
-                value={taskProjectFilter}
-                onChange={(e) => setTaskProjectFilter(e.target.value)}
-                aria-label="按工作项目筛选 Agent 任务"
-                className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-              >
-                <option value="all">全部工作项目 ({allTasks.length} 张任务卡)</option>
-                {workspaces.map((w) => {
-                  const cnt = allTasks.filter((t) => t.sessionId === w.id).length;
-                  return (
-                    <option key={w.id} value={w.id}>
-                      {w.name} ({cnt})
-                    </option>
-                  );
-                })}
-              </select>
-              <div className="px-0.5 text-[10px] text-slate-400">
-                与「工作台 → 项目看板」任务卡片 1:1 对应
-              </div>
-            </div>
-          )}
-
-          {/* Inline Start 1v1 Expert / Agent DM Picker */}
-          {modeTab === 'regular' && showDmPicker && (
-            <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-1.5">
+          {/* Inline Start 1v1 DM Picker */}
+          {showDmPicker && (
+            <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-700">
-                  选择专家 / Agent 发起单聊
-                </span>
+                <span className="text-[11px] font-semibold text-slate-700">发起 1v1 单聊</span>
                 <button
                   type="button"
                   onClick={() => setShowDmPicker(false)}
@@ -482,9 +1238,58 @@ export function Sidebar({
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {availableDmAgents.length === 0 ? (
+              <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 rounded-md">
+                <button
+                  type="button"
+                  onClick={() => setDmPickerTab('human')}
+                  className={`py-1 text-[11px] font-semibold rounded transition-colors cursor-pointer ${
+                    dmPickerTab === 'human'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  人类专家 ({availableDmHumans.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDmPickerTab('agent')}
+                  className={`py-1 text-[11px] font-semibold rounded transition-colors cursor-pointer ${
+                    dmPickerTab === 'agent'
+                      ? 'bg-white text-slate-900 shadow-2xs'
+                      : 'text-slate-600'
+                  }`}
+                >
+                  Agent ({availableDmAgents.length})
+                </button>
+              </div>
+
+              {dmPickerTab === 'human' ? (
+                availableDmHumans.length === 0 ? (
+                  <div className="text-[11px] text-slate-500 py-1">
+                    所有在线人类专家均已建立单聊。
+                  </div>
+                ) : (
+                  <div className="max-h-40 overflow-y-auto clean-scroll space-y-1">
+                    {availableDmHumans.map((h) => (
+                      <button
+                        key={h.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectHumanDm(h.id);
+                          setShowDmPicker(false);
+                          onCloseMobile();
+                        }}
+                        className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-100 flex items-center justify-between gap-2 text-xs cursor-pointer"
+                      >
+                        <span className="font-semibold text-slate-800 truncate">{h.name}</span>
+                        <span className="text-[11px] text-slate-500 truncate">{h.title}</span>
+                      </button>
+                    ))}
+                  </div>
+                )
+              ) : availableDmAgents.length === 0 ? (
                 <div className="text-[11px] text-slate-500 py-1">
-                  所有在线专家均已建立单聊通道。
+                  所有在线 Agent 均已建立单聊通道。
                 </div>
               ) : (
                 <div className="max-h-40 overflow-y-auto clean-scroll space-y-1">
@@ -506,7 +1311,7 @@ export function Sidebar({
                         className="font-medium text-slate-800"
                       />
                       <span className="text-[11px] text-slate-500 truncate">
-                        {cand.ownerHumanName ? `归属专家 ${cand.ownerHumanName}` : cand.title}
+                        {cand.ownerHumanName ? `归属 ${cand.ownerHumanName}` : cand.title}
                       </span>
                     </button>
                   ))}
@@ -514,72 +1319,137 @@ export function Sidebar({
               )}
             </div>
           )}
+
+          {/* Inline New Task Session Drawer */}
+          {showNewTaskDrawer && (
+            <form
+              onSubmit={handleQuickCreateTask}
+              className="p-2.5 rounded-lg bg-white border border-slate-300 space-y-1.5"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-800">新建任务 Session</span>
+                <button
+                  type="button"
+                  onClick={() => setShowNewTaskDrawer(false)}
+                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <select
+                value={quickTaskProjectId}
+                onChange={(e) => setQuickTaskProjectId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
+              >
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    项目：{w.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={quickTaskAgentId}
+                onChange={(e) => setQuickTaskAgentId(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
+              >
+                {agents.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    Agent：{displayEntityName(a.handle)} ({a.runtimeAgent})
+                  </option>
+                ))}
+              </select>
+              <select
+                value={quickTaskType}
+                onChange={(e) => setQuickTaskType(e.target.value as WorkCardType)}
+                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
+              >
+                <option value="development">类型：功能开发</option>
+                <option value="planning">类型：产品策划</option>
+                <option value="testing">类型：功能测试</option>
+                <option value="review">类型：架构评审</option>
+              </select>
+              <input
+                type="text"
+                required
+                value={quickTaskTitle}
+                onChange={(e) => setQuickTaskTitle(e.target.value)}
+                placeholder="输入任务标题..."
+                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-900 focus:outline-none focus:bg-white"
+              />
+              <button
+                type="submit"
+                className="w-full py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer"
+              >
+                创建并进入任务对话
+              </button>
+            </form>
+          )}
         </div>
 
-        {/* Thread List */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-2.5 pb-3 space-y-1">
-          {modeTab === 'regular' ? (
-            <>
-              {/* 1. Nexa Assistant */}
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectAssistant();
-                  onCloseMobile();
-                }}
-                className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
-                  isChatView && activeChatChannel.type === 'assistant'
-                    ? 'bg-white border-slate-300 shadow-2xs'
-                    : 'border-transparent hover:bg-white/80'
-                }`}
-              >
-                <div className="flex items-start gap-2.5">
-                  <div className="mt-0.5">
-                    <EntityAvatar kind="assistant" title="平台助理" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-1.5">
-                      <AgentIdentityName
-                        name="平台助理"
-                        runtime="Nexa"
-                        className="text-xs font-bold text-slate-900"
-                      />
-                      <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
-                        {lastAssistantMsg?.timestamp || '在线'}
-                      </span>
+        {conversationMode === 'chat' ? (
+          /* ================= MODE 1: 对话模式（类微信，按事件流自然排序，不分类别） ================= */
+          <div className="flex-1 overflow-y-auto clean-scroll px-2.5 pb-3 space-y-1">
+            {unifiedChatStream.map((item) => {
+              if (item.kind === 'assistant') {
+                const isSelected = isChatView && activeChatChannel.type === 'assistant';
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      onSelectAssistant();
+                      onCloseMobile();
+                    }}
+                    className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-white border-slate-300 shadow-2xs'
+                        : 'border-transparent hover:bg-white/80'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <div className="mt-0.5">
+                        <EntityAvatar kind="assistant" title="平台助理" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <AgentIdentityName
+                            name="平台助理"
+                            runtime="Nexa"
+                            className="text-xs font-bold text-slate-900"
+                          />
+                          <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
+                            {item.timestamp}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
+                          <span className="text-blue-700 font-medium truncate">
+                            结算 · 审核 · 评价 · 接单
+                          </span>
+                          {assistantPendingCount > 0 && (
+                            <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
+                              {assistantPendingCount} 待办
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1 text-[11px] text-slate-500 truncate">
+                          {lastAssistantMsg?.content || '处理日常项目结算核销、审核与接单提醒'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
-                      <span className="text-blue-700 font-medium truncate">
-                        结算 · 审核 · 评价 · 接单
-                      </span>
-                      {assistantPendingCount > 0 && (
-                        <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
-                          {assistantPendingCount} 待办
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-[11px] text-slate-500 truncate">
-                      {lastAssistantMsg?.content || '处理日常项目结算核销、审核与接单提醒'}
-                    </p>
-                  </div>
-                </div>
-              </button>
+                  </button>
+                );
+              }
 
-              {/* 2. Project Groups */}
-              {workspaces.map((ws) => {
+              if (item.kind === 'group') {
+                const ws = item.workspace;
                 const isSelected =
                   isChatView &&
                   activeChatChannel.type === 'group' &&
                   activeChatChannel.projectId === ws.id;
-                const wsMsgs = allMessages.filter((m) => m.sessionId === ws.id);
-                const lastMsg = wsMsgs[wsMsgs.length - 1];
-                const wsTasks = allTasks.filter((t) => t.sessionId === ws.id);
-                const reviewCount = wsTasks.filter((t) => t.status === 'review').length;
                 const wsZone = ws.sourceZoneId ? zoneMap.get(ws.sourceZoneId) : undefined;
-
                 return (
                   <button
-                    key={ws.id}
+                    key={item.key}
                     type="button"
                     onClick={() => {
                       onSelectProjectChat(ws.id);
@@ -601,48 +1471,44 @@ export function Sidebar({
                             {ws.name}
                           </span>
                           <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
-                            {lastMsg?.timestamp || ''}
+                            {item.timestamp}
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
                           <span className="text-slate-600 font-medium truncate">
                             {wsZone ? `${wsZone.shortCode}·${wsZone.name}` : '个人项目'} ·{' '}
-                            {wsTasks.length} 卡
+                            {item.taskCount} 卡
                           </span>
-                          {reviewCount > 0 && (
+                          {item.reviewCount > 0 && (
                             <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">
-                              {reviewCount} 待验证
+                              {item.reviewCount} 待验证
                             </span>
                           )}
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500 truncate">
-                          {lastMsg
-                            ? `${displayEntityName(lastMsg.senderHandle)}: ${lastMsg.content}`
+                          {item.lastMsg
+                            ? `${displayEntityName(item.lastMsg.senderHandle)}: ${item.lastMsg.content}`
                             : ws.goal}
                         </p>
                       </div>
                     </div>
                   </button>
                 );
-              })}
+              }
 
-              {/* 3. Direct 1v1 Chats with Agents (and their Human Owners) */}
-              {negotiations.map((thread) => {
-                const dmAgent = agentMap.get(thread.agentId);
-                if (!dmAgent) return null;
+              if (item.kind === 'human_dm') {
+                const { expert, thread } = item;
                 const isSelected =
                   isChatView &&
-                  activeChatChannel.type === 'dm' &&
-                  activeChatChannel.agentId === thread.agentId;
-                const lastDm = thread.messages[thread.messages.length - 1];
-                const st = DM_STATUS_LABEL[thread.status];
-
+                  activeChatChannel.type === 'human_dm' &&
+                  activeChatChannel.expertId === thread.expertId;
+                const lastMsg = thread.messages[thread.messages.length - 1];
                 return (
                   <button
-                    key={thread.agentId}
+                    key={item.key}
                     type="button"
                     onClick={() => {
-                      onSelectDm(thread.agentId);
+                      onSelectHumanDm(thread.expertId);
                       onCloseMobile();
                     }}
                     className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
@@ -654,65 +1520,48 @@ export function Sidebar({
                     <div className="flex items-start gap-2.5">
                       <div className="mt-0.5">
                         <EntityAvatar
-                          kind="agent"
-                          code={dmAgent.avatarCode}
-                          accent={dmAgent.avatarAccent}
-                          title={`Agent 节点 · 归属专家 ${dmAgent.ownerHumanName || '社区认证'}`}
+                          kind="human"
+                          code={expert.avatarInitials}
+                          accent={expert.avatarAccent}
+                          title={`人类专家 · ${expert.name}`}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center justify-between gap-1.5">
-                          <AgentIdentityName
-                            name={dmAgent.handle}
-                            runtime={dmAgent.runtimeAgent}
-                            model={dmAgent.defaultModel}
-                            className="text-xs font-bold text-slate-900"
-                          />
+                          <span className="text-xs font-bold text-slate-900 truncate">
+                            {expert.name}
+                          </span>
                           <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
-                            {lastDm?.timestamp || thread.updatedAt}
+                            {item.timestamp}
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
-                          <span className="text-slate-500 truncate">
-                            {dmAgent.ownerHumanName
-                              ? `归属专家：${dmAgent.ownerHumanName}`
-                              : dmAgent.name}
-                          </span>
-                          <span className={`shrink-0 whitespace-nowrap ${st.cls}`}>
-                            {st.text}
-                          </span>
+                          <span className="text-slate-500 truncate">{expert.title}</span>
+                          <span className="text-emerald-700 font-medium shrink-0">专家</span>
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500 truncate">
-                          {lastDm?.content || thread.scopeNote}
+                          {lastMsg?.content || '点击开始 1v1 沟通协作'}
                         </p>
                       </div>
                     </div>
                   </button>
                 );
-              })}
-            </>
-          ) : (
-            /* Agent Task Execution Sessions: each item corresponds to one Agent's task session */
-            sortedTaskSessions.map((task) => {
+              }
+
+              // agent_dm
+              const { agent: dmAgent, thread } = item;
               const isSelected =
                 isChatView &&
-                activeChatChannel.type === 'task_session' &&
-                activeChatChannel.taskId === task.id;
-              const agent = agentMap.get(task.assigneeId);
-              const proj = workspaceMap.get(task.sessionId);
-              const turns = taskSessions[task.id] || [];
-              const lastTurn = turns[turns.length - 1];
-              const isWaiting = Boolean(
-                task.status !== 'done' && lastTurn?.awaitingConfirmation,
-              );
-              const st = WORK_STATUS_META[task.status];
-
+                activeChatChannel.type === 'dm' &&
+                activeChatChannel.agentId === thread.agentId;
+              const lastDm = thread.messages[thread.messages.length - 1];
+              const st = DM_STATUS_LABEL[thread.status];
               return (
                 <button
-                  key={task.id}
+                  key={item.key}
                   type="button"
                   onClick={() => {
-                    onSelectTaskSession(task.id);
+                    onSelectDm(thread.agentId);
                     onCloseMobile();
                   }}
                   className={`w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
@@ -725,60 +1574,171 @@ export function Sidebar({
                     <div className="mt-0.5">
                       <EntityAvatar
                         kind="agent"
-                        code={agent?.avatarCode || 'AI'}
-                        accent={agent?.avatarAccent || '#334155'}
-                        sessionCorner
-                        title={`${displayEntityName(task.assigneeHandle)} 执行 Session`}
+                        code={dmAgent.avatarCode}
+                        accent={dmAgent.avatarAccent}
+                        title={`Agent 专家 · ${dmAgent.ownerHumanName || '社区认证'}`}
                       />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-1.5">
                         <AgentIdentityName
-                          name={task.assigneeHandle}
-                          runtime={agent?.runtimeAgent}
-                          model={agent?.defaultModel}
+                          name={dmAgent.handle}
+                          runtime={dmAgent.runtimeAgent}
+                          model={dmAgent.defaultModel}
                           className="text-xs font-bold text-slate-900"
                         />
                         <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
-                          {lastTurn?.timestamp || task.updatedAt}
+                          {item.timestamp}
                         </span>
                       </div>
                       <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
-                        <span className="text-slate-700 font-medium truncate">
-                          {task.title}
+                        <span className="text-slate-500 truncate">
+                          {dmAgent.ownerHumanName
+                            ? `归属：${dmAgent.ownerHumanName}`
+                            : dmAgent.name}
                         </span>
-                        <span
-                          className={`font-semibold shrink-0 whitespace-nowrap ${
-                            isWaiting ? 'text-blue-700' : st.textCls
-                          }`}
-                        >
-                          {isWaiting ? '待确认' : st.label}
-                        </span>
+                        <span className={`shrink-0 whitespace-nowrap ${st.cls}`}>{st.text}</span>
                       </div>
-                      <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-500 min-w-0">
-                        <span className="font-mono text-slate-400 shrink-0">#{task.id}</span>
-                        {agent?.defaultModel && (
-                          <>
-                            <span className="text-slate-300 shrink-0" aria-hidden="true">·</span>
-                            <span className="font-mono text-slate-500 shrink-0">
-                              {formatShortModel(agent.defaultModel)}
-                            </span>
-                          </>
-                        )}
-                        {proj && (
-                          <>
-                            <span className="text-slate-300 shrink-0" aria-hidden="true">·</span>
-                            <span className="truncate">{proj.name}</span>
-                          </>
-                        )}
-                      </div>
+                      <p className="mt-1 text-[11px] text-slate-500 truncate">
+                        {lastDm?.content || thread.scopeNote}
+                      </p>
                     </div>
                   </div>
                 </button>
               );
-            })
-          )}
-        </div>
+            })}
+          </div>
+        ) : (
+          /* ================= MODE 2: 任务模式（类 Codex / Antigravity，可筛选/分组/不分组事件流） ================= */
+          <div className="flex-1 overflow-y-auto clean-scroll px-2 pb-3">
+              {filteredAndSortedTasks.length === 0 ? (
+                <div className="px-3 py-8 text-center space-y-2">
+                  <div className="text-xs text-slate-500">当前筛选条件下暂无任务 Session</div>
+                  {hasActiveTaskFilter && (
+                    <button
+                      type="button"
+                      onClick={handleResetTaskView}
+                      className="text-xs font-semibold text-blue-700 hover:underline cursor-pointer"
+                    >
+                      重置筛选条件
+                    </button>
+                  )}
+                </div>
+              ) : taskGroupBy === 'none' ? (
+                /* Ungrouped: Pure Task Event Stream sorted chronologically */
+                <div className="space-y-0.5">
+                  {filteredAndSortedTasks.map((task) => renderTaskRow(task, 'flat'))}
+                </div>
+              ) : taskGroupBy === 'agent' ? (
+                /* Grouped by Agent (Cross-Project Aggregation) */
+                <div className="space-y-2.5">
+                  {tasksGroupedByAgent.map((group) => {
+                    const groupKey = `ag:${group.agentId}`;
+                    const isCollapsed = Boolean(collapsedGroups[groupKey]);
+                    return (
+                      <div key={group.agentId} className="space-y-0.5">
+                        <div className="group flex items-center justify-between gap-1 px-1.5 py-1 rounded-md hover:bg-slate-200/50 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => toggleGroupCollapse(groupKey)}
+                            className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            )}
+                            <span
+                              className="w-4 h-4 rounded text-white text-[8px] font-bold inline-flex items-center justify-center shrink-0"
+                              style={{ backgroundColor: group.agent?.avatarAccent || '#334155' }}
+                            >
+                              {group.agent?.avatarCode?.slice(0, 1) || 'A'}
+                            </span>
+                            <span className="text-xs font-semibold text-slate-700 truncate">
+                              {displayEntityName(group.handle)}
+                            </span>
+                            <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
+                              {group.distinctProjects}项·{group.tasks.length}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenNewTaskDrawer({
+                                agentId: group.agentId,
+                                projectId: group.tasks[0]?.sessionId,
+                              })
+                            }
+                            title={`为 ${displayEntityName(group.handle)} 新建任务`}
+                            className="p-0.5 rounded text-slate-400 hover:text-slate-900 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {!isCollapsed && (
+                          <div className="pl-2 space-y-0.5">
+                            {group.tasks.map((task) => renderTaskRow(task, 'agent'))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Grouped by Project (Antigravity Projects Tree Style) */
+                <div className="space-y-2.5">
+                  {tasksGroupedByProject.map((group) => {
+                    const groupKey = `pj:${group.projectId}`;
+                    const isCollapsed = Boolean(collapsedGroups[groupKey]);
+                    return (
+                      <div key={group.projectId} className="space-y-0.5">
+                        <div className="group flex items-center justify-between gap-1 px-1.5 py-1 rounded-md hover:bg-slate-200/50 transition-colors">
+                          <button
+                            type="button"
+                            onClick={() => toggleGroupCollapse(groupKey)}
+                            className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
+                          >
+                            {isCollapsed ? (
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            ) : (
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            )}
+                            <FolderKanban className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                            <span className="text-xs font-semibold text-slate-700 truncate">
+                              {group.workspace?.name || '项目'}
+                            </span>
+                            <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
+                              {group.tasks.length}
+                            </span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenNewTaskDrawer({
+                                projectId: group.projectId,
+                                agentId: group.tasks[0]?.assigneeId,
+                              })
+                            }
+                            title={`在「${group.workspace?.name || '项目'}」新建任务`}
+                            className="p-0.5 rounded text-slate-400 hover:text-slate-900 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {!isCollapsed && (
+                          <div className="pl-2 space-y-0.5">
+                            {group.tasks.map((task) => renderTaskRow(task, 'project'))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+          </div>
+        )}
       </div>
 
       {/* Bottom-Left Pinned AgentNexus Account Login Footer */}
@@ -786,33 +1746,8 @@ export function Sidebar({
     </div>
   );
 
-  const handleRailRegularChat = () => {
-    setModeTab('regular');
-    if (activeChatChannel.type === 'group') {
-      onSelectProjectChat(activeChatChannel.projectId);
-    } else if (activeChatChannel.type === 'dm') {
-      onSelectDm(activeChatChannel.agentId);
-    } else if (activeChatChannel.type === 'assistant') {
-      onSelectAssistant();
-    } else if (workspaces[0]) {
-      onSelectProjectChat(workspaces[0].id);
-    } else {
-      onSelectAssistant();
-    }
-  };
-
-  const handleRailTaskSessions = () => {
-    setModeTab('task_session');
-    if (activeChatChannel.type === 'task_session') {
-      onSelectView('chat');
-      return;
-    }
-    const firstTask = sortedTaskSessions[0];
-    if (firstTask) {
-      onSelectTaskSession(firstTask.id);
-    } else {
-      onSelectView('chat');
-    }
+  const handleRailEnterCurrentMode = () => {
+    onSelectView('chat');
   };
 
   const collapsedRail = (
@@ -858,38 +1793,29 @@ export function Sidebar({
 
         <div className="w-6 h-px bg-slate-200 my-1.5" aria-hidden="true" />
 
-        {/* Chat Mode Shortcuts */}
+        {/* Single Active Mode Shortcut */}
         <button
           type="button"
-          onClick={handleRailRegularChat}
-          title={`消息会话（${regularTotalCount}）`}
-          aria-label="消息会话"
+          onClick={handleRailEnterCurrentMode}
+          title={
+            conversationMode === 'task'
+              ? `任务模式（${allTasks.length} 个任务 Session）`
+              : `对话模式（${unifiedChatStream.length} 条会话）`
+          }
+          aria-label={conversationMode === 'task' ? '任务模式' : '对话模式'}
           className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-            isChatView && activeChatChannel.type !== 'task_session'
+            isChatView
               ? 'bg-slate-900 text-sky-300 shadow-2xs'
               : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
           }`}
         >
-          <MessageSquare className="w-4 h-4" />
-          {assistantPendingCount > 0 && !(isChatView && activeChatChannel.type !== 'task_session') && (
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-slate-50" />
+          {conversationMode === 'task' ? (
+            <MessageSquareCode className="w-4 h-4" />
+          ) : (
+            <MessageSquare className="w-4 h-4" />
           )}
-        </button>
-
-        <button
-          type="button"
-          onClick={handleRailTaskSessions}
-          title={`Agent 任务（${allTasks.length} 个 Session）`}
-          aria-label="Agent 任务"
-          className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
-            isChatView && activeChatChannel.type === 'task_session'
-              ? 'bg-slate-900 text-sky-300 shadow-2xs'
-              : 'text-slate-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
-          }`}
-        >
-          <MessageSquareCode className="w-4 h-4" />
-          {awaitingTaskSessionCount > 0 &&
-            !(isChatView && activeChatChannel.type === 'task_session') && (
+          {!isChatView &&
+            (conversationMode === 'task' ? awaitingTaskSessionCount > 0 : assistantPendingCount > 0) && (
               <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-blue-600 ring-2 ring-slate-50" />
             )}
         </button>
@@ -926,7 +1852,7 @@ export function Sidebar({
     <>
       <aside
         className={`hidden lg:block shrink-0 h-full transition-[width] duration-200 ease-out overflow-hidden ${
-          collapsed ? 'w-[60px]' : 'w-[276px]'
+          collapsed ? 'w-[60px]' : 'w-[280px]'
         }`}
       >
         {collapsed ? collapsedRail : sidebarContent}

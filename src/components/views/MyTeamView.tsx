@@ -11,6 +11,7 @@ import {
   Database,
   Globe,
   MessageCircle,
+  MessageSquareCode,
   MoreHorizontal,
   Plus,
   Server,
@@ -115,6 +116,8 @@ interface MyTeamViewProps {
   onUpdateTeamExpertRelation: (expertId: string, relation: ExpertRelationType) => void;
   onRemoveTeamExpert: (expertId: string) => void;
   onStartNegotiation: (agentId: string) => void;
+  onOpenTaskSession?: (taskId: string) => void;
+  onOpenAgentTaskSession?: (agentId: string) => void;
   onSavePrivateAgent: (expert: ExpertAgent, isNew: boolean) => void;
   onToggleMarketListing: (agentId: string, targetZoneId?: string) => void;
   onRecruitCategory: (category: 'all' | AgentCategory) => void;
@@ -294,6 +297,8 @@ export function MyTeamView({
   onUpdateTeamExpertRelation,
   onRemoveTeamExpert,
   onStartNegotiation,
+  onOpenTaskSession,
+  onOpenAgentTaskSession,
   onSavePrivateAgent,
   onToggleMarketListing,
   onRecruitCategory,
@@ -1658,10 +1663,10 @@ export function MyTeamView({
                 ) : (
                   <div className="border border-slate-200 rounded-xl bg-white mb-16">
                     {/* Desktop Column Header */}
-                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_84px_164px_140px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
                       <div>专业 Agent</div>
                       <div>运行状态</div>
-                      <div>当前交付</div>
+                      <div>任务 Session</div>
                       <div>评级 / 租期</div>
                       <div className="text-right">操作</div>
                     </div>
@@ -1682,7 +1687,7 @@ export function MyTeamView({
                         });
                         const tierRating = pricing.rating;
                         const agentTasks = tasks.filter((t) => t.assigneeId === agent.id);
-                        const doneTasks = agentTasks.filter((t) => t.status === 'done').length;
+                        const agentProjectCount = new Set(agentTasks.map((t) => t.sessionId)).size;
                         const projectNames = status.projectNames;
                         const listedZoneNames = agent.listedZoneIds
                           .map((zid) => getZoneName(zid))
@@ -1695,7 +1700,7 @@ export function MyTeamView({
                         return (
                           <div
                             key={agent.id}
-                            className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_84px_164px_140px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
+                            className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
                           >
                             {/* Col 1: Agent Identity & Capabilities */}
                             <div className="flex items-start gap-3.5 min-w-0">
@@ -1826,6 +1831,34 @@ export function MyTeamView({
                                       )}
                                     </div>
                                   )}
+
+                                  {agentTasks.length > 0 && onOpenTaskSession && (
+                                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 pt-0.5">
+                                      <span className="text-slate-400">跨项目任务：</span>
+                                      {agentTasks.slice(0, 2).map((t) => {
+                                        const tProj = workspaces.find((w) => w.id === t.sessionId);
+                                        return (
+                                          <button
+                                            key={t.id}
+                                            type="button"
+                                            onClick={() => onOpenTaskSession(t.id)}
+                                            className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900 hover:underline underline-offset-2 font-medium cursor-pointer max-w-[240px] truncate"
+                                            title={`进入 ${tProj?.name || '项目'} · ${t.title}`}
+                                          >
+                                            <MessageSquareCode className="w-3 h-3 shrink-0" />
+                                            <span className="truncate">
+                                              {tProj ? `${tProj.name} · ` : ''}#{t.id}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                      {agentTasks.length > 2 && (
+                                        <span className="text-slate-400 font-mono tabular-nums">
+                                          +{agentTasks.length - 2}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1864,25 +1897,40 @@ export function MyTeamView({
                               </div>
                             </div>
 
-                            {/* Col 3: Current Project Delivery */}
-                            <div className="flex items-center justify-between @[860px]:block text-xs font-mono tabular-nums">
-                              <span className="text-[11px] font-sans text-slate-400 @[860px]:hidden">当前交付</span>
-                              {isWorkingInCurrent ? (
-                                <div>
-                                  <div className="font-semibold text-slate-900">
-                                    {doneTasks}/{agentTasks.length} 卡
+                            {/* Col 3: Aggregated Cross-Project Task Sessions */}
+                            <div className="flex items-center justify-between @[860px]:block text-xs">
+                              <span className="text-[11px] font-sans text-slate-400 @[860px]:hidden">
+                                任务 Session
+                              </span>
+                              {agentTasks.length > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenAgentTaskSession?.(agent.id)}
+                                  className="text-left group cursor-pointer"
+                                  title={`查看并进入 ${agent.handle} 跨项目汇聚的任务对话`}
+                                >
+                                  <div className="font-mono tabular-nums font-semibold text-blue-700 group-hover:underline underline-offset-2 inline-flex items-center gap-1">
+                                    <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
+                                    <span>{agentTasks.length} 个任务</span>
                                   </div>
                                   <div className="text-[11px] font-sans text-slate-400 mt-0.5">
-                                    本项任务
+                                    汇聚 {agentProjectCount} 个项目
                                   </div>
-                                </div>
+                                </button>
                               ) : (
-                                <div>
-                                  <div className="font-semibold text-slate-300">—</div>
-                                  <div className="text-[11px] font-sans text-slate-400 mt-0.5">
-                                    {projectNames.length > 0 ? '他项执行' : '未派单'}
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenAgentTaskSession?.(agent.id)}
+                                  className="text-left group cursor-pointer"
+                                  title={`为 ${agent.handle} 新建任务 Session`}
+                                >
+                                  <div className="font-medium text-slate-500 group-hover:text-slate-900">
+                                    开启任务
                                   </div>
-                                </div>
+                                  <div className="text-[11px] font-sans text-slate-400 mt-0.5">
+                                    暂无活跃 Session
+                                  </div>
+                                </button>
                               )}
                             </div>
 

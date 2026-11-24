@@ -5,16 +5,20 @@ export type CommunityHubTab =
   | 'service_humans'
   | 'service_skills'
   | 'social_all'
+  | 'social_projects'
   | 'social_following'
   | 'social_pinned';
 
-export type ChatChannelType = 'assistant' | 'group' | 'task_session' | 'dm';
+export type ConversationInteractionMode = 'chat' | 'task';
+
+export type ChatChannelType = 'assistant' | 'group' | 'task_session' | 'dm' | 'human_dm';
 
 export type ActiveChatChannel =
   | { type: 'assistant' }
   | { type: 'group'; projectId: string }
   | { type: 'task_session'; taskId: string; projectId: string }
-  | { type: 'dm'; agentId: string };
+  | { type: 'dm'; agentId: string }
+  | { type: 'human_dm'; expertId: string };
 
 export type AgentCategory =
   | 'engineering'
@@ -260,6 +264,20 @@ export interface NegotiationThread {
   firstWorkCardTitle: string;
   updatedAt: string;
   messages: DirectMessage[];
+}
+
+export interface HumanDirectMessage {
+  id: string;
+  sender: 'employer' | 'human';
+  content: string;
+  timestamp: string;
+  linkedTaskId?: string;
+}
+
+export interface HumanDirectThread {
+  expertId: string;
+  updatedAt: string;
+  messages: HumanDirectMessage[];
 }
 
 export interface AssistantActionCard {
@@ -555,6 +573,7 @@ export interface ZoneProjectOpportunity {
 export type CommunityPostType =
   | 'discussion'
   | 'project'
+  | 'skill_share'
   | 'agn_recommend'
   | 'announcement';
 
@@ -590,8 +609,10 @@ export interface CommunityPost {
   comments: CommunityComment[];
   /** Present when this feed post embeds a live project matchmaking opportunity */
   linkedProjectId?: string;
-  /** Present when this feed post showcases an expert Agent available for consultation */
+  /** Present when this feed post showcases an expert Agent available in Service Market */
   linkedAgentId?: string;
+  /** Present when this feed post publishes a Skill / MCP available in Service Market */
+  linkedSkillId?: string;
 }
 
 export type SkillKind = 'skill' | 'mcp' | 'workflow';

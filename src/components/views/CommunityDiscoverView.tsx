@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  Blocks,
   Briefcase,
   Check,
   CheckCircle2,
   Clock,
+  Copy,
   Flame,
   Heart,
   Lock,
@@ -13,8 +15,10 @@ import {
   Pin,
   PinOff,
   Plus,
+  Rocket,
   Send,
   ShieldCheck,
+  ShoppingBag,
   Sparkles,
   Store,
   Trophy,
@@ -29,6 +33,7 @@ import {
   EntityAvatar,
   displayEntityName,
   evaluateAgentTierRating,
+  getSkillPurchasePricing,
 } from '../shared/EntityIdentity';
 import {
   RailNavButton,
@@ -41,14 +46,19 @@ import {
   WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import type {
+  AgentCategory,
   CommunityPost,
   CommunityPostType,
   CommunityZone,
   ExpertAgent,
   HumanExpert,
+  MarketSkill,
   ServiceMode,
+  SkillKind,
   ZoneProjectOpportunity,
 } from '../../types/agentnexus';
+
+export type SocialFeedScope = 'all' | 'projects' | 'following' | 'pinned';
 
 interface CommunityDiscoverViewProps {
   zones: CommunityZone[];
@@ -58,7 +68,10 @@ interface CommunityDiscoverViewProps {
   communityPosts: CommunityPost[];
   followedEntityKeys: string[];
   allAgents: ExpertAgent[];
+  privateAgents?: ExpertAgent[];
   humanExperts: HumanExpert[];
+  marketSkills?: MarketSkill[];
+  purchasedSkillIds?: string[];
   zoneSeed: string | null;
   onClearZoneSeed: () => void;
   onSelectZone: (zoneId: string) => void;
@@ -72,7 +85,19 @@ interface CommunityDiscoverViewProps {
     tags?: string[];
     pinned?: boolean;
     pinnedBy?: string;
+    linkedAgentId?: string;
+    linkedSkillId?: string;
   }) => void;
+  onPublishSkill?: (input: {
+    zoneId: string;
+    name: string;
+    summary: string;
+    kind: SkillKind;
+    category: AgentCategory;
+    priceUsd: number;
+    postContent?: string;
+  }) => string;
+  onAcquireSkill?: (skillId: string, skillName?: string, priceUsd?: number) => void;
   onTogglePinPost: (postId: string, principalName?: string) => void;
   onToggleLikePost: (postId: string) => void;
   onAddPostComment: (postId: string, content: string) => void;
@@ -89,8 +114,8 @@ interface CommunityDiscoverViewProps {
   onJumpToZoneMarket: (zoneId: string) => void;
   onJumpToKanban: (projectId?: string) => void;
   embeddedMode?: boolean;
-  controlledFeedScope?: 'all' | 'following' | 'pinned';
-  onChangeFeedScope?: (scope: 'all' | 'following' | 'pinned') => void;
+  controlledFeedScope?: SocialFeedScope;
+  onChangeFeedScope?: (scope: SocialFeedScope) => void;
 }
 
 const POST_TYPE_META: Record<
@@ -104,23 +129,35 @@ const POST_TYPE_META: Record<
     icon: MessageCircle,
   },
   project: {
-    label: '项目招募',
+    label: '项目共创',
     cls: 'text-blue-700',
     badgeCls: 'bg-blue-50 text-blue-700 border-blue-200/80',
-    icon: Briefcase,
+    icon: Rocket,
+  },
+  skill_share: {
+    label: '发布 Skill',
+    cls: 'text-amber-800',
+    badgeCls: 'bg-amber-50 text-amber-800 border-amber-200/80',
+    icon: Blocks,
   },
   agn_recommend: {
-    label: 'AGN 推荐',
+    label: '专家 Agent',
     cls: 'text-indigo-700',
     badgeCls: 'bg-indigo-50 text-indigo-700 border-indigo-200/80',
     icon: Sparkles,
   },
   announcement: {
     label: '社区公告',
-    cls: 'text-amber-800',
-    badgeCls: 'bg-amber-50 text-amber-800 border-amber-200/80',
+    cls: 'text-slate-700',
+    badgeCls: 'bg-slate-100 text-slate-700 border-slate-200/80',
     icon: Megaphone,
   },
+};
+
+const SKILL_KIND_LABELS: Record<SkillKind, string> = {
+  skill: 'Skill',
+  mcp: 'MCP',
+  workflow: '工作流',
 };
 
 const SERVICE_MODE_LABELS: Record<ServiceMode, string> = {
@@ -161,13 +198,18 @@ export function CommunityDiscoverView({
   communityPosts,
   followedEntityKeys,
   allAgents,
+  privateAgents = [],
   humanExperts,
+  marketSkills = [],
+  purchasedSkillIds = [],
   zoneSeed,
   onClearZoneSeed,
   onSelectZone,
   onToggleJoinZone,
   onToggleFollowEntity,
   onCreatePost,
+  onPublishSkill,
+  onAcquireSkill,
   onTogglePinPost,
   onToggleLikePost,
   onAddPostComment,
@@ -180,18 +222,21 @@ export function CommunityDiscoverView({
   controlledFeedScope,
   onChangeFeedScope,
 }: CommunityDiscoverViewProps) {
-  const [internalFeedScope, setInternalFeedScope] = useState<'all' | 'following' | 'pinned'>(
+  const [internalFeedScope, setInternalFeedScope] = useState<SocialFeedScope>(
     controlledFeedScope || 'all',
   );
   const feedScope = controlledFeedScope ?? internalFeedScope;
-  const setFeedScope = (next: 'all' | 'following' | 'pinned') => {
+  const setFeedScope = (next: SocialFeedScope) => {
     setInternalFeedScope(next);
     onChangeFeedScope?.(next);
   };
   const [topicFilter, setTopicFilter] = useState<'all' | CommunityPostType>('all');
+  const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'open' | 'claimed'>('all');
   const [crossZoneFollowing, setCrossZoneFollowing] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [principalDemoZones, setPrincipalDemoZones] = useState<Record<string, boolean>>({});
+  const [rankingTab, setRankingTab] = useState<'users' | 'posts'>('users');
+  const [copiedSkillId, setCopiedSkillId] = useState<string | null>(null);
 
   // Project Consultation Modal State
   const [consultProjectId, setConsultProjectId] = useState<string | null>(null);
@@ -209,10 +254,22 @@ export function CommunityDiscoverView({
   const [projBudget, setProjBudget] = useState(3200);
   const [projDays, setProjDays] = useState(7);
   const [projRoles, setProjRoles] = useState('架构审查, 全栈研发');
+  // Skill publish fields
+  const [skillName, setSkillName] = useState('');
+  const [skillKind, setSkillKind] = useState<SkillKind>('skill');
+  const [skillCategory, setSkillCategory] = useState<AgentCategory>('engineering');
+  const [skillPrice, setSkillPrice] = useState(0);
+  // Expert Agent publish field
+  const [selectedPublishAgentId, setSelectedPublishAgentId] = useState<string>(
+    privateAgents[0]?.id || '',
+  );
 
   const openComposer = (mode: CommunityPostType = 'discussion') => {
     setComposerMode(mode);
     setComposerPin(mode === 'announcement');
+    if (mode === 'agn_recommend' && !selectedPublishAgentId && privateAgents[0]?.id) {
+      setSelectedPublishAgentId(privateAgents[0].id);
+    }
     setIsComposerOpen(true);
   };
 
@@ -276,6 +333,12 @@ export function CommunityDiscoverView({
     return map;
   }, [allAgents]);
 
+  const skillMap = useMemo(() => {
+    const map = new Map<string, MarketSkill>();
+    marketSkills.forEach((s) => map.set(s.id, s));
+    return map;
+  }, [marketSkills]);
+
   const followedSet = useMemo(() => new Set(followedEntityKeys), [followedEntityKeys]);
 
   const zoneMap = useMemo(() => {
@@ -291,15 +354,6 @@ export function CommunityDiscoverView({
     });
     return set;
   }, [joinedZoneIds, zones]);
-
-  const isPostFollowed = (post: CommunityPost) => {
-    const primaryKey = getPostAuthorFollowKey(post);
-    if (followedSet.has(primaryKey)) return true;
-    if (post.authorEntityType === 'agent' && post.authorOwnerName) {
-      return followedSet.has(getHumanFollowKey(post.authorOwnerName));
-    }
-    return false;
-  };
 
   const zonePosts = useMemo(
     () => communityPosts.filter((p) => p.zoneId === activeCommunity.id),
@@ -325,6 +379,7 @@ export function CommunityDiscoverView({
       all: zonePosts.length,
       discussion: 0,
       project: 0,
+      skill_share: 0,
       agn_recommend: 0,
       announcement: 0,
     };
@@ -348,6 +403,9 @@ export function CommunityDiscoverView({
         : zonePosts;
 
     return pool.filter((p) => {
+      if (feedScope === 'projects') {
+        return p.type === 'project';
+      }
       if (feedScope === 'following') {
         const primaryKey = getPostAuthorFollowKey(p);
         const ownerFollowed =
@@ -368,6 +426,7 @@ export function CommunityDiscoverView({
       all: scopeBasePosts.length,
       discussion: 0,
       project: 0,
+      skill_share: 0,
       agn_recommend: 0,
       announcement: 0,
     };
@@ -382,7 +441,7 @@ export function CommunityDiscoverView({
   const communityFeedPosts = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase();
     const filtered = scopeBasePosts.filter((p) => {
-      if (topicFilter !== 'all' && p.type !== topicFilter) return false;
+      if (feedScope !== 'projects' && topicFilter !== 'all' && p.type !== topicFilter) return false;
       if (!q) return true;
       const haystack = [
         p.title,
@@ -396,12 +455,41 @@ export function CommunityDiscoverView({
       return haystack.includes(q);
     });
     return [...filtered].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
-  }, [scopeBasePosts, searchKeyword, topicFilter]);
+  }, [feedScope, scopeBasePosts, searchKeyword, topicFilter]);
 
   const communityOpenProjects = useMemo(
     () => zoneProjects.filter((p) => p.zoneId === activeCommunity.id),
     [activeCommunity.id, zoneProjects],
   );
+
+  const filteredZoneProjects = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
+    return communityOpenProjects.filter((p) => {
+      if (projectStatusFilter !== 'all' && p.status !== projectStatusFilter) return false;
+      if (!q) return true;
+      return [p.title, p.summary, p.publisher, ...p.requiredRoles]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [communityOpenProjects, projectStatusFilter, searchKeyword]);
+
+  const trendingPostsRanking = useMemo(() => {
+    return [...zonePosts]
+      .sort(
+        (a, b) =>
+          b.likes * 2 + b.comments.length * 5 - (a.likes * 2 + a.comments.length * 5),
+      )
+      .slice(0, 6);
+  }, [zonePosts]);
+
+  const zoneMarketServiceCount = useMemo(() => {
+    const agentCnt = allAgents.filter(
+      (a) => a.isListedInMarket && a.listedZoneIds.includes(activeCommunity.id),
+    ).length;
+    const skillCnt = marketSkills.filter((s) => s.zoneIds.includes(activeCommunity.id)).length;
+    return agentCnt + skillCnt;
+  }, [activeCommunity.id, allAgents, marketSkills]);
 
   const activeUserRankings = useMemo(() => {
     type RankedUser = {
@@ -554,11 +642,21 @@ export function CommunityDiscoverView({
     setConsultDraft('');
   };
 
+  const handleCopySkillCmd = (skill: MarketSkill) => {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(skill.installCommand).catch(() => {});
+    }
+    setCopiedSkillId(skill.id);
+    window.setTimeout(() => {
+      setCopiedSkillId((prev) => (prev === skill.id ? null : prev));
+    }, 1800);
+  };
+
   const handleComposerSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!postBody.trim() && !postTitle.trim()) return;
 
     if (composerMode === 'project') {
+      if (!postBody.trim() && !postTitle.trim()) return;
       const roles = projRoles
         .split(/[,，、/]/)
         .map((s) => s.trim())
@@ -571,7 +669,29 @@ export function CommunityDiscoverView({
         durationDays: projDays,
         requiredRoles: roles,
       });
+    } else if (composerMode === 'skill_share') {
+      const targetName = skillName.trim() || postTitle.trim();
+      if (!targetName) return;
+      if (onPublishSkill) {
+        onPublishSkill({
+          zoneId: activeCommunity.id,
+          name: targetName,
+          summary: postBody.trim() || targetName,
+          kind: skillKind,
+          category: skillCategory,
+          priceUsd: skillPrice,
+          postContent: postBody.trim() || targetName,
+        });
+      } else {
+        onCreatePost({
+          zoneId: activeCommunity.id,
+          type: 'skill_share',
+          title: `【发布 Skill】${targetName}`,
+          content: postBody.trim() || targetName,
+        });
+      }
     } else {
+      if (!postBody.trim() && !postTitle.trim()) return;
       onCreatePost({
         zoneId: activeCommunity.id,
         type: composerMode,
@@ -579,13 +699,23 @@ export function CommunityDiscoverView({
         content: postBody.trim() || postTitle.trim(),
         pinned: canManagePin && composerPin,
         pinnedBy: canManagePin && composerPin ? activeCommunity.principalName : undefined,
+        linkedAgentId:
+          composerMode === 'agn_recommend' && selectedPublishAgentId
+            ? selectedPublishAgentId
+            : undefined,
       });
     }
 
     setPostTitle('');
     setPostBody('');
+    setSkillName('');
+    setSkillPrice(0);
     setComposerPin(false);
-    setFeedScope('all');
+    if (composerMode === 'project') {
+      setFeedScope('projects');
+    } else {
+      setFeedScope('all');
+    }
     setTopicFilter('all');
     setIsComposerOpen(false);
   };
@@ -600,18 +730,21 @@ export function CommunityDiscoverView({
   };
 
   const socialChannels: {
-    id: 'all' | 'following' | 'pinned';
+    id: SocialFeedScope;
     label: string;
     icon: typeof Flame;
     count: number;
   }[] = [
     { id: 'all', label: '全部动态', icon: Flame, count: categoryCounts.all },
+    { id: 'projects', label: '项目共创', icon: Rocket, count: communityOpenProjects.length },
     { id: 'following', label: '我的关注', icon: UserCheck, count: followingCountInScope },
     { id: 'pinned', label: '主理置顶', icon: Pin, count: pinnedPostsCount },
   ];
 
-  const resolveComposerMode = (): CommunityPostType =>
-    topicFilter === 'all' ? 'discussion' : topicFilter;
+  const resolveComposerMode = (): CommunityPostType => {
+    if (feedScope === 'projects') return 'project';
+    return topicFilter === 'all' ? 'discussion' : topicFilter;
+  };
 
   return (
     <div
@@ -667,40 +800,56 @@ export function CommunityDiscoverView({
                 <ToolbarSearch
                   value={searchKeyword}
                   onChange={setSearchKeyword}
-                  placeholder={`在「${activeCommunity.name}」搜索帖子、标签或作者...`}
+                  placeholder={
+                    feedScope === 'projects'
+                      ? `在「${activeCommunity.name}」搜索共创项目、所需角色...`
+                      : `在「${activeCommunity.name}」搜索帖子、Skill、标签或作者...`
+                  }
                   widthClass="w-full sm:w-56 lg:w-64"
                 />
-                <ToolbarDropdown
-                  label="分类"
-                  value={topicFilter}
-                  defaultValue="all"
-                  onChange={setTopicFilter}
-                  options={[
-                    { id: 'all', label: '全部分类', hint: `${scopeTopicCounts.all}` },
-                    { id: 'discussion', label: '分享讨论', hint: `${scopeTopicCounts.discussion}` },
-                    { id: 'project', label: '项目招募', hint: `${scopeTopicCounts.project}` },
-                    { id: 'agn_recommend', label: 'AGN 推荐', hint: `${scopeTopicCounts.agn_recommend}` },
-                    { id: 'announcement', label: '社区公告', hint: `${scopeTopicCounts.announcement}` },
-                  ]}
-                />
+                {feedScope === 'projects' ? (
+                  <ToolbarDropdown
+                    label="状态"
+                    value={projectStatusFilter}
+                    defaultValue="all"
+                    onChange={setProjectStatusFilter}
+                    options={[
+                      { id: 'all', label: '全部项目', hint: `${communityOpenProjects.length}` },
+                      {
+                        id: 'open',
+                        label: '招募共创中',
+                        hint: `${communityOpenProjects.filter((p) => p.status === 'open').length}`,
+                      },
+                      {
+                        id: 'claimed',
+                        label: '已立项协同',
+                        hint: `${communityOpenProjects.filter((p) => p.status === 'claimed').length}`,
+                      },
+                    ]}
+                  />
+                ) : (
+                  <ToolbarDropdown
+                    label="分类"
+                    value={topicFilter}
+                    defaultValue="all"
+                    onChange={setTopicFilter}
+                    options={[
+                      { id: 'all', label: '全部分类', hint: `${scopeTopicCounts.all}` },
+                      { id: 'discussion', label: '分享讨论', hint: `${scopeTopicCounts.discussion}` },
+                      { id: 'project', label: '项目共创', hint: `${scopeTopicCounts.project}` },
+                      { id: 'skill_share', label: '发布 Skill', hint: `${scopeTopicCounts.skill_share}` },
+                      { id: 'agn_recommend', label: '专家 Agent', hint: `${scopeTopicCounts.agn_recommend}` },
+                      { id: 'announcement', label: '社区公告', hint: `${scopeTopicCounts.announcement}` },
+                    ]}
+                  />
+                )}
               </>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
                 <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span>私有社区 · 加入后解锁完整讨论与互动</span>
+                <span>私有社区 · 加入后解锁完整讨论与共创</span>
               </span>
             )}
-
-            <span className="hidden @[860px]:inline-flex items-center gap-1.5 text-xs text-slate-500 pl-1 truncate">
-              <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="truncate">
-                主理：<strong className="font-semibold text-slate-700">{activeCommunity.principalName}</strong>
-              </span>
-              <span className="text-slate-300" aria-hidden="true">·</span>
-              <span className="font-mono tabular-nums text-slate-500 whitespace-nowrap">
-                {zonePosts.length} 帖 / {communityOpenProjects.length} 社区项目
-              </span>
-            </span>
           </>
         }
         right={
@@ -722,7 +871,7 @@ export function CommunityDiscoverView({
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>发帖</span>
+                <span>{feedScope === 'projects' ? '发起项目共创' : '发布内容'}</span>
               </button>
             </>
           ) : undefined
@@ -796,6 +945,142 @@ export function CommunityDiscoverView({
                 </div>
               ) : (
                 <>
+                  {/* DEDICATED CO-CREATION PROJECTS HUB when feedScope === 'projects' */}
+                  {feedScope === 'projects' ? (
+                    <div className="space-y-3.5">
+                      {filteredZoneProjects.length === 0 ? (
+                        <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center space-y-2.5">
+                          <Rocket className="w-6 h-6 text-slate-400 mx-auto" />
+                          <p className="text-xs text-slate-500">
+                            「{activeCommunity.name}」当前筛选下暂无项目共创，欢迎发起首个共创项目。
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => openComposer('project')}
+                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>发起项目共创</span>
+                          </button>
+                        </div>
+                      ) : (
+                        filteredZoneProjects.map((proj) => {
+                          const projInquiries = projectInquiryLog[proj.id] || [];
+                          const linkedDiscussion = zonePosts.find(
+                            (p) => p.linkedProjectId === proj.id,
+                          );
+                          return (
+                            <article
+                              key={proj.id}
+                              className="bg-white rounded-xl border border-slate-200 p-5 space-y-3.5 hover:border-slate-300 transition-colors"
+                            >
+                              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-1.5">
+                                  <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                    <span
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-semibold ${
+                                        proj.direction === 'published_by_me'
+                                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                          : proj.status === 'claimed'
+                                            ? 'bg-slate-100 text-slate-700 border-slate-200'
+                                            : 'bg-blue-50 text-blue-700 border-blue-200'
+                                      }`}
+                                    >
+                                      <Rocket className="w-3 h-3" />
+                                      <span>
+                                        {proj.direction === 'published_by_me'
+                                          ? '我发起的共创'
+                                          : proj.status === 'claimed'
+                                            ? '已立项协同'
+                                            : '招募共创中'}
+                                      </span>
+                                    </span>
+                                    <span className="text-slate-500">{proj.publisher}</span>
+                                    <span className="text-slate-300" aria-hidden="true">·</span>
+                                    <span className="text-slate-400">{proj.postedAt}</span>
+                                    {projInquiries.length > 0 && (
+                                      <>
+                                        <span className="text-slate-300" aria-hidden="true">·</span>
+                                        <span className="text-emerald-700 font-semibold">
+                                          已发送 {projInquiries.length} 条咨询
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <h3 className="text-sm font-bold text-slate-900 leading-snug">
+                                    {proj.title}
+                                  </h3>
+                                  <p className="text-xs text-slate-600 leading-relaxed">
+                                    {proj.summary}
+                                  </p>
+                                </div>
+
+                                <div className="text-left sm:text-right shrink-0">
+                                  <div className="text-sm font-bold font-mono tabular-nums text-slate-900">
+                                    ${proj.budgetUsd.toLocaleString('en-US')}
+                                  </div>
+                                  <div className="text-[11px] font-mono tabular-nums text-slate-500 inline-flex items-center gap-1 mt-0.5">
+                                    <Clock className="w-3 h-3" />
+                                    <span>{proj.durationDays} 天周期</span>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-slate-600 min-w-0">
+                                  <span className="text-[11px] text-slate-400">需求角色</span>
+                                  {proj.requiredRoles.map((role) => (
+                                    <span
+                                      key={role}
+                                      className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[11px] font-medium"
+                                    >
+                                      {role}
+                                    </span>
+                                  ))}
+                                  <span className="text-[11px] text-slate-400 ml-1">
+                                    ·{' '}
+                                    {proj.serviceModePref === 'any'
+                                      ? '纯 Agent / 人+Agent 皆可'
+                                      : SERVICE_MODE_LABELS[proj.serviceModePref]}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {linkedDiscussion && (
+                                    <span className="text-[11px] font-mono tabular-nums text-slate-400 mr-1">
+                                      {linkedDiscussion.likes} 赞同 · {linkedDiscussion.comments.length} 讨论
+                                    </span>
+                                  )}
+                                  {(proj.direction === 'published_by_me' ||
+                                    proj.status === 'claimed') && (
+                                    <button
+                                      type="button"
+                                      onClick={() => onJumpToKanban(proj.linkedWorkspaceId)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
+                                    >
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                      <span>进看板</span>
+                                    </button>
+                                  )}
+                                  {proj.direction !== 'published_by_me' && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openProjectConsult(proj.id)}
+                                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                                    >
+                                      <MessageCircle className="w-3.5 h-3.5" />
+                                      <span>咨询共创</span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </article>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : (
+                    <>
                   {/* Active Filter Context Bar (shown when filtering by scope / topic / search) */}
                   {(feedScope !== 'all' || topicFilter !== 'all' || searchKeyword.trim()) && (
                     <div className="bg-white rounded-xl border border-slate-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -930,6 +1215,9 @@ export function CommunityDiscoverView({
                           : undefined;
                         const linkedAgent = post.linkedAgentId
                           ? agentMap.get(post.linkedAgentId)
+                          : undefined;
+                        const linkedSkill = post.linkedSkillId
+                          ? skillMap.get(post.linkedSkillId)
                           : undefined;
                         const isCommentsOpen = Boolean(expandedComments[post.id]);
                         const projInquiries = linkedProj
@@ -1234,6 +1522,83 @@ export function CommunityDiscoverView({
                                 );
                               })()}
 
+                            {/* Embedded Skill / MCP Card — Synced with Service Market */}
+                            {linkedSkill &&
+                              (() => {
+                                const pricing = getSkillPurchasePricing(linkedSkill);
+                                const owned = purchasedSkillIds.includes(linkedSkill.id);
+                                return (
+                                  <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                    <div className="flex items-start gap-2.5 min-w-0">
+                                      <div className="w-8 h-8 rounded-lg bg-amber-100/90 text-amber-800 inline-flex items-center justify-center shrink-0 mt-0.5">
+                                        <Blocks className="w-4 h-4" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="text-xs font-bold text-slate-900 truncate">
+                                            {linkedSkill.name}
+                                          </span>
+                                          <span className="px-1.5 py-[1px] rounded text-[10px] font-semibold bg-white border border-slate-200 text-slate-600">
+                                            {SKILL_KIND_LABELS[linkedSkill.kind]}
+                                          </span>
+                                          <span
+                                            className={`text-[11px] font-mono font-bold ${
+                                              pricing.isFree ? 'text-emerald-700' : 'text-slate-900'
+                                            }`}
+                                          >
+                                            {pricing.priceLabel}
+                                          </span>
+                                        </div>
+                                        <div className="text-[11px] text-slate-500 font-mono truncate mt-0.5">
+                                          {linkedSkill.slug} · {linkedSkill.installs} 安装 · ★{' '}
+                                          {linkedSkill.rating.toFixed(2)}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCopySkillCmd(linkedSkill)}
+                                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
+                                      >
+                                        {copiedSkillId === linkedSkill.id ? (
+                                          <>
+                                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                            <span>已复制</span>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Copy className="w-3.5 h-3.5 text-slate-500" />
+                                            <span>命令</span>
+                                          </>
+                                        )}
+                                      </button>
+                                      {onAcquireSkill && (
+                                        <button
+                                          type="button"
+                                          disabled={owned}
+                                          onClick={() =>
+                                            onAcquireSkill(
+                                              linkedSkill.id,
+                                              linkedSkill.name,
+                                              pricing.priceUsd,
+                                            )
+                                          }
+                                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap ${
+                                            owned
+                                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
+                                              : 'bg-slate-900 hover:bg-slate-800 text-white cursor-pointer'
+                                          }`}
+                                        >
+                                          <ShoppingBag className="w-3.5 h-3.5" />
+                                          <span>{owned ? '已拥有' : pricing.isFree ? '免费获取' : '获取'}</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+
                             {/* Feed Action Footer: Like & Toggle Comments */}
                             <div className="pt-2.5 border-t border-slate-100 flex items-center gap-5 text-xs">
                               <button
@@ -1346,13 +1711,15 @@ export function CommunityDiscoverView({
                       })
                     )}
                   </div>
+                    </>
+                  )}
                 </>
               )}
             </div>
 
-            {/* COLUMN 3 (RIGHT): Community Profile, Community Projects & Active User Ranking */}
+            {/* COLUMN 3 (RIGHT): Invariant Community Profile & Activity Leaderboard (No Market Shortcut, No Project List) */}
             <aside className="w-full @[840px]:w-[272px] @[1040px]:w-[296px] shrink-0 space-y-4 @[840px]:sticky @[840px]:top-5">
-              {/* Community Overview Card */}
+              {/* Community Overview & Activity Snapshot */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2.5 min-w-0">
@@ -1386,6 +1753,28 @@ export function CommunityDiscoverView({
                   聚焦方向：{activeCommunity.focusDomains.join(' · ')}
                 </div>
 
+                {/* Compact Community Activity Strip */}
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-center">
+                  <div className="rounded-lg bg-slate-50 py-1.5 px-1">
+                    <div className="text-xs font-bold font-mono tabular-nums text-slate-900">
+                      {zonePosts.length}
+                    </div>
+                    <div className="text-[10px] text-slate-500">社区动态</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 py-1.5 px-1">
+                    <div className="text-xs font-bold font-mono tabular-nums text-slate-900">
+                      {communityOpenProjects.length}
+                    </div>
+                    <div className="text-[10px] text-slate-500">项目共创</div>
+                  </div>
+                  <div className="rounded-lg bg-slate-50 py-1.5 px-1">
+                    <div className="text-xs font-bold font-mono tabular-nums text-slate-900">
+                      {zoneMarketServiceCount}
+                    </div>
+                    <div className="text-[10px] text-slate-500">沉淀服务</div>
+                  </div>
+                </div>
+
                 {/* Community Principal & Pin Authority */}
                 <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
                   <div className="flex items-center gap-1.5 min-w-0 text-slate-600">
@@ -1417,94 +1806,137 @@ export function CommunityDiscoverView({
                     </button>
                   )}
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => onJumpToZoneMarket(activeCommunity.id)}
-                  className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
-                >
-                  <Store className="w-3.5 h-3.5 text-blue-600" />
-                  <span>进入「{activeCommunity.name}」服务市场</span>
-                </button>
               </section>
 
-              {/* Community Projects — Unified "咨询" */}
-              <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-blue-600" />
-                    <span>社区项目 ({communityOpenProjects.length})</span>
-                  </h3>
-                  {hasAccess && (
-                    <button
-                      type="button"
-                      onClick={() => openComposer('project')}
-                      className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                    >
-                      + 发项目
-                    </button>
-                  )}
-                </div>
-
-                {communityOpenProjects.length === 0 ? (
-                  <p className="text-xs text-slate-500">该社区暂无社区项目。</p>
-                ) : (
-                  <div className="space-y-2.5">
-                    {communityOpenProjects.map((proj) => (
-                      <div
-                        key={proj.id}
-                        className="p-3 rounded-lg bg-slate-50 border border-slate-200/80 space-y-1.5"
-                      >
-                        <div className="text-xs font-semibold text-slate-900 leading-snug">
-                          {proj.title}
-                        </div>
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
-                          <span className="font-mono tabular-nums font-bold text-slate-700">
-                            ${proj.budgetUsd.toLocaleString('en-US')} · {proj.durationDays}天
-                          </span>
-                          {proj.direction === 'published_by_me' ? (
-                            <button
-                              type="button"
-                              onClick={() => onJumpToKanban(proj.linkedWorkspaceId)}
-                              className="font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
-                            >
-                              进看板
-                            </button>
-                          ) : hasAccess ? (
-                            <button
-                              type="button"
-                              onClick={() => openProjectConsult(proj.id)}
-                              className="px-2 py-0.5 rounded-md border border-slate-200 bg-white hover:bg-slate-100 font-semibold text-slate-700 cursor-pointer"
-                            >
-                              咨询
-                            </button>
-                          ) : (
-                            <span className="text-slate-400">加入后可咨询</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-
-              {/* Active Community Members Leaderboard */}
+              {/* Invariant Activity Leaderboard: Active Members & Trending Feed */}
               <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <Trophy className="w-3.5 h-3.5 text-amber-500" />
-                    <span>活跃用户排名</span>
+                    <span>活跃度排行</span>
                   </h3>
-                  <span className="text-[11px] text-slate-400">本周活跃度</span>
+                  <div className="inline-flex items-center p-0.5 rounded-md bg-slate-100 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => setRankingTab('users')}
+                      className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-colors ${
+                        rankingTab === 'users'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      活跃成员
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRankingTab('posts')}
+                      className={`px-2 py-0.5 rounded font-semibold cursor-pointer transition-colors ${
+                        rankingTab === 'posts'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-500 hover:text-slate-800'
+                      }`}
+                    >
+                      热门动态
+                    </button>
+                  </div>
                 </div>
 
-                {activeUserRankings.length === 0 ? (
-                  <p className="text-xs text-slate-500">暂无活跃记录，发帖互动即可上榜。</p>
+                {rankingTab === 'users' ? (
+                  activeUserRankings.length === 0 ? (
+                    <p className="text-xs text-slate-500">暂无活跃记录，发帖互动即可上榜。</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      {activeUserRankings.map((member, index) => {
+                        const rank = index + 1;
+                        const isFollowed = followedSet.has(member.key);
+                        const rankBadgeCls =
+                          rank === 1
+                            ? 'bg-amber-50 text-amber-700 border-amber-200'
+                            : rank === 2
+                              ? 'bg-slate-100 text-slate-700 border-slate-200'
+                              : rank === 3
+                                ? 'bg-orange-50 text-orange-700 border-orange-200'
+                                : 'bg-white text-slate-400 border-transparent';
+                        return (
+                          <div
+                            key={member.key}
+                            className="flex items-center justify-between gap-2 text-xs"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`w-5 h-5 rounded-md border text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center shrink-0 ${rankBadgeCls}`}
+                              >
+                                {rank}
+                              </span>
+                              <EntityAvatar
+                                kind="human"
+                                code={member.avatarCode}
+                                accent={member.avatarAccent}
+                                size="sm"
+                              />
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1 min-w-0">
+                                  <span className="font-semibold text-slate-900 truncate">
+                                    {member.name}
+                                  </span>
+                                  {member.isPrincipal && (
+                                    <span className="px-1 py-[0.5px] rounded bg-amber-50 border border-amber-200/80 text-amber-800 text-[9px] font-semibold shrink-0">
+                                      主理
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-500 truncate font-mono tabular-nums">
+                                  {member.postsCount > 0 ? `${member.postsCount} 帖` : member.role}
+                                  {member.postsCount > 0 && member.interactionsCount > 0
+                                    ? ` · ${member.interactionsCount} 互动`
+                                    : ''}
+                                  {' · '}
+                                  热度 {member.activityScore}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="shrink-0">
+                              {member.isSelf ? (
+                                <span className="px-2 py-0.5 rounded-md bg-slate-50 text-[10px] font-medium text-slate-400">
+                                  本人
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => onToggleFollowEntity(member.key)}
+                                  title={isFollowed ? '已关注（点击取消）' : `关注 ${member.name}`}
+                                  className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                                    isFollowed
+                                      ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                      : 'border-slate-200 bg-white text-slate-700 hover:text-blue-700 hover:border-blue-200'
+                                  }`}
+                                >
+                                  {isFollowed ? (
+                                    <>
+                                      <UserCheck className="w-3 h-3" />
+                                      <span>已关注</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserPlus className="w-3 h-3" />
+                                      <span>关注</span>
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                ) : trendingPostsRanking.length === 0 ? (
+                  <p className="text-xs text-slate-500">暂无热门动态。</p>
                 ) : (
                   <div className="space-y-2.5">
-                    {activeUserRankings.map((member, index) => {
+                    {trendingPostsRanking.map((p, index) => {
                       const rank = index + 1;
-                      const isFollowed = followedSet.has(member.key);
                       const rankBadgeCls =
                         rank === 1
                           ? 'bg-amber-50 text-amber-700 border-amber-200'
@@ -1513,74 +1945,25 @@ export function CommunityDiscoverView({
                             : rank === 3
                               ? 'bg-orange-50 text-orange-700 border-orange-200'
                               : 'bg-white text-slate-400 border-transparent';
+                      const typeInfo = POST_TYPE_META[p.type] || POST_TYPE_META.discussion;
                       return (
-                        <div
-                          key={member.key}
-                          className="flex items-center justify-between gap-2 text-xs"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span
-                              className={`w-5 h-5 rounded-md border text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center shrink-0 ${rankBadgeCls}`}
-                            >
-                              {rank}
-                            </span>
-                            <EntityAvatar
-                              kind="human"
-                              code={member.avatarCode}
-                              accent={member.avatarAccent}
-                              size="sm"
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1 min-w-0">
-                                <span className="font-semibold text-slate-900 truncate">
-                                  {member.name}
-                                </span>
-                                {member.isPrincipal && (
-                                  <span className="px-1 py-[0.5px] rounded bg-amber-50 border border-amber-200/80 text-amber-800 text-[9px] font-semibold shrink-0">
-                                    主理
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-[11px] text-slate-500 truncate font-mono tabular-nums">
-                                {member.postsCount > 0 ? `${member.postsCount} 帖` : member.role}
-                                {member.postsCount > 0 && member.interactionsCount > 0
-                                  ? ` · ${member.interactionsCount} 互动`
-                                  : ''}
-                                {' · '}
-                                热度 {member.activityScore}
-                              </div>
+                        <div key={p.id} className="flex items-start gap-2 text-xs">
+                          <span
+                            className={`w-5 h-5 mt-0.5 rounded-md border text-[11px] font-mono font-bold tabular-nums inline-flex items-center justify-center shrink-0 ${rankBadgeCls}`}
+                          >
+                            {rank}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-slate-900 leading-snug line-clamp-2">
+                              {p.title}
                             </div>
-                          </div>
-
-                          <div className="shrink-0">
-                            {member.isSelf ? (
-                              <span className="px-2 py-0.5 rounded-md bg-slate-50 text-[10px] font-medium text-slate-400">
-                                本人
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => onToggleFollowEntity(member.key)}
-                                title={isFollowed ? '已关注（点击取消）' : `关注 ${member.name}`}
-                                className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
-                                  isFollowed
-                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                                    : 'border-slate-200 bg-white text-slate-700 hover:text-blue-700 hover:border-blue-200'
-                                }`}
-                              >
-                                {isFollowed ? (
-                                  <>
-                                    <UserCheck className="w-3 h-3" />
-                                    <span>已关注</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <UserPlus className="w-3 h-3" />
-                                    <span>关注</span>
-                                  </>
-                                )}
-                              </button>
-                            )}
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500 font-mono tabular-nums">
+                              <span className="font-sans text-slate-400">{typeInfo.label}</span>
+                              <span>·</span>
+                              <span>{p.likes} 赞同</span>
+                              <span>·</span>
+                              <span>{p.comments.length} 讨论</span>
+                            </div>
                           </div>
                         </div>
                       );
@@ -1790,8 +2173,9 @@ export function CommunityDiscoverView({
                 {(
                   [
                     { id: 'discussion', label: '分享讨论' },
-                    { id: 'project', label: '项目招募' },
-                    { id: 'agn_recommend', label: 'AGN 推荐' },
+                    { id: 'project', label: '项目共创' },
+                    { id: 'skill_share', label: '发布 Skill' },
+                    { id: 'agn_recommend', label: '发布专家 Agent' },
                     { id: 'announcement', label: '社区公告' },
                   ] as const
                 ).map((tab) => (
@@ -1815,31 +2199,133 @@ export function CommunityDiscoverView({
                 ))}
               </div>
 
-              <div>
-                <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  标题
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={postTitle}
-                  onChange={(e) => setPostTitle(e.target.value)}
-                  placeholder={
-                    composerMode === 'project'
-                      ? '一句话标题：如「寻东南亚支付网关架构与全栈协同交付，7 天上线」'
-                      : composerMode === 'agn_recommend'
-                        ? '推荐标题：如「推荐 Codex-架构审查员 + Qoder-并发引擎组合，含实测基准」'
-                        : composerMode === 'announcement'
-                          ? '公告标题：如「【社区公告】本月 AGN 协作规范与项目招募须知」'
-                          : `在「${activeCommunity.name}」发起分享讨论、实战复盘或行业观察`
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
+              {composerMode === 'skill_share' ? (
+                <>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Skill / MCP 名称
+                    </label>
+                    <input
+                      type="text"
+                      autoFocus
+                      value={skillName}
+                      onChange={(e) => setSkillName(e.target.value)}
+                      placeholder="例：Next.js + Stripe 订阅幂等脚手架 Skill"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        形态类型
+                      </label>
+                      <select
+                        value={skillKind}
+                        onChange={(e) => setSkillKind(e.target.value as SkillKind)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                      >
+                        <option value="skill">Prompt Skill</option>
+                        <option value="mcp">MCP Server</option>
+                        <option value="workflow">工作流套件</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        所属领域
+                      </label>
+                      <select
+                        value={skillCategory}
+                        onChange={(e) => setSkillCategory(e.target.value as AgentCategory)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                      >
+                        <option value="engineering">研发开发</option>
+                        <option value="architecture">架构审查</option>
+                        <option value="product">产品策划</option>
+                        <option value="design">设计体验</option>
+                        <option value="qa">测试质量</option>
+                        <option value="media">自媒体运营</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        价格（USD，0 为免费）
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={5}
+                        value={skillPrice}
+                        onChange={(e) => setSkillPrice(Math.max(0, Number(e.target.value) || 0))}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                      />
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                    标题
+                  </label>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={postTitle}
+                    onChange={(e) => setPostTitle(e.target.value)}
+                    placeholder={
+                      composerMode === 'project'
+                        ? '一句话标题：如「寻全栈与设计创客 72h 共创开源 Agent 评测工具」'
+                        : composerMode === 'agn_recommend'
+                          ? '专家 Agent 标题：如「发布自建 Claude Code 全栈研发特工，支持按周租赁」'
+                          : composerMode === 'announcement'
+                            ? '公告标题：如「【社区公告】本月共创黑客松与协作规范」'
+                            : `在「${activeCommunity.name}」发起分享讨论、实战复盘或行业观察`
+                    }
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  />
+                </div>
+              )}
+
+              {composerMode === 'agn_recommend' && (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                    关联上架到「{activeCommunity.name} · 服务市场」的专家 Agent
+                  </label>
+                  <select
+                    value={selectedPublishAgentId}
+                    onChange={(e) => setSelectedPublishAgentId(e.target.value)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900"
+                  >
+                    <option value="">不关联具体节点（仅文字分享）</option>
+                    {privateAgents.length > 0 && (
+                      <optgroup label="我的自建 Agent（同步上架社区服务市场）">
+                        {privateAgents.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {displayEntityName(a.handle)} · {a.runtimeAgent} ({a.defaultModel})
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="社区已有认证 Agent">
+                      {allAgents
+                        .filter((a) => a.ownership === 'marketplace')
+                        .slice(0, 12)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {displayEntityName(a.handle)} · {a.runtimeAgent}
+                          </option>
+                        ))}
+                    </optgroup>
+                  </select>
+                </div>
+              )}
 
               <div>
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                  {composerMode === 'project' ? '项目说明与验收标准' : '内容详情'}
+                  {composerMode === 'project'
+                    ? '项目说明与共创目标'
+                    : composerMode === 'skill_share'
+                      ? '能力介绍与适用场景'
+                      : '内容详情'}
                 </label>
                 <textarea
                   rows={4}
@@ -1847,12 +2333,14 @@ export function CommunityDiscoverView({
                   onChange={(e) => setPostBody(e.target.value)}
                   placeholder={
                     composerMode === 'project'
-                      ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作台 → 我的项目」）...'
-                      : composerMode === 'agn_recommend'
-                        ? '介绍推荐的 Agent 底座、已挂载 Skills/MCP 与适用项目场景...'
-                        : composerMode === 'announcement'
-                          ? '撰写社区公告、规则更新或活动通知...'
-                          : '写下你的技术实践、商业洞察、IP 共创想法或踩坑复盘...'
+                      ? '补充项目背景、交付范围与共创分工（发布后自动进入「项目共创」并同步至「工作台 → 我的项目」）...'
+                      : composerMode === 'skill_share'
+                        ? '介绍该 Skill / MCP 解决的核心问题、兼容底座与最佳实践（发布后自动同步至本社区「服务市场 → Skills / MCP」）...'
+                        : composerMode === 'agn_recommend'
+                          ? '介绍该专家 Agent 的擅长场景、实测案例与协作方式（关联后将自动同步至本社区「服务市场 → 专业 Agent」）...'
+                          : composerMode === 'announcement'
+                            ? '撰写社区公告、规则更新或活动通知...'
+                            : '写下你的技术实践、商业洞察、共创想法或踩坑复盘...'
                   }
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
                 />
@@ -1900,7 +2388,7 @@ export function CommunityDiscoverView({
                 </div>
               )}
 
-              {composerMode !== 'project' && canManagePin && (
+              {composerMode !== 'project' && composerMode !== 'skill_share' && canManagePin && (
                 <label className="flex items-center gap-2 pt-0.5 text-xs text-amber-900 bg-amber-50/70 border border-amber-200/80 rounded-lg px-3 py-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -1920,8 +2408,12 @@ export function CommunityDiscoverView({
             <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
               <span className="text-[11px] text-slate-500">
                 {composerMode === 'project'
-                  ? '发布后将同时进入交流社区与「工作台 → 我的项目」'
-                  : '发布后支持社区成员与专家节点评论交流'}
+                  ? '发布后自动进入「项目共创」并同步至「工作台 → 我的项目」'
+                  : composerMode === 'skill_share'
+                    ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
+                    : composerMode === 'agn_recommend' && selectedPublishAgentId
+                      ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专业 Agent」'
+                      : '发布后支持社区成员与专家节点评论交流'}
               </span>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -1933,14 +2425,20 @@ export function CommunityDiscoverView({
                 </button>
                 <button
                   type="submit"
-                  disabled={!postBody.trim() && !postTitle.trim()}
+                  disabled={
+                    composerMode === 'skill_share'
+                      ? !skillName.trim()
+                      : !postBody.trim() && !postTitle.trim()
+                  }
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>
                     {composerMode === 'project'
-                      ? '发布项目招募'
-                      : `发布${POST_TYPE_META[composerMode].label}`}
+                      ? '发布项目共创'
+                      : composerMode === 'skill_share'
+                        ? '发布并上架 Skill'
+                        : `发布${POST_TYPE_META[composerMode].label}`}
                   </span>
                 </button>
               </div>

@@ -25,14 +25,16 @@ export function ChatChannelHeader({
   extraAction,
 }: ChatChannelHeaderProps) {
   return (
-    <div className="h-[60px] shrink-0 px-5 border-b border-slate-200 bg-white flex items-center justify-between gap-3">
+    <div className="h-[60px] shrink-0 px-4 sm:px-5 border-b border-slate-200 bg-white flex items-center justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
         {avatar}
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <h2 className="text-sm font-bold text-slate-900 truncate">{title}</h2>
             {tag && (
-              <span className={`text-[11px] font-semibold whitespace-nowrap shrink-0 ${tagClassName}`}>
+              <span
+                className={`text-[11px] font-semibold whitespace-nowrap shrink-0 ${tagClassName}`}
+              >
                 · {tag}
               </span>
             )}
@@ -52,12 +54,12 @@ export function ChatChannelHeader({
           {panelOpen ? (
             <>
               <PanelRightClose className="w-3.5 h-3.5 text-slate-500" />
-              <span>收起侧栏</span>
+              <span className="hidden xl:inline">收起侧栏</span>
             </>
           ) : (
             <>
               <PanelRightOpen className="w-3.5 h-3.5 text-blue-600" />
-              <span>{panelToggleLabel}</span>
+              <span className="hidden xl:inline">{panelToggleLabel}</span>
             </>
           )}
         </button>

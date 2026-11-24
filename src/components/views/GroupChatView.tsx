@@ -200,7 +200,7 @@ export function GroupChatView({
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Center Project Group Chat Column */}
       <div className="flex-1 min-w-0 flex flex-col h-full">
-        {/* Uniform Top Channel Header with Top-Right Collapse/Expand Side Panel Button */}
+        {/* Uniform Top Channel Header with Mode Switcher & Collapse/Expand Side Panel Button */}
         <ChatChannelHeader
           avatar={
             <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
@@ -208,11 +208,11 @@ export function GroupChatView({
             </div>
           }
           title={workspace.name}
-          tag={`项目群 · ${spaceOwnershipLabel} · ${hiredAgents.length} 专家 · ${tasks.length} 工作卡`}
+          tag={`项目群 · ${spaceOwnershipLabel} · ${hiredAgents.length} 专家 · ${tasks.length} 任务卡`}
           tagClassName={linkedZone?.kind === 'enterprise' ? 'text-indigo-700' : 'text-blue-700'}
           subtitle={workspace.goal}
           panelOpen={rightOpen}
-          panelToggleLabel={`工作卡片 (${tasks.length})`}
+          panelToggleLabel={`任务卡片 (${tasks.length})`}
           onTogglePanel={() => setRightOpen((v) => !v)}
         />
 
@@ -294,76 +294,99 @@ export function GroupChatView({
                     >
                       <p className="whitespace-pre-wrap">{msg.content}</p>
 
-                      {/* Lightweight inline task card reference with 1-click jump to 1v1 Task Session */}
+                      {/* Embedded Project Task Cards: click to switch into dedicated 1-Agent Task Session */}
                       {linkedTasks.length > 0 && (
-                        <div className="mt-2.5 pt-2 border-t border-slate-100 space-y-1">
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-2">
                           {linkedTasks.map((task) => {
                             const isExec = executingTaskId === task.id;
-                            const st = WORK_STATUS_META[task.status];
                             const sessionMsgs = taskSessions[task.id] || [];
                             const lastMsg = sessionMsgs[sessionMsgs.length - 1];
                             const needsConfirm =
                               task.status !== 'done' && Boolean(lastMsg?.awaitingConfirmation);
+                            const assigneeAgent = hiredAgents.find(
+                              (a) => a.id === task.assigneeId,
+                            );
+
                             return (
                               <div
                                 key={task.id}
-                                className="flex items-center justify-between gap-3 py-1 text-xs"
+                                className="rounded-lg border border-slate-200 bg-slate-50/80 hover:border-slate-300 p-3 space-y-2 text-slate-800 transition-colors"
                               >
+                                <div className="flex items-center justify-between gap-2 text-[11px]">
+                                  <span className="text-slate-500 font-medium truncate">
+                                    任务卡片 · {WORK_TYPE_LABELS[task.workType]} ·{' '}
+                                    <span className="font-mono">#{task.id}</span>
+                                  </span>
+                                  <WorkStatusBadge status={task.status} executing={isExec} />
+                                </div>
+
                                 <button
                                   type="button"
                                   onClick={() => onOpenTaskSession(task.id)}
-                                  title="进入负责 Agent 的任务执行 Session"
-                                  className="flex items-center gap-2 min-w-0 text-left text-slate-700 hover:text-blue-700 cursor-pointer"
+                                  className="block w-full text-left text-[13px] font-semibold text-slate-900 hover:text-blue-700 leading-snug cursor-pointer"
                                 >
-                                  <span
-                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${st.activeSegmentCls} ${
-                                      task.status === 'in_progress' ? 'animate-pulse' : ''
-                                    }`}
-                                  />
-                                  <span className="truncate font-medium">{task.title}</span>
+                                  {task.title}
                                 </button>
 
-                                <div className="flex items-center gap-2.5 shrink-0 whitespace-nowrap text-[11px]">
-                                  <span className={`font-medium ${st.textCls}`}>
-                                    {isExec ? '执行中' : st.label}
-                                  </span>
+                                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                  <div className="flex items-center gap-1.5 min-w-0">
+                                    <AgentIdentityName
+                                      name={task.assigneeHandle}
+                                      runtime={assigneeAgent?.runtimeAgent}
+                                      model={assigneeAgent?.defaultModel}
+                                      showModel
+                                      className="font-medium text-slate-700"
+                                    />
+                                  </div>
+                                  {task.deliverableArtifact && (
+                                    <span className="inline-flex items-center gap-1 font-mono text-blue-700 truncate max-w-[180px]">
+                                      <FileCode2 className="w-3 h-3 shrink-0" />
+                                      <span className="truncate">{task.deliverableArtifact}</span>
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/70">
                                   <button
                                     type="button"
                                     onClick={() => onOpenTaskSession(task.id)}
-                                    className={`inline-flex items-center gap-1 font-semibold cursor-pointer hover:underline underline-offset-2 ${
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                                       needsConfirm
-                                        ? 'text-amber-700 hover:text-amber-900'
-                                        : 'text-indigo-600 hover:text-indigo-800'
+                                        ? 'bg-amber-50 border border-amber-300 text-amber-800 hover:bg-amber-100'
+                                        : 'bg-white border border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900'
                                     }`}
                                   >
-                                    <MessageSquareCode className="w-3 h-3" />
+                                    <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
                                     <span>
                                       {needsConfirm
-                                        ? 'Agent 待确认'
+                                        ? 'Agent 待确认 · 进入任务对话'
                                         : sessionMsgs.length > 0
-                                          ? `Agent 任务 (${sessionMsgs.length})`
-                                          : 'Agent 任务'}
+                                          ? `进入任务对话 (${sessionMsgs.length} 轮)`
+                                          : '进入任务对话'}
                                     </span>
                                   </button>
-                                  {task.status === 'pending' && (
-                                    <button
-                                      type="button"
-                                      disabled={Boolean(executingTaskId)}
-                                      onClick={() => onRunTask(task.id)}
-                                      className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45"
-                                    >
-                                      批准执行
-                                    </button>
-                                  )}
-                                  {task.status === 'review' && (
-                                    <button
-                                      type="button"
-                                      onClick={() => onApproveTask(task.id)}
-                                      className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer"
-                                    >
-                                      验证通过
-                                    </button>
-                                  )}
+
+                                  <div className="flex items-center gap-2 text-[11px] shrink-0">
+                                    {task.status === 'pending' && (
+                                      <button
+                                        type="button"
+                                        disabled={Boolean(executingTaskId)}
+                                        onClick={() => onRunTask(task.id)}
+                                        className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                                      >
+                                        批准执行
+                                      </button>
+                                    )}
+                                    {task.status === 'review' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => onApproveTask(task.id)}
+                                        className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer whitespace-nowrap"
+                                      >
+                                        验证通过
+                                      </button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -847,19 +870,35 @@ export function GroupChatView({
                       {agent.skills.slice(0, 4).join(' · ')}
                     </p>
 
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                      <span className="font-mono tabular-nums text-slate-600">
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                      <span className="font-mono tabular-nums text-slate-600 truncate">
                         {agent.ownership === 'private'
                           ? '私有自用'
-                          : `$${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · 信誉 ${agent.performance.reputationScore}`}
+                          : `$${agent.projectPriceUsd.toLocaleString('en-US')}/项目`}
                       </span>
-                      <button
-                        type="button"
-                        onClick={() => insertMention(agent.handle)}
-                        className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                      >
-                        @ 他派单
-                      </button>
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        {(() => {
+                          const agentProjTask = tasks.find((t) => t.assigneeId === agent.id);
+                          if (!agentProjTask) return null;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onOpenTaskSession(agentProjTask.id)}
+                              className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 font-semibold cursor-pointer whitespace-nowrap"
+                            >
+                              <MessageSquareCode className="w-3 h-3" />
+                              <span>任务对话</span>
+                            </button>
+                          );
+                        })()}
+                        <button
+                          type="button"
+                          onClick={() => insertMention(agent.handle)}
+                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer whitespace-nowrap"
+                        >
+                          @ 他派单
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}

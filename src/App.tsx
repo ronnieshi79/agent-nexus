@@ -59,6 +59,7 @@ const COMMUNITY_TAB_META: Record<
   service_humans: { group: '服务市场', label: '人类专家', groupRoot: 'service_agents' },
   service_skills: { group: '服务市场', label: 'Skills / MCP', groupRoot: 'service_agents' },
   social_all: { group: '社区交流', label: '全部动态', groupRoot: 'social_all' },
+  social_projects: { group: '社区交流', label: '项目共创', groupRoot: 'social_all' },
   social_following: { group: '社区交流', label: '我的关注', groupRoot: 'social_all' },
   social_pinned: { group: '社区交流', label: '主理置顶', groupRoot: 'social_all' },
 };
@@ -187,21 +188,43 @@ export default function App() {
       ];
     }
 
-    // Chat view unified breadcrumbs
+    // Chat view unified breadcrumbs: clear distinction between 任务模式 (Single-Agent Session) vs 对话模式 (IM)
     const ch = store.activeChatChannel;
     if (ch.type === 'task_session') {
       const task = store.allTasks.find((t) => t.id === ch.taskId);
+      const taskAgent = task ? store.agents.find((a) => a.id === task.assigneeId) : undefined;
+      const taskProj = task ? store.workspaces.find((w) => w.id === task.sessionId) : undefined;
       return [
-        { label: '协作对话' },
-        { label: 'Agent 任务' },
+        { label: '任务模式' },
+        {
+          label: taskAgent
+            ? formatAgentDisplayName(taskAgent.handle, taskAgent.runtimeAgent)
+            : task?.assigneeHandle || 'Agent 任务',
+        },
+        ...(taskProj
+          ? [
+              {
+                label: taskProj.name,
+                onClick: () => store.selectSession(taskProj.id),
+              },
+            ]
+          : []),
         { label: task ? `#${task.id} ${task.title}` : '任务执行会话' },
+      ];
+    }
+    if (ch.type === 'human_dm') {
+      const expert = store.humanExperts.find((h) => h.id === ch.expertId);
+      return [
+        { label: '对话模式' },
+        { label: '人类专家单聊' },
+        { label: expert ? expert.name : '专家沟通' },
       ];
     }
     if (ch.type === 'dm') {
       const dmAgent = store.agents.find((a) => a.id === ch.agentId);
       return [
-        { label: '协作对话' },
-        { label: '专家单聊' },
+        { label: '对话模式' },
+        { label: 'Agent 单聊' },
         {
           label: dmAgent
             ? formatAgentDisplayName(dmAgent.handle, dmAgent.runtimeAgent)
@@ -210,10 +233,10 @@ export default function App() {
       ];
     }
     if (ch.type === 'assistant') {
-      return [{ label: '协作对话' }, { label: 'Nexa 助理' }];
+      return [{ label: '对话模式' }, { label: 'Nexa 助理' }];
     }
     return [
-      { label: '协作对话' },
+      { label: '对话模式' },
       { label: '项目群' },
       { label: store.activeWorkspace.name },
     ];
@@ -229,13 +252,16 @@ export default function App() {
       <Sidebar
         activeView={store.activeView}
         activeChatChannel={store.activeChatChannel}
+        conversationMode={store.conversationMode}
         zones={store.joinedZones}
         workspaces={store.workspaces}
         agents={store.agents}
+        humanExperts={store.humanExperts}
         allMessages={store.allMessages}
         allTasks={store.allTasks}
         taskSessions={store.taskSessions}
         negotiations={store.negotiations}
+        humanDmThreads={store.humanDmThreads}
         assistantMessages={store.assistantMessages}
         assistantPendingCount={store.assistantPendingCount}
         awaitingTaskSessionCount={store.awaitingTaskSessionCount}
@@ -250,12 +276,15 @@ export default function App() {
         onSelectView={store.setActiveView}
         onSelectProjectChat={store.selectSession}
         onSelectDm={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+        onSelectHumanDm={store.openHumanDm}
         onSelectAssistant={store.openAssistantChat}
         onSelectTaskSession={store.openTaskSession}
+        onCreateAndOpenTaskSession={store.createAndOpenTaskSession}
         onCreateProject={(name, goal, sourceZoneId) => {
           store.createSession(name, goal, sourceZoneId);
           store.setActiveView('chat');
         }}
+        onSwitchConversationMode={store.switchConversationMode}
         onOpenLogin={() => store.setAuthModalOpen(true)}
         onLogout={store.logoutAccount}
       />
@@ -290,6 +319,7 @@ export default function App() {
               workspaces={store.workspaces}
               activeWorkspace={store.activeWorkspace}
               agents={store.agents}
+              humanExperts={store.humanExperts}
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
               allTasks={store.allTasks}
@@ -299,6 +329,7 @@ export default function App() {
               taskSessionBusyId={store.taskSessionBusyId}
               taskSessionError={store.taskSessionError}
               negotiations={store.negotiations}
+              humanDmThreads={store.humanDmThreads}
               assistantMessages={store.assistantMessages}
               settlements={store.settlements}
               spaceApplications={store.spaceApplications}
@@ -315,9 +346,12 @@ export default function App() {
               onClearTaskSessionError={store.clearTaskSessionError}
               onSelectProjectChat={store.selectSession}
               onOpenTaskSession={store.openTaskSession}
+              onOpenAgentTaskSession={store.openAgentTaskSession}
+              onCreateAndOpenTaskSession={store.createAndOpenTaskSession}
               onSendTaskSessionTurn={store.sendTaskSessionTurn}
               onSyncTaskSummaryToGroup={store.syncTaskSummaryToGroup}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+              onSendHumanDm={store.sendHumanDmMessage}
               onSendGroupMessage={store.sendGroupMessage}
               onCreateWorkCard={store.createWorkCard}
               onRunTask={store.runAutonomousTask}
@@ -406,7 +440,7 @@ export default function App() {
               hiredAgents={store.hiredAgents}
               privateAgents={store.privateAgents}
               hiredIds={store.hiredIds}
-              tasks={store.sessionTasks}
+              tasks={store.allTasks}
               openMountDrawerSignal={store.openMountDrawerSignal}
               teamSectionSeed={store.teamTabSeed}
               onClearTeamSectionSeed={store.clearTeamTabSeed}
@@ -420,6 +454,8 @@ export default function App() {
               onUpdateTeamExpertRelation={store.updateTeamExpertRelation}
               onRemoveTeamExpert={store.removeTeamExpert}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}
+              onOpenTaskSession={store.openTaskSession}
+              onOpenAgentTaskSession={store.openAgentTaskSession}
               onSavePrivateAgent={store.savePrivateAgent}
               onToggleMarketListing={store.toggleMarketListing}
               onRecruitCategory={store.jumpToMarketWithCategory}
@@ -465,6 +501,7 @@ export default function App() {
               marketplaceAgents={store.marketplaceAgents}
               privateAgents={store.privateAgents}
               humanExperts={store.humanExperts}
+              marketSkills={store.marketSkills}
               agentLeases={store.agentLeases}
               purchasedSkillIds={store.purchasedSkillIds}
               teamExperts={store.teamExperts}
@@ -494,6 +531,7 @@ export default function App() {
               onToggleJoinZone={store.toggleJoinZone}
               onToggleFollowEntity={store.toggleFollowEntity}
               onCreatePost={store.createCommunityPost}
+              onPublishSkill={store.publishCommunitySkill}
               onTogglePinPost={store.togglePinPost}
               onToggleLikePost={store.toggleLikePost}
               onAddPostComment={store.addPostComment}

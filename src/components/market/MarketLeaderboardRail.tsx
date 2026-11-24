@@ -1,15 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Award,
-  Blocks,
-  Briefcase,
-  ChevronRight,
-  Cpu,
-  Flame,
-  Sparkles,
-  Star,
-  Trophy,
-} from 'lucide-react';
+import { ChevronRight, Flame, Star, Trophy } from 'lucide-react';
 import {
   EntityAvatar,
   displayEntityName,
@@ -26,7 +16,7 @@ import type {
 } from '../../types/agentnexus';
 
 export type MarketEntityTab = 'agents' | 'humans' | 'skills';
-export type RankingDimension = 'popular' | 'top_rated' | 'recommended';
+export type RankingDimension = 'popular' | 'top_rated';
 
 const CATEGORY_OPTIONS: { id: 'all' | AgentCategory; label: string }[] = [
   { id: 'all', label: '全部分类' },
@@ -37,15 +27,6 @@ const CATEGORY_OPTIONS: { id: 'all' | AgentCategory; label: string }[] = [
   { id: 'qa', label: '测试质量' },
   { id: 'media', label: '自媒体运营' },
 ];
-
-const CATEGORY_LABELS: Record<AgentCategory, string> = {
-  engineering: '研发开发',
-  design: '设计体验',
-  product: '产品策划',
-  architecture: '架构审查',
-  qa: '测试质量',
-  media: '自媒体运营',
-};
 
 const SKILL_KIND_LABELS: Record<SkillKind, string> = {
   skill: 'Skill',
@@ -77,7 +58,6 @@ interface MarketLeaderboardRailProps {
   onSelectAgent: (agentId: string) => void;
   onSelectHuman: (humanId: string) => void;
   onSelectSkill: (skillId: string) => void;
-  onSwitchEntityTab: (tab: MarketEntityTab) => void;
 }
 
 export function MarketLeaderboardRail({
@@ -92,12 +72,11 @@ export function MarketLeaderboardRail({
   onSelectAgent,
   onSelectHuman,
   onSelectSkill,
-  onSwitchEntityTab,
 }: MarketLeaderboardRailProps) {
   const [dimension, setDimension] = useState<RankingDimension>('popular');
   const [boardCategory, setBoardCategory] = useState<'all' | AgentCategory>(activeCategory);
 
-  // Sync ranking category when the user switches the main category on the left rail
+  // Sync ranking category when the user switches the main category filter
   useEffect(() => {
     setBoardCategory(activeCategory);
   }, [activeCategory]);
@@ -105,7 +84,6 @@ export function MarketLeaderboardRail({
   const rankedAgents = useMemo(() => {
     const pool =
       boardCategory === 'all' ? agents : agents.filter((a) => a.category === boardCategory);
-    const tierScore = (tier: string) => (tier.startsWith('S') ? 3 : tier.startsWith('A+') ? 2 : 1);
 
     return [...pool]
       .sort((a, b) => {
@@ -114,23 +92,12 @@ export function MarketLeaderboardRail({
           const popB = b.performance.completedProjects * 1.4 + b.performance.repeatHireRate;
           return popB - popA;
         }
-        if (dimension === 'top_rated') {
-          if (b.performance.rating !== a.performance.rating) {
-            return b.performance.rating - a.performance.rating;
-          }
-          return b.performance.successRate - a.performance.successRate;
+        if (b.performance.rating !== a.performance.rating) {
+          return b.performance.rating - a.performance.rating;
         }
-        const recA =
-          tierScore(a.performance.capabilityTier) * 30 +
-          a.performance.reputationScore * 0.6 +
-          a.performance.rating * 10;
-        const recB =
-          tierScore(b.performance.capabilityTier) * 30 +
-          b.performance.reputationScore * 0.6 +
-          b.performance.rating * 10;
-        return recB - recA;
+        return b.performance.successRate - a.performance.successRate;
       })
-      .slice(0, 5);
+      .slice(0, 6);
   }, [agents, boardCategory, dimension]);
 
   const rankedHumans = useMemo(() => {
@@ -138,7 +105,6 @@ export function MarketLeaderboardRail({
       boardCategory === 'all'
         ? humanExperts
         : humanExperts.filter((h) => h.category === boardCategory);
-    const tierScore = (tier?: 'S' | 'A+' | 'A') => (tier === 'S' ? 3 : tier === 'A+' ? 2 : 1);
 
     return [...pool]
       .map((human) => {
@@ -159,79 +125,43 @@ export function MarketLeaderboardRail({
             (a.human.completedProjects + a.ownedCount * 8)
           );
         }
-        if (dimension === 'top_rated') {
-          if (b.human.reputationScore !== a.human.reputationScore) {
-            return b.human.reputationScore - a.human.reputationScore;
-          }
-          return b.avgAgentRating - a.avgAgentRating;
+        if (b.human.reputationScore !== a.human.reputationScore) {
+          return b.human.reputationScore - a.human.reputationScore;
         }
-        const recA =
-          tierScore(a.human.ratingTier) * 28 + a.human.reputationScore * 0.7 + a.ownedCount * 6;
-        const recB =
-          tierScore(b.human.ratingTier) * 28 + b.human.reputationScore * 0.7 + b.ownedCount * 6;
-        return recB - recA;
+        return b.avgAgentRating - a.avgAgentRating;
       })
-      .slice(0, 5);
+      .slice(0, 6);
   }, [allAgents, boardCategory, dimension, humanExperts]);
 
   const rankedSkills = useMemo(() => {
     const pool =
       boardCategory === 'all' ? skills : skills.filter((s) => s.category === boardCategory);
-    const tierScore = (t: 'S' | 'A+' | 'A') => (t === 'S' ? 3 : t === 'A+' ? 2 : 1);
 
     return [...pool]
       .sort((a, b) => {
         if (dimension === 'popular') {
           return b.installs - a.installs;
         }
-        if (dimension === 'top_rated') {
-          if (b.rating !== a.rating) return b.rating - a.rating;
-          return b.installs - a.installs;
-        }
-        const pA = getSkillPurchasePricing(a);
-        const pB = getSkillPurchasePricing(b);
-        const recA =
-          tierScore(pA.ratingTier) * 25 + a.rating * 12 + Math.min(a.installs / 400, 15);
-        const recB =
-          tierScore(pB.ratingTier) * 25 + b.rating * 12 + Math.min(b.installs / 400, 15);
-        return recB - recA;
+        if (b.rating !== a.rating) return b.rating - a.rating;
+        return b.installs - a.installs;
       })
-      .slice(0, 5);
+      .slice(0, 6);
   }, [boardCategory, dimension, skills]);
-
-  // Cross-category highlights from the other two service types
-  const topAgentSpotlight = useMemo(() => {
-    return [...agents]
-      .sort((a, b) => b.performance.completedProjects - a.performance.completedProjects)
-      .slice(0, 2);
-  }, [agents]);
-
-  const topHumanSpotlight = useMemo(() => {
-    return [...humanExperts]
-      .filter((h) => !h.isCurrentUser)
-      .sort((a, b) => b.reputationScore - a.reputationScore)
-      .slice(0, 2);
-  }, [humanExperts]);
-
-  const topSkillSpotlight = useMemo(() => {
-    return [...skills].sort((a, b) => b.installs - a.installs).slice(0, 2);
-  }, [skills]);
 
   const boardTitle =
     entityTab === 'agents'
-      ? '专业 Agent 榜'
+      ? '专业 Agent 排行'
       : entityTab === 'humans'
-        ? '人类专家榜'
-        : 'Skills / MCP 榜';
+        ? '人类专家排行'
+        : 'Skills / MCP 排行';
 
   return (
     <aside
-      aria-label="服务市场排行榜与推荐"
-      className="w-full @[820px]:w-[268px] @[1020px]:w-[292px] shrink-0 @[820px]:sticky @[820px]:top-5 space-y-3.5"
+      aria-label="服务市场自动排行榜"
+      className="w-full @[820px]:w-[268px] @[1020px]:w-[292px] shrink-0 @[820px]:sticky @[820px]:top-5"
     >
-      {/* PRIMARY LEADERBOARD CARD */}
+      {/* PURE AUTOMATIC DATA-DRIVEN LEADERBOARD (Zero Manual Curation) */}
       <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        {/* Header with Category Ranking Selector */}
         <div className="px-3.5 pt-3.5 pb-2.5 border-b border-slate-100 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
@@ -253,12 +183,11 @@ export function MarketLeaderboardRail({
             </select>
           </div>
 
-          {/* 3-Way Ranking Dimension Switcher */}
-          <div className="grid grid-cols-3 gap-1 p-0.5 rounded-lg bg-slate-100">
+          {/* 2-Way Objective Auto-Ranking Switcher: Popular vs Top Rated */}
+          <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-slate-100">
             {[
               { id: 'popular' as const, label: '最受欢迎', icon: Flame },
-              { id: 'top_rated' as const, label: '最好评价', icon: Star },
-              { id: 'recommended' as const, label: '精选推荐', icon: Sparkles },
+              { id: 'top_rated' as const, label: '好评排行', icon: Star },
             ].map((tab) => {
               const Icon = tab.icon;
               const active = dimension === tab.id;
@@ -278,9 +207,7 @@ export function MarketLeaderboardRail({
                       active
                         ? tab.id === 'popular'
                           ? 'text-orange-500'
-                          : tab.id === 'top_rated'
-                            ? 'text-amber-500'
-                            : 'text-blue-600'
+                          : 'text-amber-500'
                         : 'text-slate-400'
                     }`}
                   />
@@ -339,9 +266,7 @@ export function MarketLeaderboardRail({
                       <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
                         {dimension === 'top_rated'
                           ? `★ ${agent.performance.rating.toFixed(2)} · 胜率 ${agent.performance.successRate}%`
-                          : dimension === 'recommended'
-                            ? `信誉 ${agent.performance.reputationScore} · ${CATEGORY_LABELS[agent.category]}`
-                            : `${agent.performance.completedProjects} 交付 · 复购 ${agent.performance.repeatHireRate}%`}
+                          : `${agent.performance.completedProjects} 交付 · 复购 ${agent.performance.repeatHireRate}%`}
                       </div>
                     </div>
                     <div className="text-right shrink-0 font-mono tabular-nums">
@@ -398,9 +323,7 @@ export function MarketLeaderboardRail({
                     <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
                       {dimension === 'top_rated'
                         ? `信誉 ${human.reputationScore} · ★ ${avgAgentRating.toFixed(2)}`
-                        : dimension === 'recommended'
-                          ? `${CATEGORY_LABELS[human.category]} · ${ownedCount} Agent`
-                          : `${human.completedProjects} 交付 · ${ownedCount} 内建 Agent`}
+                        : `${human.completedProjects} 交付 · ${ownedCount} 内建 Agent`}
                     </div>
                   </div>
                   <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-600 shrink-0" />
@@ -438,9 +361,7 @@ export function MarketLeaderboardRail({
                       <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
                         {dimension === 'top_rated'
                           ? `★ ${skill.rating.toFixed(2)} · ${pricing.ratingTier}级 · ${SKILL_KIND_LABELS[skill.kind]}`
-                          : dimension === 'recommended'
-                            ? `${pricing.ratingTier}级 · ${CATEGORY_LABELS[skill.category]} · ★ ${skill.rating.toFixed(2)}`
-                            : `${formatInstalls(skill.installs)} 安装 · ★ ${skill.rating.toFixed(2)}`}
+                          : `${formatInstalls(skill.installs)} 安装 · ★ ${skill.rating.toFixed(2)}`}
                       </div>
                     </div>
                     <div className="text-right shrink-0 font-mono tabular-nums">
@@ -461,155 +382,6 @@ export function MarketLeaderboardRail({
                 );
               })
             ))}
-        </div>
-      </section>
-
-      {/* SECONDARY CROSS-CATEGORY SPOTLIGHT CARD */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-3.5 py-2.5 border-b border-slate-100 flex items-center gap-1.5">
-          <Award className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-          <h3 className="text-xs font-bold text-slate-900">同空间精选推荐</h3>
-        </div>
-
-        <div className="p-3 space-y-3">
-          {entityTab !== 'agents' && topAgentSpotlight.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-600">
-                  <Cpu className="w-3 h-3 text-indigo-600" />
-                  <span>热门专业 Agent</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onSwitchEntityTab('agents')}
-                  className="text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
-                >
-                  全部 →
-                </button>
-              </div>
-              {topAgentSpotlight.map((ag) => {
-                const p = getAgentLeasePricing({
-                  runtimeAgent: ag.runtimeAgent,
-                  defaultModel: ag.defaultModel,
-                  capabilityTier: ag.performance.capabilityTier,
-                  ownership: ag.ownership,
-                  projectPriceUsd: ag.projectPriceUsd,
-                  monthlyLeaseUsd: ag.monthlyLeaseUsd,
-                });
-                return (
-                  <button
-                    key={ag.id}
-                    type="button"
-                    onClick={() => onSelectAgent(ag.id)}
-                    className="w-full rounded-lg bg-slate-50 hover:bg-slate-100/80 border border-slate-100 px-2.5 py-2 flex items-center justify-between gap-2 text-left cursor-pointer transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-900 truncate">
-                        {displayEntityName(ag.handle)}
-                      </div>
-                      <div className="text-[10px] text-slate-500 font-mono truncate">
-                        ★ {ag.performance.rating.toFixed(2)} · {ag.performance.completedProjects} 交付
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono font-bold text-slate-800 shrink-0">
-                      ${p.monthlyUsd}/月
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {entityTab !== 'humans' && topHumanSpotlight.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-600">
-                  <Briefcase className="w-3 h-3 text-emerald-600" />
-                  <span>高口碑人类专家</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onSwitchEntityTab('humans')}
-                  className="text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
-                >
-                  全部 →
-                </button>
-              </div>
-              {topHumanSpotlight.map((human) => (
-                <button
-                  key={human.id}
-                  type="button"
-                  onClick={() => onSelectHuman(human.id)}
-                  className="w-full rounded-lg bg-slate-50 hover:bg-slate-100/80 border border-slate-100 px-2.5 py-2 flex items-center justify-between gap-2 text-left cursor-pointer transition-colors"
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <EntityAvatar
-                      kind="human"
-                      code={human.avatarInitials}
-                      accent={human.avatarAccent}
-                      size="sm"
-                    />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-900 truncate">
-                        {human.name}
-                      </div>
-                      <div className="text-[10px] text-slate-500 truncate">
-                        {human.outsourcingDomain || human.specialties[0]}
-                      </div>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-mono font-semibold text-violet-700 shrink-0">
-                    {human.ratingTier || 'A+'}级
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          {entityTab !== 'skills' && topSkillSpotlight.length > 0 && (
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between text-[11px]">
-                <span className="inline-flex items-center gap-1 font-semibold text-slate-600">
-                  <Blocks className="w-3 h-3 text-amber-600" />
-                  <span>高人气 Skills / MCP</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onSwitchEntityTab('skills')}
-                  className="text-blue-700 hover:text-blue-900 font-medium cursor-pointer"
-                >
-                  全部 →
-                </button>
-              </div>
-              {topSkillSpotlight.map((sk) => {
-                const p = getSkillPurchasePricing(sk);
-                return (
-                  <button
-                    key={sk.id}
-                    type="button"
-                    onClick={() => onSelectSkill(sk.id)}
-                    className="w-full rounded-lg bg-slate-50 hover:bg-slate-100/80 border border-slate-100 px-2.5 py-2 flex items-center justify-between gap-2 text-left cursor-pointer transition-colors"
-                  >
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-900 truncate">
-                        {sk.name}
-                      </div>
-                      <div className="text-[10px] text-slate-500 font-mono truncate">
-                        {formatInstalls(sk.installs)} 安装 · ★ {sk.rating.toFixed(2)}
-                      </div>
-                    </div>
-                    <span
-                      className={`text-[11px] font-mono font-bold shrink-0 ${
-                        p.isFree ? 'text-emerald-700' : 'text-slate-900'
-                      }`}
-                    >
-                      {p.priceLabel}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
         </div>
       </section>
     </aside>

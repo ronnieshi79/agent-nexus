@@ -114,6 +114,7 @@ interface AgentMarketViewProps {
   agents: ExpertAgent[];
   privateAgents: ExpertAgent[];
   humanExperts: HumanExpert[];
+  marketSkills?: MarketSkill[];
   agentLeases: Record<string, AgentLeaseRecord>;
   purchasedSkillIds: string[];
   teamExperts: TeamExpertMembership[];
@@ -146,7 +147,7 @@ interface AgentMarketViewProps {
 }
 
 export type MarketEntityTab = 'agents' | 'humans' | 'skills';
-type MarketSortOption = 'recommended' | 'popular' | 'top_rated' | 'price_asc';
+type MarketSortOption = 'popular' | 'top_rated' | 'price_asc';
 type SkillPriceFilter = 'all' | 'free' | 'paid';
 
 type ActiveDrawer =
@@ -174,6 +175,7 @@ export function AgentMarketView({
   agents,
   privateAgents,
   humanExperts,
+  marketSkills = INITIAL_MARKET_SKILLS,
   agentLeases,
   purchasedSkillIds,
   teamExperts,
@@ -211,7 +213,7 @@ export function AgentMarketView({
   const [runtimeFilter, setRuntimeFilter] = useState<string>('all');
   const [skillKindFilter, setSkillKindFilter] = useState<'all' | SkillKind>('all');
   const [skillPriceFilter, setSkillPriceFilter] = useState<SkillPriceFilter>('all');
-  const [sortBy, setSortBy] = useState<MarketSortOption>('recommended');
+  const [sortBy, setSortBy] = useState<MarketSortOption>('popular');
   const [keyword, setKeyword] = useState('');
 
   // AI Match Popover
@@ -314,8 +316,8 @@ export function AgentMarketView({
   const zoneHumansAllCount = zoneHumansAll.length;
 
   const zoneSkillsAll = useMemo(
-    () => INITIAL_MARKET_SKILLS.filter((sk) => sk.zoneIds.includes(activeZone.id)),
-    [activeZone.id],
+    () => marketSkills.filter((sk) => sk.zoneIds.includes(activeZone.id)),
+    [activeZone.id, marketSkills],
   );
 
   // Per-category counts for the active entity tab in the left rail
@@ -493,8 +495,8 @@ export function AgentMarketView({
 
   const drawerSkill = useMemo(() => {
     if (activeDrawer?.type !== 'skill') return null;
-    return INITIAL_MARKET_SKILLS.find((s) => s.id === activeDrawer.skillId) ?? null;
-  }, [activeDrawer]);
+    return marketSkills.find((s) => s.id === activeDrawer.skillId) ?? null;
+  }, [activeDrawer, marketSkills]);
 
   const matchMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -763,19 +765,17 @@ export function AgentMarketView({
               <ToolbarDropdown
                 label="排序"
                 value={sortBy}
-                defaultValue="recommended"
+                defaultValue="popular"
                 onChange={setSortBy}
                 options={
                   entityTab === 'humans'
                     ? [
-                        { id: 'recommended', label: '综合推荐' },
                         { id: 'popular', label: '最受欢迎' },
-                        { id: 'top_rated', label: '最好评价' },
+                        { id: 'top_rated', label: '好评优先' },
                       ]
                     : [
-                        { id: 'recommended', label: '综合推荐' },
                         { id: 'popular', label: '最受欢迎' },
-                        { id: 'top_rated', label: '最好评价' },
+                        { id: 'top_rated', label: '好评优先' },
                         { id: 'price_asc', label: '价格从低到高' },
                       ]
                 }
@@ -1683,7 +1683,7 @@ export function AgentMarketView({
             )}
                 </div>
 
-                {/* COLUMN 3 (RIGHT): Ranking & Recommendation Leaderboard Rail */}
+                {/* COLUMN 3 (RIGHT): Automatic Objective Leaderboard Rail */}
                 <MarketLeaderboardRail
                   entityTab={entityTab}
                   activeCategory={categoryFilter}
@@ -1696,10 +1696,6 @@ export function AgentMarketView({
                   onSelectAgent={(agentId) => openAgentDrawer(agentId, 'lease')}
                   onSelectHuman={(humanId) => openHumanDrawer(humanId)}
                   onSelectSkill={(skillId) => openSkillDrawer(skillId)}
-                  onSwitchEntityTab={(tab) => {
-                    setEntityTab(tab);
-                    if (tab !== 'agents') setOwnerFilterId(null);
-                  }}
                 />
               </div>
             </div>
