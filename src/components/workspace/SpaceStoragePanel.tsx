@@ -314,7 +314,7 @@ export function SpaceStoragePanel({
                       <span>共享 Agent：</span>
                     </span>
                     {boundAgents.length === 0 ? (
-                      <span className="text-[11px] text-slate-400">可在「Agent 配置」为节点挂载</span>
+                      <span className="text-[11px] text-slate-400">可在「Agent 节点」中勾选挂载</span>
                     ) : (
                       boundAgents.map((a) => (
                         <span key={a.id} className="text-[11px] font-semibold text-indigo-700">

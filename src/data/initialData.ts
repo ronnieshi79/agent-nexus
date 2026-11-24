@@ -13,6 +13,7 @@ import type {
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
+  SpaceJoinApplication,
   SpaceSharedNode,
   StorageVolume,
   TaskSessionMessage,
@@ -2815,15 +2816,55 @@ export const INITIAL_AUDIT_LOGS: PlatformAuditLog[] = [
   },
 ];
 
+export const INITIAL_SPACE_APPLICATIONS: SpaceJoinApplication[] = [
+  {
+    id: 'app_space_01',
+    zoneId: 'zone_my_company',
+    zoneName: '星帆智造 · 企业协作空间',
+    applicantName: '苏晚晴',
+    applicantTitle: '产品体验与 B2B 交互设计专家',
+    humanExpertId: 'human_su',
+    avatarInitials: '晚晴',
+    avatarAccent: '#7c3aed',
+    requestedRole: 'member',
+    note: '申请加入「星帆智造 · 企业协作空间」，协同参与跨境结算后台与移动端多端体验联调。',
+    createdAt: '10:36',
+    status: 'pending',
+  },
+  {
+    id: 'app_space_02',
+    zoneId: 'zone_my_company',
+    zoneName: '星帆智造 · 企业协作空间',
+    applicantName: '林汐',
+    applicantTitle: 'AI 工程与端到端自动化测试专家',
+    humanExpertId: 'human_linxi',
+    avatarInitials: '林汐',
+    avatarAccent: '#0f766e',
+    requestedRole: 'member',
+    note: '申请入驻空间并接入企业共享 Linux 节点，负责多币种结算回归测试与 CI 门禁验证。',
+    createdAt: '10:19',
+    status: 'pending',
+  },
+];
+
 export const INITIAL_ASSISTANT_MESSAGES: AssistantMessage[] = [
   {
     id: 'asst_1',
     sender: 'assistant',
     category: 'general',
     content:
-      '你好，我是 Nexa 平台助理。已为你聚合各项目的专家签约结算、外部报价协商及交付验收审计提醒，你可以直接点下方卡片处理，或在输入框直接向我下达对账与巡检指令。',
+      '你好，我是 Nexa 平台助理。已为你聚合协作空间人员申请审批、跨项目签约结算、外部报价协商及交付验收审计提醒，你可以直接点下方卡片处理，或在输入框直接向我下达对账与巡检指令。',
     timestamp: '10:42',
     cards: [
+      {
+        id: 'card_app_1',
+        category: 'approval',
+        title: '协作空间入驻申请：苏晚晴 申请加入「星帆智造 · 企业协作空间」',
+        detail: '产品体验与 B2B 交互设计专家，申请加入参与跨境结算后台与移动端体验联调。',
+        metricLabel: '待审批 · 2 项',
+        actionLabel: '同意加入',
+        actionTarget: { type: 'space_application', applicationId: 'app_space_01' },
+      },
       {
         id: 'card_stl_1',
         category: 'settlement',

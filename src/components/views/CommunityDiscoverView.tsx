@@ -33,6 +33,7 @@ import {
 import {
   RailNavButton,
   RailSectionLabel,
+  ToolbarDropdown,
   ToolbarSearch,
   ViewToolbar,
   WORKSPACE_GUTTER_CLASS,
@@ -173,9 +174,8 @@ export function CommunityDiscoverView({
   onJumpToZoneMarket,
   onJumpToKanban,
 }: CommunityDiscoverViewProps) {
-  const [postFilter, setPostFilter] = useState<'all' | 'following' | 'pinned' | CommunityPostType>(
-    'all',
-  );
+  const [feedScope, setFeedScope] = useState<'all' | 'following' | 'pinned'>('all');
+  const [topicFilter, setTopicFilter] = useState<'all' | CommunityPostType>('all');
   const [crossZoneFollowing, setCrossZoneFollowing] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [principalDemoZones, setPrincipalDemoZones] = useState<Record<string, boolean>>({});
@@ -238,7 +238,8 @@ export function CommunityDiscoverView({
   const activeCommunity = activeZone;
 
   useEffect(() => {
-    setPostFilter('all');
+    setFeedScope('all');
+    setTopicFilter('all');
     setSearchKeyword('');
   }, [activeZone.id]);
 
@@ -325,26 +326,48 @@ export function CommunityDiscoverView({
     [zonePosts],
   );
 
-  const communityFeedPosts = useMemo(() => {
-    const q = searchKeyword.trim().toLowerCase();
-    const basePool =
-      postFilter === 'following' && crossZoneFollowing
+  const scopeBasePosts = useMemo(() => {
+    const pool =
+      feedScope === 'following' && crossZoneFollowing
         ? communityPosts.filter((p) => accessibleZoneIdSet.has(p.zoneId))
         : zonePosts;
 
-    const filtered = basePool.filter((p) => {
-      if (postFilter === 'following') {
+    return pool.filter((p) => {
+      if (feedScope === 'following') {
         const primaryKey = getPostAuthorFollowKey(p);
         const ownerFollowed =
           p.authorEntityType === 'agent' && p.authorOwnerName
             ? followedSet.has(getHumanFollowKey(p.authorOwnerName))
             : false;
-        if (!followedSet.has(primaryKey) && !ownerFollowed) return false;
-      } else if (postFilter === 'pinned') {
-        if (!p.pinned) return false;
-      } else if (postFilter !== 'all' && p.type !== postFilter) {
-        return false;
+        return followedSet.has(primaryKey) || ownerFollowed;
       }
+      if (feedScope === 'pinned') {
+        return Boolean(p.pinned);
+      }
+      return true;
+    });
+  }, [accessibleZoneIdSet, communityPosts, crossZoneFollowing, feedScope, followedSet, zonePosts]);
+
+  const scopeTopicCounts = useMemo(() => {
+    const counts: Record<'all' | CommunityPostType, number> = {
+      all: scopeBasePosts.length,
+      discussion: 0,
+      project: 0,
+      agn_recommend: 0,
+      announcement: 0,
+    };
+    scopeBasePosts.forEach((p) => {
+      if (counts[p.type] !== undefined) {
+        counts[p.type] += 1;
+      }
+    });
+    return counts;
+  }, [scopeBasePosts]);
+
+  const communityFeedPosts = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
+    const filtered = scopeBasePosts.filter((p) => {
+      if (topicFilter !== 'all' && p.type !== topicFilter) return false;
       if (!q) return true;
       const haystack = [
         p.title,
@@ -358,15 +381,7 @@ export function CommunityDiscoverView({
       return haystack.includes(q);
     });
     return [...filtered].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
-  }, [
-    accessibleZoneIdSet,
-    communityPosts,
-    crossZoneFollowing,
-    followedSet,
-    postFilter,
-    searchKeyword,
-    zonePosts,
-  ]);
+  }, [scopeBasePosts, searchKeyword, topicFilter]);
 
   const communityOpenProjects = useMemo(
     () => zoneProjects.filter((p) => p.zoneId === activeCommunity.id),
@@ -555,7 +570,8 @@ export function CommunityDiscoverView({
     setPostTitle('');
     setPostBody('');
     setComposerPin(false);
-    setPostFilter('all');
+    setFeedScope('all');
+    setTopicFilter('all');
     setIsComposerOpen(false);
   };
 
@@ -574,39 +590,23 @@ export function CommunityDiscoverView({
     icon: typeof Flame;
     count: number;
   }[] = [
-    { id: 'all', label: '全部', icon: Flame, count: categoryCounts.all },
+    { id: 'all', label: '全部动态', icon: Flame, count: categoryCounts.all },
     { id: 'following', label: '我的关注', icon: UserCheck, count: followingCountInScope },
     { id: 'pinned', label: '主理置顶', icon: Pin, count: pinnedPostsCount },
   ];
 
-  const topicChannels: {
-    id: CommunityPostType;
-    label: string;
-    icon: typeof MessageCircle;
-    count: number;
-  }[] = [
-    { id: 'discussion', label: '分享讨论', icon: MessageCircle, count: categoryCounts.discussion },
-    { id: 'project', label: '项目招募', icon: Briefcase, count: categoryCounts.project },
-    { id: 'agn_recommend', label: 'AGN 推荐', icon: Sparkles, count: categoryCounts.agn_recommend },
-    { id: 'announcement', label: '社区公告', icon: Megaphone, count: categoryCounts.announcement },
-  ];
-
-  const allChannelItems = [...socialChannels, ...topicChannels];
-
   const resolveComposerMode = (): CommunityPostType =>
-    postFilter === 'all' || postFilter === 'following' || postFilter === 'pinned'
-      ? 'discussion'
-      : postFilter;
+    topicFilter === 'all' ? 'discussion' : topicFilter;
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT FULL-HEIGHT PRIMARY CHANNEL RAIL */}
-      <WorkspacePrimaryRail ariaLabel="交流社区主筛选">
+      {/* FAR-LEFT FULL-HEIGHT PRIMARY NAVIGATION RAIL: Core Feed Scopes Only */}
+      <WorkspacePrimaryRail ariaLabel="交流社区导航">
         <div className="space-y-0.5">
           <RailSectionLabel>动态视角</RailSectionLabel>
           {socialChannels.map((item) => {
             const Icon = item.icon;
-            const active = postFilter === item.id;
+            const active = feedScope === item.id;
             return (
               <RailNavButton
                 key={item.id}
@@ -628,65 +628,41 @@ export function CommunityDiscoverView({
                     }`}
                   />
                 }
-                onClick={() => setPostFilter(item.id)}
+                onClick={() => setFeedScope(item.id)}
               />
             );
           })}
         </div>
-
-        <div className="border-t border-slate-100 pt-2.5 space-y-0.5">
-          <RailSectionLabel>内容分类</RailSectionLabel>
-          {topicChannels.map((item) => {
-            const Icon = item.icon;
-            const active = postFilter === item.id;
-            return (
-              <RailNavButton
-                key={item.id}
-                active={active}
-                variant="primary"
-                disabled={!hasAccess}
-                label={item.label}
-                count={item.count}
-                icon={
-                  <Icon
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      active ? 'text-sky-300' : 'text-slate-400'
-                    }`}
-                  />
-                }
-                onClick={() => setPostFilter(item.id)}
-              />
-            );
-          })}
-        </div>
-
-        {hasAccess && (
-          <div className="pt-2 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => openComposer(resolveComposerMode())}
-              className="w-full inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-xs font-semibold text-slate-800 cursor-pointer transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5 text-blue-600" />
-              <span>发布社区内容</span>
-            </button>
-          </div>
-        )}
       </WorkspacePrimaryRail>
 
-      {/* RIGHT MAIN WORKSPACE COLUMN: Top Search & Actions Flush-Aligned with Content */}
+      {/* RIGHT MAIN WORKSPACE COLUMN: Top Search, Contextual Filters & Actions Flush-Aligned with Content */}
       <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
         {/* Content-Level Functional Toolbar (Aligned Flush with Content Stream Below) */}
         <ViewToolbar
         left={
           <>
             {hasAccess ? (
-              <ToolbarSearch
-                value={searchKeyword}
-                onChange={setSearchKeyword}
-                placeholder={`在「${activeCommunity.name}」搜索帖子、标签或作者...`}
-                widthClass="w-full sm:w-64 lg:w-72"
-              />
+              <>
+                <ToolbarSearch
+                  value={searchKeyword}
+                  onChange={setSearchKeyword}
+                  placeholder={`在「${activeCommunity.name}」搜索帖子、标签或作者...`}
+                  widthClass="w-full sm:w-56 lg:w-64"
+                />
+                <ToolbarDropdown
+                  label="分类"
+                  value={topicFilter}
+                  defaultValue="all"
+                  onChange={setTopicFilter}
+                  options={[
+                    { id: 'all', label: '全部分类', hint: `${scopeTopicCounts.all}` },
+                    { id: 'discussion', label: '分享讨论', hint: `${scopeTopicCounts.discussion}` },
+                    { id: 'project', label: '项目招募', hint: `${scopeTopicCounts.project}` },
+                    { id: 'agn_recommend', label: 'AGN 推荐', hint: `${scopeTopicCounts.agn_recommend}` },
+                    { id: 'announcement', label: '社区公告', hint: `${scopeTopicCounts.announcement}` },
+                  ]}
+                />
+              </>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-600">
                 <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -694,7 +670,7 @@ export function CommunityDiscoverView({
               </span>
             )}
 
-            <span className="hidden @[780px]:inline-flex items-center gap-1.5 text-xs text-slate-500 pl-1 truncate">
+            <span className="hidden @[860px]:inline-flex items-center gap-1.5 text-xs text-slate-500 pl-1 truncate">
               <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
               <span className="truncate">
                 主理：<strong className="font-semibold text-slate-700">{activeCommunity.principalName}</strong>
@@ -733,17 +709,17 @@ export function CommunityDiscoverView({
       {/* Scrollable Community Workspace (Center Feed + Right Community Projects) */}
       <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
         <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-          {/* Compact Horizontal Channel Strip (< @[760px]/shell) */}
+          {/* Compact Horizontal Scope Strip (< @[760px]/shell) */}
           {hasAccess && (
             <div className="@[760px]/shell:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
-              {allChannelItems.map((item) => {
+              {socialChannels.map((item) => {
                 const Icon = item.icon;
-                const active = postFilter === item.id;
+                const active = feedScope === item.id;
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setPostFilter(item.id)}
+                    onClick={() => setFeedScope(item.id)}
                     className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
                       active
                         ? 'bg-slate-900 border-slate-900 text-white'
@@ -797,21 +773,27 @@ export function CommunityDiscoverView({
                 </div>
               ) : (
                 <>
-                  {/* Active Filter Context Bar (shown when filtering by channel / following / pinned / search) */}
-                  {(postFilter !== 'all' || searchKeyword.trim()) && (
+                  {/* Active Filter Context Bar (shown when filtering by scope / topic / search) */}
+                  {(feedScope !== 'all' || topicFilter !== 'all' || searchKeyword.trim()) && (
                     <div className="bg-white rounded-xl border border-slate-200 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <div className="flex flex-wrap items-center gap-2 text-slate-600 min-w-0">
                         <span className="font-semibold text-slate-900">
-                          {postFilter === 'pinned'
+                          {feedScope === 'pinned'
                             ? '主理置顶'
-                            : postFilter === 'following'
+                            : feedScope === 'following'
                               ? '我的关注'
-                              : postFilter === 'all'
-                                ? '全部内容'
-                                : POST_TYPE_META[postFilter].label}
+                              : '全部动态'}
                         </span>
+                        {topicFilter !== 'all' && (
+                          <>
+                            <span className="text-slate-300" aria-hidden="true">·</span>
+                            <span className="font-semibold text-blue-700">
+                              {POST_TYPE_META[topicFilter].label}
+                            </span>
+                          </>
+                        )}
                         <span className="text-slate-300" aria-hidden="true">·</span>
-                        {postFilter === 'following' && (
+                        {feedScope === 'following' && (
                           <>
                             <span className="font-mono tabular-nums text-slate-500">
                               已关注 {followedEntityKeys.length} 位成员/AGN
@@ -833,7 +815,7 @@ export function CommunityDiscoverView({
                       </div>
 
                       <div className="flex items-center gap-2.5 shrink-0">
-                        {postFilter === 'following' && (
+                        {feedScope === 'following' && (
                           <button
                             type="button"
                             onClick={() => setCrossZoneFollowing((v) => !v)}
@@ -849,7 +831,8 @@ export function CommunityDiscoverView({
                         <button
                           type="button"
                           onClick={() => {
-                            setPostFilter('all');
+                            setFeedScope('all');
+                            setTopicFilter('all');
                             setSearchKeyword('');
                           }}
                           className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer shrink-0"
@@ -863,7 +846,7 @@ export function CommunityDiscoverView({
                   {/* Information Flow Stream */}
                   <div className="space-y-3.5">
                     {communityFeedPosts.length === 0 ? (
-                      postFilter === 'following' ? (
+                      feedScope === 'following' ? (
                         <div className="bg-white rounded-xl border border-dashed border-slate-300 p-8 text-center space-y-3.5">
                           <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 inline-flex items-center justify-center mx-auto">
                             <UserCheck className="w-5 h-5" />
@@ -872,7 +855,7 @@ export function CommunityDiscoverView({
                             <p className="text-sm font-bold text-slate-900">
                               {followedEntityKeys.length === 0
                                 ? '你还没有关注任何社区成员或 AGN'
-                                : `当前社区暂无你关注的成员动态`}
+                                : `当前筛选下暂无你关注的成员动态`}
                             </p>
                             <p className="text-xs text-slate-500 max-w-md mx-auto">
                               关注感兴趣的社区成员或高频协作的 AGN 后，他们的分享讨论与项目招募动态会第一时间汇聚在这里。
@@ -891,10 +874,13 @@ export function CommunityDiscoverView({
                             )}
                             <button
                               type="button"
-                              onClick={() => setPostFilter('all')}
+                              onClick={() => {
+                                setFeedScope('all');
+                                setTopicFilter('all');
+                              }}
                               className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
                             >
-                              去「全部」发现值得关注的成员
+                              去「全部动态」发现值得关注的成员
                             </button>
                           </div>
                         </div>
@@ -1706,7 +1692,7 @@ export function CommunityDiscoverView({
                       }}
                       className="text-xs font-semibold text-slate-500 hover:text-slate-900 cursor-pointer"
                     >
-                      确认合作并同步工作看板 →
+                      确认合作并同步项目看板 →
                     </button>
                   )}
 
@@ -1838,7 +1824,7 @@ export function CommunityDiscoverView({
                   onChange={(e) => setPostBody(e.target.value)}
                   placeholder={
                     composerMode === 'project'
-                      ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作看板 → 我主管」）...'
+                      ? '补充项目背景、交付范围与验收标准（发布后自动同步到你的「工作台 → 我的项目」）...'
                       : composerMode === 'agn_recommend'
                         ? '介绍推荐的 Agent 底座、已挂载 Skills/MCP 与适用项目场景...'
                         : composerMode === 'announcement'
@@ -1911,7 +1897,7 @@ export function CommunityDiscoverView({
             <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
               <span className="text-[11px] text-slate-500">
                 {composerMode === 'project'
-                  ? '发布后将同时进入交流社区与工作看板'
+                  ? '发布后将同时进入交流社区与「工作台 → 我的项目」'
                   : '发布后支持社区成员与专家节点评论交流'}
               </span>
               <div className="flex items-center gap-2 shrink-0">

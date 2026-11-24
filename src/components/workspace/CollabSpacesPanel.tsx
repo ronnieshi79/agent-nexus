@@ -55,6 +55,9 @@ interface CollabSpacesPanelProps {
   humanExperts: HumanExpert[];
   searchKeyword: string;
   kindFilter: 'all' | 'open' | 'enterprise';
+  roleFilter?: 'all' | 'managed' | 'joined';
+  pendingApplicationsCount?: number;
+  onOpenAssistant?: () => void;
   createDrawerOpen: boolean;
   onChangeCreateDrawerOpen: (open: boolean) => void;
   onCreateZone: (input: {
@@ -128,6 +131,9 @@ export function CollabSpacesPanel({
   humanExperts,
   searchKeyword,
   kindFilter,
+  roleFilter = 'all',
+  pendingApplicationsCount = 0,
+  onOpenAssistant,
   createDrawerOpen,
   onChangeCreateDrawerOpen,
   onCreateZone,
@@ -169,7 +175,6 @@ export function CollabSpacesPanel({
 
   const joinedList = zones.filter((z) => isZoneJoined(z));
   const discoverableUnjoined = zones.filter((z) => !isZoneJoined(z));
-  const createdByMeCount = zones.filter((z) => z.createdByMe).length;
   const joinedOpenCount = joinedList.filter((z) => z.kind !== 'enterprise').length;
   const joinedEnterpriseCount = joinedList.filter((z) => z.kind === 'enterprise').length;
 
@@ -188,10 +193,20 @@ export function CollabSpacesPanel({
     );
   };
 
-  // In 'my' mode: show joined/created spaces; in 'discover' mode: show unjoined first, then joined third-party/platform spaces for searchability
+  const isManagedZone = (z: CommunityZone) =>
+    Boolean(z.createdByMe || z.isCurrentUserPrincipal);
+
+  // In 'my' mode: filter by roleFilter and sort managed spaces first so admins can immediately jump into governance;
+  // in 'discover' mode: show unjoined first, then joined third-party/platform spaces for searchability.
   const displayedZones =
     mode === 'my'
-      ? joinedList.filter(matchesFilters)
+      ? joinedList
+          .filter((z) => {
+            if (roleFilter === 'managed' && !isManagedZone(z)) return false;
+            if (roleFilter === 'joined' && isManagedZone(z)) return false;
+            return matchesFilters(z);
+          })
+          .sort((a, b) => Number(isManagedZone(b)) - Number(isManagedZone(a)))
       : [
           ...discoverableUnjoined.filter(matchesFilters),
           ...joinedList.filter((z) => !z.createdByMe && matchesFilters(z)),
@@ -276,25 +291,47 @@ export function CollabSpacesPanel({
     <div className="space-y-5">
       {mode === 'manage' ? (
         activeManagedZone ? (
-          <CollabSpaceManagePanel
-            zone={activeManagedZone}
-            sharedNodes={sharedNodes}
-            myComputeNodes={myComputeNodes}
-            allAgents={agents}
-            humanExperts={humanExperts}
-            onEnterCommunity={onEnterZoneCommunity}
-            onEnterMarket={onEnterZoneMarket}
-            onInviteMember={onInviteSpaceMember}
-            onUpdateMemberRole={onUpdateSpaceMemberRole}
-            onKickMember={onKickSpaceMember}
-            onAddSharedNode={onAddSpaceSharedNode}
-            onToggleSharedNodeStatus={onToggleSpaceSharedNodeStatus}
-            onUpdateSharedNode={onUpdateSpaceSharedNode}
-            onRemoveSharedNode={onRemoveSpaceSharedNode}
-            onToggleSpaceAgentOnline={onToggleSpaceAgentOnline}
-            onPublishAgentToSpace={onPublishAgentToSpace}
-            onRemoveAgentFromSpace={onRemoveAgentFromSpace}
-          />
+          <div className="space-y-4">
+            {pendingApplicationsCount > 0 && onOpenAssistant && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
+                <div className="text-xs text-indigo-950">
+                  <span className="font-bold">
+                    有 {pendingApplicationsCount} 条人员入驻申请待审批
+                  </span>
+                  <span className="text-indigo-800/80 ml-1.5">
+                    动态成员申请已收口至「Nexa 助理」消息卡片处理，同意后自动写入空间成员列表。
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onOpenAssistant}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <span>去 Nexa 助理审批</span>
+                  <ArrowUpRight className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            <CollabSpaceManagePanel
+              zone={activeManagedZone}
+              sharedNodes={sharedNodes}
+              myComputeNodes={myComputeNodes}
+              allAgents={agents}
+              humanExperts={humanExperts}
+              onEnterCommunity={onEnterZoneCommunity}
+              onEnterMarket={onEnterZoneMarket}
+              onInviteMember={onInviteSpaceMember}
+              onUpdateMemberRole={onUpdateSpaceMemberRole}
+              onKickMember={onKickSpaceMember}
+              onAddSharedNode={onAddSpaceSharedNode}
+              onToggleSharedNodeStatus={onToggleSpaceSharedNodeStatus}
+              onUpdateSharedNode={onUpdateSpaceSharedNode}
+              onRemoveSharedNode={onRemoveSpaceSharedNode}
+              onToggleSpaceAgentOnline={onToggleSpaceAgentOnline}
+              onPublishAgentToSpace={onPublishAgentToSpace}
+              onRemoveAgentFromSpace={onRemoveAgentFromSpace}
+            />
+          </div>
         ) : (
           <div className="py-16 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
             <p className="text-sm font-semibold text-slate-800">
@@ -314,376 +351,325 @@ export function CollabSpacesPanel({
           </div>
         )
       ) : (
-        <>
-      {/* KPI Summary Strip */}
-      <div className="grid grid-cols-2 @[760px]:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">已加入协作空间</span>
-            <Globe className="w-4 h-4 text-blue-600" />
+        <div className="space-y-4">
+          {/* Concise Context Line — matching Agent 成员 / 合作专家 / 我的好友 */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-xs text-slate-500 truncate">
+              {mode === 'my' ? (
+                <span>
+                  已加入空间自动同步为「服务市场」与「交流社区」范围，我创建/主理的空间置顶展示
+                </span>
+              ) : (
+                <span>
+                  按地域/文化检索平台开放社区，或输入邀请码加入第三方企业封闭空间
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-slate-400 shrink-0">
+              {mode === 'my' && (
+                <span className="hidden md:inline text-[11px] font-mono tabular-nums">
+                  开放 {joinedOpenCount} · 企业 {joinedEnterpriseCount} · 我管理 {managedZones.length}
+                </span>
+              )}
+              <span className="font-mono tabular-nums">共 {displayedZones.length} 个空间</span>
+            </div>
           </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {joinedList.length}
-            </span>
-            <span className="text-xs font-semibold text-emerald-700">实时同步市场/社区</span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            含平台默认公共空间（中文 AI 社区）
-          </div>
-        </div>
 
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">开放性空间</span>
-            <Compass className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {joinedOpenCount}
-            </span>
-            <span className="text-xs text-slate-500">已加入</span>
-          </div>
-          <div className="text-[11px] text-slate-500">地域/文化开放社区与行业共创空间</div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">企业封闭空间</span>
-            <Building2 className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {joinedEnterpriseCount}
-            </span>
-            <span className="text-xs text-slate-500">已加入</span>
-          </div>
-          <div className="text-[11px] text-slate-500">企业/组织内私有隔离 · 凭证准入</div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">
-              {mode === 'my' ? '我创建的空间' : '待探索第三方空间'}
-            </span>
-            <Users className="w-4 h-4 text-slate-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {mode === 'my' ? createdByMeCount : discoverableUnjoined.length}
-            </span>
-            <span className="text-xs text-slate-500">
-              {mode === 'my' ? '自建主理' : '可检索加入'}
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            {mode === 'my'
-              ? `另有 ${discoverableUnjoined.length} 个第三方空间可探索`
-              : '支持开放社区直入与封闭空间验证接入'}
-          </div>
-        </div>
-      </div>
-
-      {/* Contextual Guidance Bar */}
-      <section className="bg-white rounded-xl border border-slate-200 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-        <div className="text-xs text-slate-600 leading-relaxed">
-          {mode === 'my' ? (
-            <>
-              <span className="font-semibold text-slate-900">协作空间统一管理：</span>
-              当前已加入的所有空间会自动同步为「服务市场」与「交流社区」的可切换范围；平台默认开放「中文 AI 社区」，确保随时可进入公共生态协作与交易。
-            </>
+          {/* Unified Bordered Roster List */}
+          {displayedZones.length === 0 ? (
+            <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
+              <p className="text-sm font-medium text-slate-700">当前筛选下暂无匹配的协作空间</p>
+              <div className="flex items-center justify-center gap-2">
+                {mode === 'my' && (
+                  <button
+                    type="button"
+                    onClick={onSwitchToDiscover}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
+                  >
+                    <Compass className="w-3.5 h-3.5" />
+                    <span>发现更多空间</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => onChangeCreateDrawerOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>创建协作空间</span>
+                </button>
+              </div>
+            </div>
           ) : (
-            <>
-              <span className="font-semibold text-slate-900">发现平台与第三方协作空间：</span>
-              支持按地域/文化检索平台开放社区（如东南亚英文、西班牙语 AI 社区）或输入邀请码加入第三方企业封闭空间，随时可自由加入或退出。
-            </>
+            <div className="border border-slate-200 rounded-xl bg-white mb-16">
+              {/* Desktop Column Header */}
+              <div className="hidden @[880px]:grid @[880px]:grid-cols-[minmax(0,1fr)_148px_176px_96px_228px] @[880px]:items-center @[880px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                <div>协作空间</div>
+                <div>类型 / 归属</div>
+                <div>成员与资源</div>
+                <div>状态</div>
+                <div className="text-right">操作</div>
+              </div>
+
+              <div className="divide-y divide-slate-200">
+                {displayedZones.map((zone) => {
+                  const joined = isZoneJoined(zone);
+                  const isActive = zone.id === activeZoneId;
+                  const suspendedSet = new Set(zone.suspendedAgentIds || []);
+                  const listedAgents = agents.filter((a) => a.listedZoneIds.includes(zone.id));
+                  const activeAgentCnt = listedAgents.filter((a) => !suspendedSet.has(a.id)).length;
+                  const offlineAgentCnt = listedAgents.length - activeAgentCnt;
+                  const sharedNodeCnt = sharedNodes.filter((n) => n.zoneId === zone.id).length;
+                  const postCnt = communityPosts.filter((p) => p.zoneId === zone.id).length;
+                  const openProjCnt = zoneProjects.filter(
+                    (p) => p.zoneId === zone.id && p.status === 'open',
+                  ).length;
+                  const canManageSpace = Boolean(zone.createdByMe || zone.isCurrentUserPrincipal);
+                  const isVerifying = verifyingZoneId === zone.id;
+
+                  return (
+                    <div
+                      key={zone.id}
+                      className={`px-5 py-3.5 transition-colors ${
+                        isActive ? 'bg-blue-50/25 hover:bg-blue-50/40' : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <div className="grid grid-cols-1 @[880px]:grid-cols-[minmax(0,1fr)_148px_176px_96px_228px] @[880px]:items-center gap-3 @[880px]:gap-4">
+                        {/* Col 1: Space Identity & Tagline */}
+                        <div className="flex items-start gap-3 min-w-0">
+                          <span
+                            className="w-9 h-9 rounded-lg text-xs font-bold text-white inline-flex items-center justify-center shrink-0 mt-0.5"
+                            style={{ backgroundColor: zone.accentColor }}
+                          >
+                            {zone.shortCode}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="text-sm font-bold text-slate-900 truncate">
+                                {zone.name}
+                              </span>
+                              {zone.createdByMe && (
+                                <span className="text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
+                                  我创建
+                                </span>
+                              )}
+                              {zone.isPlatformDefault && (
+                                <span className="text-[11px] font-semibold text-blue-700 whitespace-nowrap">
+                                  平台默认
+                                </span>
+                              )}
+                              {zone.createdByMe && zone.kind === 'enterprise' && zone.inviteCode && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyInviteCode(zone)}
+                                  title="复制空间邀请码"
+                                  className="inline-flex items-center gap-1 text-[11px] font-mono text-indigo-700 hover:text-indigo-900 cursor-pointer whitespace-nowrap"
+                                >
+                                  <KeyRound className="w-3 h-3" />
+                                  <span>{zone.inviteCode}</span>
+                                  {copiedCodeZoneId === zone.id ? (
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-3 h-3" />
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-600 line-clamp-1 mt-0.5">
+                              {zone.tagline}
+                            </p>
+                            <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                              {zone.focusDomains.slice(0, 4).join(' · ')}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Col 2: Type & Principal / Region */}
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800">
+                            {renderSpaceKindIcon(zone.kind)}
+                            <span className="truncate">{zone.typeLabel}</span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {zone.regionCulture || `主理：${zone.principalName}`}
+                          </div>
+                          <div className="text-[11px] text-slate-400 truncate">
+                            主理：{zone.principalName}
+                          </div>
+                        </div>
+
+                        {/* Col 3: Scale & Resources */}
+                        <div className="min-w-0 space-y-0.5 text-[11px] font-mono tabular-nums">
+                          <div className="flex items-center gap-1.5 text-slate-800 font-semibold">
+                            <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                            <span>{zone.memberCount} 成员</span>
+                            {sharedNodeCnt > 0 && (
+                              <>
+                                <span className="text-slate-300" aria-hidden="true">·</span>
+                                <span className="text-indigo-700">{sharedNodeCnt} 共享节点</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="text-slate-500 truncate">
+                            {activeAgentCnt} 在线 Agent
+                            {offlineAgentCnt > 0 ? ` (${offlineAgentCnt} 下线)` : ''}
+                          </div>
+                          <div className="text-slate-400 truncate">
+                            {postCnt} 帖子 · {openProjCnt} 开放项目
+                          </div>
+                        </div>
+
+                        {/* Col 4: Membership Status */}
+                        <div className="flex items-center">
+                          {joined ? (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap">
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  isActive ? 'bg-blue-600' : 'bg-emerald-500'
+                                }`}
+                              />
+                              <span className={isActive ? 'text-blue-700' : 'text-emerald-700'}>
+                                {isActive ? '当前所在' : '已加入'}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 whitespace-nowrap">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-300 shrink-0" />
+                              <span>未加入</span>
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Col 5: Actions */}
+                        <div className="flex flex-wrap items-center @[880px]:justify-end gap-1.5">
+                          {joined ? (
+                            <>
+                              {canManageSpace && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenSpaceManage(zone.id)}
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white transition-colors cursor-pointer whitespace-nowrap"
+                                >
+                                  <Settings2 className="w-3 h-3" />
+                                  <span>管理</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => onEnterZoneCommunity(zone.id)}
+                                title="进入该空间交流社区"
+                                className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-slate-900 hover:text-white hover:border-slate-900 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                <MessageSquare className="w-3 h-3" />
+                                <span>社区</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onEnterZoneMarket(zone.id)}
+                                title="进入该空间服务市场"
+                                className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
+                              >
+                                <Store className="w-3 h-3" />
+                                <span>市场</span>
+                              </button>
+                              {!zone.isPlatformDefault &&
+                                (zone.createdByMe ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteZone(zone.id)}
+                                    title="解散空间"
+                                    aria-label="解散空间"
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onToggleJoinZone(zone.id)}
+                                    title="退出空间"
+                                    aria-label="退出空间"
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                  >
+                                    <LogOut className="w-3.5 h-3.5" />
+                                  </button>
+                                ))}
+                            </>
+                          ) : zone.kind === 'enterprise' ? (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEnterpriseJoin(zone)}
+                              className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                            >
+                              <KeyRound className="w-3 h-3" />
+                              <span>验证加入</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onToggleJoinZone(zone.id)}
+                              className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                            >
+                              <Plus className="w-3 h-3" />
+                              <span>加入空间</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Inline Enterprise Invite Code Verification Strip */}
+                      {!joined && isVerifying && zone.kind === 'enterprise' && (
+                        <div className="mt-3 rounded-lg bg-indigo-50/70 border border-indigo-200 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+                            <span className="inline-flex items-center gap-1 font-semibold text-indigo-900">
+                              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                              <span>企业封闭空间准入验证</span>
+                            </span>
+                            {zone.inviteCode && (
+                              <span className="font-mono text-indigo-700">
+                                演示邀请码：{zone.inviteCode}
+                              </span>
+                            )}
+                            {inviteError && <span className="text-red-600">{inviteError}</span>}
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <input
+                              type="text"
+                              value={inviteInput}
+                              onChange={(e) => {
+                                setInviteInput(e.target.value);
+                                setInviteError(null);
+                              }}
+                              placeholder="输入邀请码..."
+                              className="w-40 h-7 rounded-md border border-indigo-200 bg-white px-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmEnterpriseJoin(zone)}
+                              className="h-7 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                            >
+                              确认加入
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setVerifyingZoneId(null);
+                                setInviteError(null);
+                              }}
+                              className="h-7 px-2 rounded-md text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                            >
+                              取消
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </div>
-        {mode === 'my' && discoverableUnjoined.length > 0 && (
-          <button
-            type="button"
-            onClick={onSwitchToDiscover}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-900 hover:text-white hover:border-slate-900 text-xs font-semibold text-slate-800 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-          >
-            <Compass className="w-3.5 h-3.5" />
-            <span>发现更多空间 ({discoverableUnjoined.length})</span>
-            <ArrowUpRight className="w-3.5 h-3.5" />
-          </button>
-        )}
-      </section>
-
-      {/* Spaces Grid */}
-      {displayedZones.length === 0 ? (
-        <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-          <p className="text-sm font-medium text-slate-700">当前筛选下暂无匹配的协作空间</p>
-          <div className="flex items-center justify-center gap-2">
-            {mode === 'my' && (
-              <button
-                type="button"
-                onClick={onSwitchToDiscover}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
-              >
-                <Compass className="w-3.5 h-3.5" />
-                <span>去发现空间</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={() => onChangeCreateDrawerOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>创建协作空间</span>
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 @[920px]:grid-cols-2 gap-4">
-          {displayedZones.map((zone) => {
-            const joined = isZoneJoined(zone);
-            const isActive = zone.id === activeZoneId;
-            const suspendedSet = new Set(zone.suspendedAgentIds || []);
-            const listedAgents = agents.filter((a) => a.listedZoneIds.includes(zone.id));
-            const activeAgentCnt = listedAgents.filter((a) => !suspendedSet.has(a.id)).length;
-            const offlineAgentCnt = listedAgents.length - activeAgentCnt;
-            const sharedNodeCnt = sharedNodes.filter((n) => n.zoneId === zone.id).length;
-            const postCnt = communityPosts.filter((p) => p.zoneId === zone.id).length;
-            const openProjCnt = zoneProjects.filter(
-              (p) => p.zoneId === zone.id && p.status === 'open',
-            ).length;
-            const canManageSpace = Boolean(zone.createdByMe || zone.isCurrentUserPrincipal);
-            const isVerifying = verifyingZoneId === zone.id;
-
-            return (
-              <article
-                key={zone.id}
-                className={`bg-white rounded-xl border p-4 flex flex-col justify-between gap-3.5 transition-colors ${
-                  isActive
-                    ? 'border-blue-300 ring-1 ring-blue-100'
-                    : 'border-slate-200 hover:border-slate-300'
-                }`}
-              >
-                <div className="space-y-3">
-                  {/* Top Header */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <span
-                        className="w-9 h-9 rounded-lg text-xs font-bold text-white inline-flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: zone.accentColor }}
-                      >
-                        {zone.shortCode}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <h3 className="text-sm font-bold text-slate-900 truncate">{zone.name}</h3>
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                            {renderSpaceKindIcon(zone.kind)}
-                            <span>{zone.typeLabel}</span>
-                          </span>
-                          {zone.isPlatformDefault && (
-                            <span className="text-[11px] font-semibold text-blue-700">· 平台默认</span>
-                          )}
-                          {zone.createdByMe && (
-                            <span className="text-[11px] font-semibold text-emerald-700">· 我创建</span>
-                          )}
-                        </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px] text-slate-500">
-                          {zone.regionCulture && <span>{zone.regionCulture}</span>}
-                          {zone.regionCulture && (
-                            <span className="text-slate-300" aria-hidden="true">·</span>
-                          )}
-                          <span>主理：{zone.principalName}</span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="font-mono tabular-nums">{zone.memberCount} 成员</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {joined ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 whitespace-nowrap shrink-0">
-                        <Check className="w-3.5 h-3.5" />
-                        <span>{isActive ? '当前所在' : '已加入'}</span>
-                      </span>
-                    ) : (
-                      <span className="text-[11px] font-medium text-slate-400 whitespace-nowrap shrink-0">
-                        未加入
-                      </span>
-                    )}
-                  </div>
-
-                  <p className="text-xs text-slate-600 leading-relaxed">{zone.tagline}</p>
-
-                  {/* Metrics & Focus Domains */}
-                  <div className="rounded-lg bg-slate-50/90 border border-slate-200/70 px-3 py-2.5 space-y-1.5">
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
-                      <span className="font-mono tabular-nums text-slate-700 font-semibold">
-                        {sharedNodeCnt > 0 ? `${sharedNodeCnt} 共享节点 · ` : ''}
-                        {activeAgentCnt} 在线 Agent
-                        {offlineAgentCnt > 0 ? ` (${offlineAgentCnt} 下线)` : ''} · {postCnt} 社区帖 ·{' '}
-                        {openProjCnt} 开放项目
-                      </span>
-                      {zone.createdByMe && zone.kind === 'enterprise' && zone.inviteCode && (
-                        <button
-                          type="button"
-                          onClick={() => handleCopyInviteCode(zone)}
-                          className="inline-flex items-center gap-1 font-mono text-indigo-700 hover:text-indigo-900 cursor-pointer"
-                        >
-                          <KeyRound className="w-3 h-3" />
-                          <span>邀请码 {zone.inviteCode}</span>
-                          {copiedCodeZoneId === zone.id ? (
-                            <Check className="w-3 h-3 text-emerald-600" />
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-slate-500 truncate">
-                      聚焦领域：{zone.focusDomains.join(' · ')}
-                    </div>
-                  </div>
-
-                  {/* Enterprise Join Verification Box (Inline) */}
-                  {!joined && isVerifying && zone.kind === 'enterprise' && (
-                    <div className="rounded-lg bg-indigo-50/60 border border-indigo-200 p-3 space-y-2">
-                      <div className="flex items-center justify-between gap-2 text-[11px]">
-                        <span className="inline-flex items-center gap-1 font-semibold text-indigo-900">
-                          <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                          <span>企业封闭空间准入验证</span>
-                        </span>
-                        {zone.inviteCode && (
-                          <span className="font-mono text-indigo-700">
-                            演示码：{zone.inviteCode}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={inviteInput}
-                          onChange={(e) => {
-                            setInviteInput(e.target.value);
-                            setInviteError(null);
-                          }}
-                          placeholder="输入企业空间邀请码..."
-                          className="flex-1 min-w-0 h-8 rounded-md border border-indigo-200 bg-white px-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleConfirmEnterpriseJoin(zone)}
-                          className="h-8 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          验证加入
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setVerifyingZoneId(null);
-                            setInviteError(null);
-                          }}
-                          className="h-8 px-2 rounded-md text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
-                        >
-                          取消
-                        </button>
-                      </div>
-                      {inviteError && <div className="text-[11px] text-red-600">{inviteError}</div>}
-                    </div>
-                  )}
-                </div>
-
-                {/* Bottom Action Row */}
-                <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                  {joined ? (
-                    <>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {canManageSpace && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenSpaceManage(zone.id)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white transition-colors cursor-pointer"
-                          >
-                            <Settings2 className="w-3 h-3" />
-                            <span>空间管理</span>
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => onEnterZoneCommunity(zone.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-900 hover:text-white hover:border-slate-900 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer"
-                        >
-                          <MessageSquare className="w-3 h-3" />
-                          <span>交流社区</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => onEnterZoneMarket(zone.id)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer"
-                        >
-                          <Store className="w-3 h-3" />
-                          <span>服务市场</span>
-                        </button>
-                      </div>
-
-                      {zone.isPlatformDefault ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-400">
-                          <Globe className="w-3 h-3" />
-                          <span>平台默认常驻</span>
-                        </span>
-                      ) : zone.createdByMe ? (
-                        <button
-                          type="button"
-                          onClick={() => onDeleteZone(zone.id)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span>解散空间</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onToggleJoinZone(zone.id)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
-                        >
-                          <LogOut className="w-3.5 h-3.5" />
-                          <span>退出空间</span>
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-[11px] text-slate-500">
-                        {zone.kind === 'enterprise'
-                          ? '封闭空间需验证邀请码后访问市场与社区'
-                          : '开放空间可直接加入，立即解锁市场与交流社区'}
-                      </span>
-                      {zone.kind === 'enterprise' ? (
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEnterpriseJoin(zone)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          <KeyRound className="w-3.5 h-3.5" />
-                          <span>验证加入</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onToggleJoinZone(zone.id)}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          <Plus className="w-3.5 h-3.5" />
-                          <span>加入空间</span>
-                        </button>
-                      )}
-                    </>
-                  )}
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
-        </>
       )}
 
       {/* Slide-in Drawer: Create Collaboration Space */}

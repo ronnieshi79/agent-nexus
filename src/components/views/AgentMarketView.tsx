@@ -637,8 +637,8 @@ export function AgentMarketView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT FULL-HEIGHT PRIMARY FILTER RAIL */}
-      <WorkspacePrimaryRail ariaLabel="服务市场主筛选">
+      {/* FAR-LEFT FULL-HEIGHT PRIMARY NAVIGATION RAIL: Core Service Types Only */}
+      <WorkspacePrimaryRail ariaLabel="服务市场导航">
         <div className="space-y-0.5">
           <RailSectionLabel>服务类型</RailSectionLabel>
           {[
@@ -670,20 +670,6 @@ export function AgentMarketView({
             );
           })}
         </div>
-
-        <div className="border-t border-slate-100 pt-2.5 space-y-0.5">
-          <RailSectionLabel>专业分类</RailSectionLabel>
-          {CATEGORY_TABS.map((cat) => (
-            <RailNavButton
-              key={cat.id}
-              active={categoryFilter === cat.id}
-              variant="subtle"
-              label={cat.label}
-              count={categoryCounts[cat.id]}
-              onClick={() => setCategoryFilter(cat.id)}
-            />
-          ))}
-        </div>
       </WorkspacePrimaryRail>
 
       {/* RIGHT MAIN WORKSPACE COLUMN: Top Search & Secondary Filters Aligned Flush with Content */}
@@ -703,6 +689,18 @@ export function AgentMarketView({
                       ? '搜索 Skill、MCP、适配底座...'
                       : '搜索 Agent、底座(CC/Codex/Qoder)...'
                 }
+              />
+
+              <ToolbarDropdown
+                label="分类"
+                value={categoryFilter}
+                defaultValue="all"
+                onChange={setCategoryFilter}
+                options={CATEGORY_TABS.map((cat) => ({
+                  id: cat.id,
+                  label: cat.label,
+                  hint: `${categoryCounts[cat.id]}`,
+                }))}
               />
 
               {entityTab === 'agents' && (
@@ -917,25 +915,6 @@ export function AgentMarketView({
                       <Icon className="w-3.5 h-3.5 shrink-0" />
                       <span>{item.label}</span>
                       <span className="text-[11px] font-mono opacity-75">{item.count}</span>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                {CATEGORY_TABS.map((cat) => {
-                  const active = categoryFilter === cat.id;
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => setCategoryFilter(cat.id)}
-                      className={`px-2.5 py-1 rounded-md text-[11px] font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
-                        active
-                          ? 'bg-slate-800 text-white border-slate-800'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      {cat.label} ({categoryCounts[cat.id]})
                     </button>
                   );
                 })}
@@ -1888,7 +1867,7 @@ export function AgentMarketView({
                     ))}
                   </select>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    租赁生效后，该专业 Agent 将立即派驻至所选项目群与任务看板，并同步纳入「AGN 团队」管理，支持随时续租或调整租期。
+                    租赁生效后，该专业 Agent 将立即派驻至所选项目群与任务看板，并同步纳入「AGN 空间」管理，支持随时续租或调整租期。
                   </p>
                 </div>
 
@@ -2464,7 +2443,7 @@ export function AgentMarketView({
                   onClick={onJumpToMountPrivate}
                   className="w-full py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
-                  先前往 AGN 团队创建自建 Agent
+                  先前往 AGN 空间创建自建 Agent
                 </button>
               ) : (
                 <div className="flex items-center gap-2">

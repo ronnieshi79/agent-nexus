@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Compass,
   KanbanSquare,
+  Layers,
   LogIn,
   MessageSquare,
   MessageSquareCode,
@@ -10,7 +11,6 @@ import {
   Plus,
   Store,
   UserPlus,
-  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -18,6 +18,7 @@ import type {
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
+  CommunityZone,
   ExpertAgent,
   NavViewId,
   NegotiationThread,
@@ -37,6 +38,7 @@ import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 interface SidebarProps {
   activeView: NavViewId;
   activeChatChannel: ActiveChatChannel;
+  zones: CommunityZone[];
   workspaces: ProjectWorkspace[];
   agents: ExpertAgent[];
   allMessages: ChatMessage[];
@@ -61,7 +63,7 @@ interface SidebarProps {
   onSelectDm: (agentId: string) => void;
   onSelectAssistant: () => void;
   onSelectTaskSession: (taskId: string) => void;
-  onCreateProject: (name: string, goal: string) => void;
+  onCreateProject: (name: string, goal: string, sourceZoneId?: string) => void;
   onOpenLogin: () => void;
   onLogout: () => void;
 }
@@ -77,6 +79,7 @@ const DM_STATUS_LABEL: Record<NegotiationThread['status'], { text: string; cls: 
 export function Sidebar({
   activeView,
   activeChatChannel,
+  zones,
   workspaces,
   agents,
   allMessages,
@@ -106,10 +109,12 @@ export function Sidebar({
   onLogout,
 }: SidebarProps) {
   const [modeTab, setModeTab] = useState<ChatModeTab>('regular');
+  const [taskProjectFilter, setTaskProjectFilter] = useState<string>('all');
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [showDmPicker, setShowDmPicker] = useState(false);
   const [newName, setNewName] = useState('');
   const [newGoal, setNewGoal] = useState('');
+  const [newSourceZoneId, setNewSourceZoneId] = useState<string>('');
 
   // Keep mode switcher synced with active channel
   useEffect(() => {
@@ -121,6 +126,8 @@ export function Sidebar({
       }
     }
   }, [activeChatChannel.type, activeView]);
+
+  const zoneMap = useMemo(() => new Map(zones.map((z) => [z.id, z])), [zones]);
 
   const workspaceMap = useMemo(() => {
     const map = new Map<string, ProjectWorkspace>();
@@ -147,7 +154,11 @@ export function Sidebar({
       pending: 2,
       done: 3,
     };
-    return [...allTasks].sort((a, b) => {
+    const filtered =
+      taskProjectFilter === 'all'
+        ? allTasks
+        : allTasks.filter((t) => t.sessionId === taskProjectFilter);
+    return [...filtered].sort((a, b) => {
       const aMsgs = taskSessions[a.id] || [];
       const bMsgs = taskSessions[b.id] || [];
       const aWait = a.status !== 'done' && aMsgs[aMsgs.length - 1]?.awaitingConfirmation ? 0 : 1;
@@ -155,7 +166,7 @@ export function Sidebar({
       if (aWait !== bWait) return aWait - bWait;
       return statusWeight[a.status] - statusWeight[b.status];
     });
-  }, [allTasks, taskSessions]);
+  }, [allTasks, taskProjectFilter, taskSessions]);
 
   const lastAssistantMsg = assistantMessages[assistantMessages.length - 1];
   const regularTotalCount = 1 + workspaces.length + negotiations.length;
@@ -163,9 +174,10 @@ export function Sidebar({
   const handleCreateProject = (e: FormEvent) => {
     e.preventDefault();
     if (!newName.trim()) return;
-    onCreateProject(newName, newGoal);
+    onCreateProject(newName, newGoal, newSourceZoneId || undefined);
     setNewName('');
     setNewGoal('');
+    setNewSourceZoneId('');
     setShowCreateProject(false);
     setModeTab('regular');
     onCloseMobile();
@@ -179,17 +191,17 @@ export function Sidebar({
     highlight?: boolean;
   }[] = [
     {
+      id: 'team',
+      label: 'AGN 空间',
+      icon: Layers,
+      count: `${hiredCount}+${privateCount}`,
+    },
+    {
       id: 'kanban',
-      label: '工作空间',
+      label: '工作台',
       icon: KanbanSquare,
       count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : `${workspaces.length} 项目`,
       highlight: reviewTaskCount > 0,
-    },
-    {
-      id: 'team',
-      label: 'AGN 团队',
-      icon: Users,
-      count: `${hiredCount}+${privateCount}`,
     },
     {
       id: 'market',
@@ -306,7 +318,7 @@ export function Sidebar({
                   }`}
                 >
                   <Plus className="w-3 h-3" />
-                  <span>建群</span>
+                  <span>建项目群</span>
                 </button>
                 <button
                   type="button"
@@ -382,7 +394,9 @@ export function Sidebar({
               className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2"
             >
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-700">新建项目群</span>
+                <span className="text-[11px] font-semibold text-slate-700">
+                  新建工作项目（同步创建项目群）
+                </span>
                 <button
                   type="button"
                   onClick={() => setShowCreateProject(false)}
@@ -396,7 +410,7 @@ export function Sidebar({
                 required
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
-                placeholder="输入项目名称..."
+                placeholder="输入工作项目名称..."
                 className="w-full bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
               />
               <input
@@ -406,13 +420,51 @@ export function Sidebar({
                 placeholder="项目目标（可选）"
                 className="w-full bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
               />
+              <select
+                value={newSourceZoneId}
+                onChange={(e) => setNewSourceZoneId(e.target.value)}
+                aria-label="项目所属协作空间"
+                className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:bg-white"
+              >
+                <option value="">归属：个人私有项目</option>
+                {zones.map((z) => (
+                  <option key={z.id} value={z.id}>
+                    归属：{z.name}（{z.typeLabel}）
+                  </option>
+                ))}
+              </select>
               <button
                 type="submit"
                 className="w-full py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
               >
-                创建项目群
+                创建项目并建群
               </button>
             </form>
+          )}
+
+          {/* Task Session Mode: Project Filter & 1:1 Kanban Mapping Hint */}
+          {modeTab === 'task_session' && (
+            <div className="space-y-1">
+              <select
+                value={taskProjectFilter}
+                onChange={(e) => setTaskProjectFilter(e.target.value)}
+                aria-label="按工作项目筛选 Agent 任务"
+                className="w-full bg-white border border-slate-200 rounded-md px-2 py-1.5 text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              >
+                <option value="all">全部工作项目 ({allTasks.length} 张任务卡)</option>
+                {workspaces.map((w) => {
+                  const cnt = allTasks.filter((t) => t.sessionId === w.id).length;
+                  return (
+                    <option key={w.id} value={w.id}>
+                      {w.name} ({cnt})
+                    </option>
+                  );
+                })}
+              </select>
+              <div className="px-0.5 text-[10px] text-slate-400">
+                与「工作台 → 项目看板」任务卡片 1:1 对应
+              </div>
+            </div>
           )}
 
           {/* Inline Start 1v1 Expert / Agent DM Picker */}
@@ -523,6 +575,7 @@ export function Sidebar({
                 const lastMsg = wsMsgs[wsMsgs.length - 1];
                 const wsTasks = allTasks.filter((t) => t.sessionId === ws.id);
                 const reviewCount = wsTasks.filter((t) => t.status === 'review').length;
+                const wsZone = ws.sourceZoneId ? zoneMap.get(ws.sourceZoneId) : undefined;
 
                 return (
                   <button
@@ -553,7 +606,8 @@ export function Sidebar({
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
                           <span className="text-slate-600 font-medium truncate">
-                            {ws.hiredAgentIds.length} 成员 · {wsTasks.length} 工作卡
+                            {wsZone ? `${wsZone.shortCode}·${wsZone.name}` : '个人项目'} ·{' '}
+                            {wsTasks.length} 卡
                           </span>
                           {reviewCount > 0 && (
                             <span className="font-mono tabular-nums font-semibold text-amber-700 shrink-0">

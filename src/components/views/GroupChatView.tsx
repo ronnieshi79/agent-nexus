@@ -17,6 +17,7 @@ import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   AgentNexusAccount,
   ChatMessage,
+  CommunityZone,
   ExpertAgent,
   ProjectWorkspace,
   TaskSessionMessage,
@@ -35,6 +36,7 @@ import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
   workspace: ProjectWorkspace;
+  linkedZone?: CommunityZone;
   hiredAgents: ExpertAgent[];
   messages: ChatMessage[];
   tasks: WorkflowTask[];
@@ -63,6 +65,7 @@ const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
 
 export function GroupChatView({
   workspace,
+  linkedZone,
   hiredAgents,
   messages,
   tasks,
@@ -181,13 +184,17 @@ export function GroupChatView({
 
   const quickPresets = [
     hiredAgents[1]
-      ? `${hiredAgents[1].handle} 把“部分退款风控”拆成【开发】和【测试】两张工作卡片并同步工作看板`
+      ? `${hiredAgents[1].handle} 把“部分退款风控”拆成【开发】和【测试】两张工作卡片并同步项目看板`
       : '@Nexa 帮我把当前功能拆成开发与测试两张工作卡片',
     hiredAgents[0]
       ? `${hiredAgents[0].handle} 补充多币种退款异常边界并生成规划工作卡`
       : '@Nexa 检查本项目当前各功能模块进展',
     '@Nexa 汇总本项目当前所有工作卡片进度与交付风险',
   ];
+
+  const spaceOwnershipLabel = linkedZone
+    ? `${linkedZone.typeLabel}：${linkedZone.name}`
+    : '个人私有项目';
 
   return (
     <div className="h-full flex min-h-0 bg-white relative">
@@ -201,8 +208,8 @@ export function GroupChatView({
             </div>
           }
           title={workspace.name}
-          tag={`项目群 · ${hiredAgents.length} 专家 · ${tasks.length} 工作卡`}
-          tagClassName="text-blue-700"
+          tag={`项目群 · ${spaceOwnershipLabel} · ${hiredAgents.length} 专家 · ${tasks.length} 工作卡`}
+          tagClassName={linkedZone?.kind === 'enterprise' ? 'text-indigo-700' : 'text-blue-700'}
           subtitle={workspace.goal}
           panelOpen={rightOpen}
           panelToggleLabel={`工作卡片 (${tasks.length})`}
@@ -800,7 +807,7 @@ export function GroupChatView({
                   onClick={onJumpToKanban}
                   className="w-full py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 inline-flex items-center justify-center gap-1 cursor-pointer"
                 >
-                  <span>打开全局「工作看板」</span>
+                  <span>打开「工作台 → 项目看板」</span>
                   <ArrowUpRight className="w-3.5 h-3.5" />
                 </button>
               </>
@@ -871,7 +878,7 @@ export function GroupChatView({
                     onClick={onJumpToTeam}
                     className="py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer"
                   >
-                    AGN 团队
+                    AGN 空间
                   </button>
                 </div>
               </>

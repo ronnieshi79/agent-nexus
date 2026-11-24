@@ -139,7 +139,27 @@ export type WorkCardType = 'planning' | 'development' | 'testing' | 'review';
 
 export type NegotiationStatus = 'negotiating' | 'quoted' | 'hired';
 
-export type PlatformServiceCategory = 'settlement' | 'order' | 'audit' | 'general';
+export type PlatformServiceCategory =
+  | 'settlement'
+  | 'order'
+  | 'audit'
+  | 'approval'
+  | 'general';
+
+export interface SpaceJoinApplication {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  applicantName: string;
+  applicantTitle: string;
+  humanExpertId?: string;
+  avatarInitials: string;
+  avatarAccent: string;
+  requestedRole: SpaceMemberRole;
+  note: string;
+  createdAt: string;
+  status: 'pending' | 'approved' | 'rejected';
+}
 
 export interface AgentNexusAccount {
   id: string;
@@ -245,8 +265,10 @@ export interface AssistantActionCard {
     | { type: 'settle'; settlementId: string }
     | { type: 'open_dm'; agentId: string }
     | { type: 'open_kanban'; projectId?: string }
-    | { type: 'open_team' };
+    | { type: 'open_team' }
+    | { type: 'space_application'; applicationId: string };
   resolved?: boolean;
+  resolvedLabel?: string;
 }
 
 export interface AssistantMessage {
@@ -424,16 +446,20 @@ export interface ProjectStageSlot {
 }
 
 export type WorkspaceTabId =
-  | 'space_nodes'
-  | 'space_storage'
-  | 'space_agents'
-  | 'collab_my'
-  | 'collab_manage'
-  | 'collab_discover'
   | 'overview'
   | 'my_projects'
   | 'kanban'
   | 'orchestration';
+
+export type TeamSectionTab =
+  | 'agents'
+  | 'collaborators'
+  | 'friends'
+  | 'nodes'
+  | 'storage'
+  | 'collab_my'
+  | 'collab_manage'
+  | 'collab_discover';
 
 export interface ProjectWorkspace {
   id: string;

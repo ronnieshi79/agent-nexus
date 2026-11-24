@@ -5,9 +5,9 @@ import {
   ArrowLeft,
   ArrowUpRight,
   Briefcase,
+  Building2,
   CalendarClock,
   CheckCircle2,
-  Cloud,
   Compass,
   Cpu,
   Database,
@@ -16,12 +16,12 @@ import {
   FolderKanban,
   GitBranch,
   Globe,
+  Lock,
   MessageSquareCode,
   Play,
   Plus,
   RotateCcw,
   Server,
-  Settings2,
   TrendingUp,
   UserMinus,
   Users,
@@ -29,32 +29,24 @@ import {
 } from 'lucide-react';
 import type {
   AgentLeaseRecord,
-  CliAuthMode,
-  CliToolType,
-  CommunityPost,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
   HumanExpert,
   LeasePeriod,
   NegotiationThread,
-  NodeCliEntry,
-  NodeOsType,
   ProjectLifecycleStatus,
   ProjectRole,
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
-  SpaceMemberRole,
   SpaceSharedNode,
-  StorageBillingMode,
   StorageVolume,
   TaskStatus,
   TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
   WorkspaceTabId,
-  ZoneProjectOpportunity,
 } from '../../types/agentnexus';
 import {
   AgentIdentityName,
@@ -75,21 +67,14 @@ import {
   WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WorkStatusBadge } from '../workcard/WorkCardFlow';
-import { CollabSpacesPanel } from '../workspace/CollabSpacesPanel';
 import { ProjectOrchestrationPanel } from '../workspace/ProjectOrchestrationPanel';
-import { SpaceAgentsPanel } from '../workspace/SpaceAgentsPanel';
-import { SpaceNodesPanel, type NodeDrawerMode } from '../workspace/SpaceNodesPanel';
-import { SpaceStoragePanel } from '../workspace/SpaceStoragePanel';
 
 export type WorkKanbanTab = WorkspaceTabId;
 
 interface WorkflowKanbanViewProps {
   zones: CommunityZone[];
   joinedZoneIds: string[];
-  activeZoneId: string;
   spaceSharedNodes: SpaceSharedNode[];
-  communityPosts: CommunityPost[];
-  zoneProjects: ZoneProjectOpportunity[];
   workspaces: ProjectWorkspace[];
   computeNodes: ComputeNode[];
   storageVolumes: StorageVolume[];
@@ -121,6 +106,7 @@ interface WorkflowKanbanViewProps {
   onJumpToZoneMarket: (zoneId: string) => void;
   onJumpToDiscover: () => void;
   onJumpToTeam: () => void;
+  onJumpToTeamNodes: () => void;
   onReleaseAgent: (agentId: string, projectId?: string) => void;
   onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
   onAssignExpertToWorkspace: (expertId: string, workspaceId: string) => void;
@@ -130,60 +116,6 @@ interface WorkflowKanbanViewProps {
     runtimeAgent: string,
     defaultModel: string,
   ) => void;
-  onMountPrivateNode: (input: {
-    name: string;
-    os: NodeOsType;
-    osVersion: string;
-    region: string;
-    cpuCores: number;
-    memoryGb: number;
-    storageQuotaGb: number;
-    description: string;
-  }) => string;
-  onProvisionCloudNode: (input: {
-    name: string;
-    os: NodeOsType;
-    osVersion: string;
-    region: string;
-    cpuCores: number;
-    memoryGb: number;
-    gpuSpec?: string;
-    storageQuotaGb: number;
-    monthlyCostUsd: number;
-    description: string;
-  }) => string;
-  onToggleNodeStatus: (nodeId: string) => void;
-  onRemoveComputeNode: (nodeId: string) => void;
-  onCreateStorageVolume: (input: {
-    name: string;
-    tierLabel: string;
-    region: string;
-    quotaGb: number;
-    billingMode: StorageBillingMode;
-    priceUsd: number;
-    encrypted: boolean;
-    boundNodeIds: string[];
-    boundProjectIds: string[];
-  }) => string;
-  onExpandStorageVolume: (volumeId: string, addGb: number) => void;
-  onAddNodeCli: (
-    nodeId: string,
-    input: {
-      cliTool: CliToolType;
-      runtimeAgent: string;
-      defaultModel: string;
-      authMode: CliAuthMode;
-      credentialLabel: string;
-      concurrency: number;
-    },
-  ) => string;
-  onUpdateNodeCli: (
-    nodeId: string,
-    cliId: string,
-    patch: Partial<Omit<NodeCliEntry, 'id'>>,
-  ) => void;
-  onRemoveNodeCli: (nodeId: string, cliId: string) => void;
-  onToggleNodeStorageMount: (nodeId: string, volumeId: string) => void;
   onUpdateProjectLifecycle: (workspaceId: string, status: ProjectLifecycleStatus) => void;
   onUpdateProjectStageSlot: (
     projectId: string,
@@ -191,58 +123,6 @@ interface WorkflowKanbanViewProps {
     patch: Partial<Omit<ProjectStageSlot, 'stage'>>,
   ) => void;
   onSyncPipelineAgentsToProject: (projectId: string) => void;
-  onToggleJoinZone: (zoneId: string) => void;
-  onCreateCollabZone: (input: {
-    name: string;
-    shortCode: string;
-    kind: 'community' | 'enterprise';
-    regionCulture: string;
-    tagline: string;
-    focusDomains: string[];
-    accentColor: string;
-    inviteCode?: string;
-  }) => string;
-  onDeleteCollabZone: (zoneId: string) => void;
-  onJumpToZoneDiscover: (zoneId: string) => void;
-  onInviteSpaceMember: (
-    zoneId: string,
-    input: {
-      humanExpertId?: string;
-      name: string;
-      title: string;
-      role: SpaceMemberRole;
-      avatarInitials?: string;
-      avatarAccent?: string;
-    },
-  ) => void;
-  onUpdateSpaceMemberRole: (zoneId: string, memberId: string, role: SpaceMemberRole) => void;
-  onKickSpaceMember: (zoneId: string, memberId: string) => void;
-  onAddSpaceSharedNode: (
-    zoneId: string,
-    input: {
-      name: string;
-      os: NodeOsType;
-      osVersion: string;
-      origin: 'private' | 'cloud';
-      region: string;
-      cpuCores: number;
-      memoryGb: number;
-      gpuSpec?: string;
-      supportedClis: string[];
-      sharedSandboxQuota: number;
-      accessPolicy: 'all_members' | 'admins_only';
-      monthlyCostUsd: number;
-    },
-  ) => void;
-  onToggleSpaceSharedNodeStatus: (nodeId: string) => void;
-  onUpdateSpaceSharedNode: (
-    nodeId: string,
-    patch: Partial<Pick<SpaceSharedNode, 'sharedSandboxQuota' | 'accessPolicy'>>,
-  ) => void;
-  onRemoveSpaceSharedNode: (nodeId: string) => void;
-  onToggleSpaceAgentOnline: (zoneId: string, agentId: string) => void;
-  onPublishAgentToSpace: (zoneId: string, agentId: string) => void;
-  onRemoveAgentFromSpace: (zoneId: string, agentId: string) => void;
 }
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
@@ -308,10 +188,7 @@ function formatTokensK(k: number): string {
 export function WorkflowKanbanView({
   zones,
   joinedZoneIds,
-  activeZoneId,
   spaceSharedNodes,
-  communityPosts,
-  zoneProjects,
   workspaces,
   computeNodes,
   storageVolumes,
@@ -336,64 +213,20 @@ export function WorkflowKanbanView({
   onJumpToZoneMarket,
   onJumpToDiscover,
   onJumpToTeam,
+  onJumpToTeamNodes,
   onLeaseAgent,
   onAssignExpertToWorkspace,
   onRemoveExpertFromWorkspace,
   onUpdateAgentRuntimeConfig,
-  onMountPrivateNode,
-  onProvisionCloudNode,
-  onToggleNodeStatus,
-  onRemoveComputeNode,
-  onCreateStorageVolume,
-  onExpandStorageVolume,
-  onAddNodeCli,
-  onUpdateNodeCli,
-  onRemoveNodeCli,
-  onToggleNodeStorageMount,
   onUpdateProjectLifecycle,
   onUpdateProjectStageSlot,
   onSyncPipelineAgentsToProject,
-  onToggleJoinZone,
-  onCreateCollabZone,
-  onDeleteCollabZone,
-  onJumpToZoneDiscover,
-  onInviteSpaceMember,
-  onUpdateSpaceMemberRole,
-  onKickSpaceMember,
-  onAddSpaceSharedNode,
-  onToggleSpaceSharedNodeStatus,
-  onUpdateSpaceSharedNode,
-  onRemoveSpaceSharedNode,
-  onToggleSpaceAgentOnline,
-  onPublishAgentToSpace,
-  onRemoveAgentFromSpace,
 }: WorkflowKanbanViewProps) {
   const [activeTab, setActiveTab] = useState<WorkKanbanTab>('overview');
   const [assignExpertId, setAssignExpertId] = useState<string>('');
 
   // Shared right-toolbar keyword search
   const [searchKeyword, setSearchKeyword] = useState('');
-
-  // Collaboration Spaces state
-  const [collabKindFilter, setCollabKindFilter] = useState<'all' | 'open' | 'enterprise'>('all');
-  const [createZoneDrawerOpen, setCreateZoneDrawerOpen] = useState(false);
-  const [managedZoneId, setManagedZoneId] = useState<string | null>(
-    () => zones.find((z) => z.createdByMe || z.isCurrentUserPrincipal)?.id || null,
-  );
-
-  // Space Nodes state
-  const [nodeOsFilter, setNodeOsFilter] = useState<'all' | NodeOsType>('all');
-  const [nodeOriginFilter, setNodeOriginFilter] = useState<'all' | 'private' | 'cloud'>('all');
-  const [nodeDrawerMode, setNodeDrawerMode] = useState<NodeDrawerMode>(null);
-
-  // Space Storage state
-  const [volumeBillingFilter, setVolumeBillingFilter] = useState<'all' | StorageBillingMode>('all');
-  const [volumeDrawerOpen, setVolumeDrawerOpen] = useState(false);
-
-  // Space Agents state
-  const [spaceAgentNodeFilter, setSpaceAgentNodeFilter] = useState<string>('all');
-  const [deployDrawerOpen, setDeployDrawerOpen] = useState(false);
-  const [deployPreselectedNodeId, setDeployPreselectedNodeId] = useState<string | null>(null);
 
   // My Projects & Overview state
   const [lifecycleFilter, setLifecycleFilter] = useState<'all' | ProjectLifecycleStatus>('all');
@@ -439,15 +272,6 @@ export function WorkflowKanbanView({
     () => zones.filter((z) => z.isPlatformDefault || joinedZoneIds.includes(z.id)),
     [joinedZoneIds, zones],
   );
-  const managedZones = useMemo(
-    () => zones.filter((z) => Boolean(z.createdByMe || z.isCurrentUserPrincipal)),
-    [zones],
-  );
-  const activeManagedZone = useMemo(
-    () => managedZones.find((z) => z.id === managedZoneId) || managedZones[0] || null,
-    [managedZoneId, managedZones],
-  );
-  const discoverableUnjoinedCount = Math.max(0, zones.length - joinedZones.length);
   const workspaceMap = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
   const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const humanExpertMap = useMemo(() => new Map(humanExperts.map((h) => [h.id, h])), [humanExperts]);
@@ -456,7 +280,67 @@ export function WorkflowKanbanView({
     [teamExperts],
   );
   const nodeMap = useMemo(() => new Map(computeNodes.map((n) => [n.id, n])), [computeNodes]);
+  const sharedNodeMap = useMemo(
+    () => new Map(spaceSharedNodes.map((n) => [n.id, n])),
+    [spaceSharedNodes],
+  );
+  const accessibleSharedNodes = useMemo(
+    () =>
+      spaceSharedNodes.filter((n) => {
+        const z = zoneMap.get(n.zoneId);
+        if (!z) return false;
+        const joined = Boolean(z.isPlatformDefault || joinedZoneIds.includes(z.id));
+        if (!joined) return false;
+        if (n.accessPolicy === 'admins_only' && !(z.createdByMe || z.isCurrentUserPrincipal)) {
+          return false;
+        }
+        return true;
+      }),
+    [joinedZoneIds, spaceSharedNodes, zoneMap],
+  );
   const volumeMap = useMemo(() => new Map(storageVolumes.map((v) => [v.id, v])), [storageVolumes]);
+
+  const getAnyNodeLabel = (nodeId: string): string | null => {
+    const personal = nodeMap.get(nodeId);
+    if (personal) return personal.name;
+    const shared = sharedNodeMap.get(nodeId);
+    if (shared) {
+      const z = zoneMap.get(shared.zoneId);
+      return `${z ? `${z.shortCode}共享·` : '空间共享·'}${shared.name}`;
+    }
+    return null;
+  };
+
+  const renderSpaceOwnershipBadge = (sourceZoneId?: string) => {
+    const z = sourceZoneId ? zoneMap.get(sourceZoneId) : undefined;
+    if (!z) {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-semibold text-slate-600">
+          <Lock className="w-2.5 h-2.5 shrink-0" />
+          <span>个人私有项目</span>
+        </span>
+      );
+    }
+    const isEnterprise = z.kind === 'enterprise';
+    return (
+      <span
+        className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
+          isEnterprise
+            ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
+            : 'bg-sky-50 border-sky-200 text-sky-700'
+        }`}
+      >
+        {isEnterprise ? (
+          <Building2 className="w-2.5 h-2.5 shrink-0" />
+        ) : (
+          <Globe className="w-2.5 h-2.5 shrink-0" />
+        )}
+        <span>
+          {isEnterprise ? '企业封闭' : '开放社区'} · {z.name}
+        </span>
+      </span>
+    );
+  };
 
   // Live runtime snapshots for all involved/private Agents
   const agentSnapshots = useMemo<AgentRuntimeSnapshot[]>(() => {
@@ -656,7 +540,7 @@ export function WorkflowKanbanView({
     const newId = onCreateProject(
       projName,
       projGoal,
-      projZoneId,
+      projZoneId || undefined,
       projNodeId ? [projNodeId] : undefined,
       projVolumeId || undefined,
     );
@@ -693,17 +577,9 @@ export function WorkflowKanbanView({
   };
 
   const searchPlaceholder =
-    activeTab === 'collab_my' || activeTab === 'collab_discover'
-      ? '搜索协作空间名称、地域/文化标签、领域或主理人...'
-      : activeTab === 'space_nodes'
-        ? '搜索 Win11 / Linux / macOS 节点名称或地区...'
-        : activeTab === 'space_storage'
-          ? '搜索共享云存储名称、套餐或可用区...'
-          : activeTab === 'space_agents'
-            ? '搜索 Claude Code / Antigravity / Codex 或账号凭证...'
-            : activeTab === 'kanban'
-              ? '搜索任务标题、模块、项目或执行 Agent...'
-              : '搜索项目名称、目标或范围...';
+    activeTab === 'kanban'
+      ? '搜索任务标题、模块、项目或执行 Agent...'
+      : '搜索项目名称、目标或范围...';
 
   const switchTab = (next: WorkKanbanTab) => {
     setActiveTab(next);
@@ -712,8 +588,8 @@ export function WorkflowKanbanView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Three Stacked Groups (工作项目 + 协作空间 + Agent 空间) */}
-      <WorkspacePrimaryRail ariaLabel="工作空间导航">
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Focused Pure Work Projects Group */}
+      <WorkspacePrimaryRail ariaLabel="工作台导航">
         <div className="space-y-1">
           <RailSectionLabel>工作项目</RailSectionLabel>
           <RailNavButton
@@ -751,62 +627,6 @@ export function WorkflowKanbanView({
             count={4}
           />
         </div>
-
-        <div className="pt-3 border-t border-slate-100 space-y-1">
-          <RailSectionLabel>协作空间</RailSectionLabel>
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'collab_my'}
-            onClick={() => switchTab('collab_my')}
-            icon={<Globe className="w-3.5 h-3.5" />}
-            label="我的空间"
-            count={joinedZones.length}
-          />
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'collab_manage'}
-            onClick={() => switchTab('collab_manage')}
-            icon={<Settings2 className="w-3.5 h-3.5" />}
-            label="空间管理"
-            count={managedZones.length}
-          />
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'collab_discover'}
-            onClick={() => switchTab('collab_discover')}
-            icon={<Compass className="w-3.5 h-3.5" />}
-            label="发现空间"
-            count={discoverableUnjoinedCount}
-          />
-        </div>
-
-        <div className="pt-3 border-t border-slate-100 space-y-1">
-          <RailSectionLabel>Agent 空间</RailSectionLabel>
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'space_nodes'}
-            onClick={() => switchTab('space_nodes')}
-            icon={<Server className="w-3.5 h-3.5" />}
-            label="Agent 节点"
-            count={`${onlineNodesCount}/${computeNodes.length}`}
-          />
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'space_storage'}
-            onClick={() => switchTab('space_storage')}
-            icon={<Database className="w-3.5 h-3.5" />}
-            label="Agent 存储"
-            count={storageVolumes.length}
-          />
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'space_agents'}
-            onClick={() => switchTab('space_agents')}
-            icon={<Cpu className="w-3.5 h-3.5" />}
-            label="Agent 配置"
-            count={totalInstalledClisCount}
-          />
-        </div>
       </WorkspacePrimaryRail>
 
       {/* RIGHT WORKSPACE COLUMN: Flush-Aligned Toolbar + Main Canvas */}
@@ -835,107 +655,12 @@ export function WorkflowKanbanView({
                     hint: LIFECYCLE_META[w.lifecycleStatus || 'active'].label,
                   }))}
                 />
-              ) : activeTab === 'collab_manage' ? (
-                activeManagedZone ? (
-                  <ToolbarDropdown
-                    label="当前管理空间"
-                    value={activeManagedZone.id}
-                    defaultValue=""
-                    onChange={setManagedZoneId}
-                    options={managedZones.map((z) => ({
-                      id: z.id,
-                      label: z.name,
-                      hint: z.typeLabel,
-                    }))}
-                  />
-                ) : (
-                  <span className="text-xs font-medium text-slate-500">
-                    暂无可管理的协作空间，点击右侧创建
-                  </span>
-                )
               ) : (
                 <ToolbarSearch
                   value={searchKeyword}
                   onChange={setSearchKeyword}
                   placeholder={searchPlaceholder}
                   widthClass="flex-1 min-w-[160px] max-w-[290px]"
-                />
-              )}
-
-              {/* Collaboration Spaces secondary filter */}
-              {(activeTab === 'collab_my' || activeTab === 'collab_discover') && (
-                <ToolbarDropdown
-                  label="空间分类"
-                  value={collabKindFilter}
-                  defaultValue="all"
-                  onChange={setCollabKindFilter}
-                  options={[
-                    { id: 'all', label: '全部类型' },
-                    { id: 'open', label: '开放性空间（社区）' },
-                    { id: 'enterprise', label: '企业封闭空间' },
-                  ]}
-                />
-              )}
-
-              {/* Space Nodes secondary filters */}
-              {activeTab === 'space_nodes' && (
-                <>
-                  <ToolbarDropdown
-                    label="系统"
-                    value={nodeOsFilter}
-                    defaultValue="all"
-                    onChange={setNodeOsFilter}
-                    options={[
-                      { id: 'all', label: '全部系统' },
-                      { id: 'linux', label: 'Linux' },
-                      { id: 'macos', label: 'macOS' },
-                      { id: 'win11', label: 'Windows 11' },
-                    ]}
-                  />
-                  <ToolbarDropdown
-                    label="方式"
-                    value={nodeOriginFilter}
-                    defaultValue="all"
-                    onChange={setNodeOriginFilter}
-                    options={[
-                      { id: 'all', label: '全部节点' },
-                      { id: 'private', label: '自有设备挂载' },
-                      { id: 'cloud', label: '云端直接租用' },
-                    ]}
-                  />
-                </>
-              )}
-
-              {/* Space Storage secondary filters */}
-              {activeTab === 'space_storage' && (
-                <ToolbarDropdown
-                  label="计费方式"
-                  value={volumeBillingFilter}
-                  defaultValue="all"
-                  onChange={setVolumeBillingFilter}
-                  options={[
-                    { id: 'all', label: '全部云存储' },
-                    { id: 'permanent', label: '永久存储买断包' },
-                    { id: 'monthly', label: '按月租用云盘' },
-                  ]}
-                />
-              )}
-
-              {/* Space Agents (Node CLI Config) secondary filter */}
-              {activeTab === 'space_agents' && (
-                <ToolbarDropdown
-                  label="配置节点"
-                  value={spaceAgentNodeFilter}
-                  defaultValue="all"
-                  onChange={setSpaceAgentNodeFilter}
-                  options={[
-                    { id: 'all', label: '全部节点', hint: `${computeNodes.length}` },
-                    ...computeNodes.map((n) => ({
-                      id: n.id,
-                      label: n.name,
-                      hint: `${n.installedClis.length} CLI`,
-                    })),
-                  ]}
                 />
               )}
 
@@ -1018,67 +743,6 @@ export function WorkflowKanbanView({
           }
           right={
             <>
-              {(activeTab === 'collab_my' ||
-                activeTab === 'collab_manage' ||
-                activeTab === 'collab_discover') && (
-                <button
-                  type="button"
-                  onClick={() => setCreateZoneDrawerOpen(true)}
-                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>创建协作空间</span>
-                </button>
-              )}
-
-              {activeTab === 'space_nodes' && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setNodeDrawerMode('private')}
-                    className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>挂载自有设备</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNodeDrawerMode('cloud')}
-                    className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-                  >
-                    <Cloud className="w-3.5 h-3.5" />
-                    <span>租用云端节点</span>
-                  </button>
-                </>
-              )}
-
-              {activeTab === 'space_storage' && (
-                <button
-                  type="button"
-                  onClick={() => setVolumeDrawerOpen(true)}
-                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>购买 / 租用云存储</span>
-                </button>
-              )}
-
-              {activeTab === 'space_agents' && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDeployPreselectedNodeId(
-                      spaceAgentNodeFilter !== 'all' ? spaceAgentNodeFilter : null,
-                    );
-                    setDeployDrawerOpen(true);
-                  }}
-                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>添加 Agent CLI</span>
-                </button>
-              )}
-
               {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
                 <>
                   <span className="hidden @[960px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
@@ -1118,7 +782,7 @@ export function WorkflowKanbanView({
                   className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer"
                 >
                   <Users className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>管理 AGN 团队 Agent</span>
+                  <span>管理 AGN 空间 Agent</span>
                 </button>
               )}
             </>
@@ -1139,12 +803,6 @@ export function WorkflowKanbanView({
                 { id: 'my_projects', label: '我的项目' },
                 { id: 'kanban', label: '项目看板' },
                 { id: 'orchestration', label: '工作编排' },
-                { id: 'collab_my', label: '我的空间' },
-                { id: 'collab_manage', label: '空间管理' },
-                { id: 'collab_discover', label: '发现空间' },
-                { id: 'space_nodes', label: 'Agent 节点' },
-                { id: 'space_storage', label: 'Agent 存储' },
-                { id: 'space_agents', label: 'Agent 配置' },
               ] as { id: WorkKanbanTab; label: string }[]
             ).map((item) => {
               const active = activeTab === item.id;
@@ -1165,135 +823,18 @@ export function WorkflowKanbanView({
             })}
           </div>
 
-          {/* ================= COLLABORATION SPACES: MY SPACES, SPACE MANAGEMENT & DISCOVER ================= */}
-          {(activeTab === 'collab_my' ||
-            activeTab === 'collab_manage' ||
-            activeTab === 'collab_discover') && (
-            <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-              <CollabSpacesPanel
-                mode={
-                  activeTab === 'collab_manage'
-                    ? 'manage'
-                    : activeTab === 'collab_my'
-                      ? 'my'
-                      : 'discover'
-                }
-                zones={zones}
-                joinedZoneIds={joinedZoneIds}
-                activeZoneId={activeZoneId}
-                managedZoneId={activeManagedZone?.id || null}
-                agents={agents}
-                communityPosts={communityPosts}
-                zoneProjects={zoneProjects}
-                sharedNodes={spaceSharedNodes}
-                myComputeNodes={computeNodes}
-                humanExperts={humanExperts}
-                searchKeyword={searchKeyword}
-                kindFilter={collabKindFilter}
-                createDrawerOpen={createZoneDrawerOpen}
-                onChangeCreateDrawerOpen={setCreateZoneDrawerOpen}
-                onCreateZone={onCreateCollabZone}
-                onToggleJoinZone={onToggleJoinZone}
-                onDeleteZone={onDeleteCollabZone}
-                onEnterZoneCommunity={onJumpToZoneDiscover}
-                onEnterZoneMarket={onJumpToZoneMarket}
-                onSwitchToDiscover={() => setActiveTab('collab_discover')}
-                onOpenSpaceManage={(zoneId) => {
-                  setManagedZoneId(zoneId);
-                  setActiveTab('collab_manage');
-                }}
-                onInviteSpaceMember={onInviteSpaceMember}
-                onUpdateSpaceMemberRole={onUpdateSpaceMemberRole}
-                onKickSpaceMember={onKickSpaceMember}
-                onAddSpaceSharedNode={onAddSpaceSharedNode}
-                onToggleSpaceSharedNodeStatus={onToggleSpaceSharedNodeStatus}
-                onUpdateSpaceSharedNode={onUpdateSpaceSharedNode}
-                onRemoveSpaceSharedNode={onRemoveSpaceSharedNode}
-                onToggleSpaceAgentOnline={onToggleSpaceAgentOnline}
-                onPublishAgentToSpace={onPublishAgentToSpace}
-                onRemoveAgentFromSpace={onRemoveAgentFromSpace}
-              />
-            </div>
-          )}
-
-          {/* ================= AGENT SPACE 1: AGENT NODES (Win11 / Linux / macOS) ================= */}
-          {activeTab === 'space_nodes' && (
-            <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-              <SpaceNodesPanel
-                nodes={computeNodes}
-                agents={agents}
-                storageVolumes={storageVolumes}
-                searchKeyword={searchKeyword}
-                osFilter={nodeOsFilter}
-                originFilter={nodeOriginFilter}
-                drawerMode={nodeDrawerMode}
-                onChangeDrawerMode={setNodeDrawerMode}
-                onMountPrivateNode={onMountPrivateNode}
-                onProvisionCloudNode={onProvisionCloudNode}
-                onToggleNodeStatus={onToggleNodeStatus}
-                onRemoveNode={onRemoveComputeNode}
-                onOpenNodeCliConfig={(nodeId) => {
-                  setDeployPreselectedNodeId(nodeId);
-                  setSpaceAgentNodeFilter(nodeId);
-                  setActiveTab('space_agents');
-                }}
-              />
-            </div>
-          )}
-
-          {/* ================= AGENT SPACE 2: AGENT SHARED STORAGE ================= */}
-          {activeTab === 'space_storage' && (
-            <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-              <SpaceStoragePanel
-                volumes={storageVolumes}
-                nodes={computeNodes}
-                agents={agents}
-                workspaces={workspaces}
-                searchKeyword={searchKeyword}
-                billingFilter={volumeBillingFilter}
-                drawerOpen={volumeDrawerOpen}
-                onChangeDrawerOpen={setVolumeDrawerOpen}
-                onCreateVolume={onCreateStorageVolume}
-                onExpandVolume={onExpandStorageVolume}
-              />
-            </div>
-          )}
-
-          {/* ================= AGENT SPACE 3: AGENT CLI & SANDBOX CONFIG ================= */}
-          {activeTab === 'space_agents' && (
-            <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-              <SpaceAgentsPanel
-                nodes={computeNodes}
-                agents={agents}
-                storageVolumes={storageVolumes}
-                searchKeyword={searchKeyword}
-                nodeFilterId={spaceAgentNodeFilter}
-                drawerOpen={deployDrawerOpen}
-                preselectedNodeId={deployPreselectedNodeId}
-                onChangeDrawerOpen={setDeployDrawerOpen}
-                onAddNodeCli={onAddNodeCli}
-                onUpdateNodeCli={onUpdateNodeCli}
-                onRemoveNodeCli={onRemoveNodeCli}
-                onToggleNodeStorageMount={onToggleNodeStorageMount}
-                onJumpToNodes={() => switchTab('space_nodes')}
-                onJumpToStorage={() => switchTab('space_storage')}
-                onJumpToTeam={onJumpToTeam}
-              />
-            </div>
-          )}
-
           {/* ================= WORK PROJECTS 1: PROJECT OVERVIEW ================= */}
           {activeTab === 'overview' && (
             <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
-              {/* Top 4 KPI Cards: Agent Space Infra | Project Lifecycle | Cost & Tokens | Agent Fleet */}
+              {/* Top 4 KPI Cards: Agent Nodes & Storage | Project Lifecycle | Cost & Tokens | Agent Fleet */}
               <div className="grid grid-cols-1 @[520px]:grid-cols-2 @[980px]:grid-cols-4 gap-3.5">
                 <button
                   type="button"
-                  onClick={() => switchTab('space_nodes')}
+                  onClick={onJumpToTeamNodes}
                   className="text-left bg-white rounded-xl border border-slate-200 hover:border-slate-300 p-4 space-y-2 transition-colors cursor-pointer"
                 >
                   <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-medium">Agent 空间底座与存储</span>
+                    <span className="font-medium">Agent 节点与存储</span>
                     <Server className="w-4 h-4 text-blue-600" />
                   </div>
                   <div className="flex items-baseline justify-between gap-2">
@@ -1307,9 +848,9 @@ export function WorkflowKanbanView({
                   </div>
                   <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2">
                     <span>
-                      {storageVolumes.length} 存储卷 · {totalInstalledClisCount} CLI 配置
+                      {storageVolumes.length} 存储卷 · {totalInstalledClisCount} CLI
                     </span>
-                    <span className="text-blue-700 font-semibold">进入空间 →</span>
+                    <span className="text-blue-700 font-semibold">AGN 空间设置 →</span>
                   </div>
                 </button>
 
@@ -1455,7 +996,7 @@ export function WorkflowKanbanView({
                     <div>
                       <h2 className="text-sm font-bold text-slate-900">项目状态、空间载体与进度</h2>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        按生命周期总览各项目进展、绑定的 Agent 空间节点与预算执行
+                        按生命周期总览各项目进展、绑定的运行节点与预算执行
                       </p>
                     </div>
                     <button
@@ -1481,8 +1022,8 @@ export function WorkflowKanbanView({
                       const life = LIFECYCLE_META[proj.lifecycleStatus || 'active'];
                       const roleInfo = ROLE_META[proj.role];
                       const boundNodes = (proj.boundNodeIds || [])
-                        .map((id) => nodeMap.get(id)?.name)
-                        .filter(Boolean);
+                        .map((id) => getAnyNodeLabel(id))
+                        .filter((v): v is string => Boolean(v));
 
                       return (
                         <div
@@ -1491,11 +1032,12 @@ export function WorkflowKanbanView({
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                                 <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                                 <span className="text-xs font-bold text-slate-900 truncate">
                                   {proj.name}
                                 </span>
+                                {renderSpaceOwnershipBadge(proj.sourceZoneId)}
                                 <span
                                   className={`inline-flex items-center gap-1 text-[11px] font-semibold ${life.cls}`}
                                 >
@@ -1579,18 +1121,18 @@ export function WorkflowKanbanView({
                     </div>
                     <button
                       type="button"
-                      onClick={() => switchTab('space_agents')}
+                      onClick={onJumpToTeamNodes}
                       className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
                     >
-                      节点部署 →
+                      节点配置 →
                     </button>
                   </div>
 
                   <div className="divide-y divide-slate-100 flex-1">
                     {agentSnapshots.slice(0, 6).map((snap) => {
-                      const hostNode = snap.agent.hostNodeId
-                        ? nodeMap.get(snap.agent.hostNodeId)
-                        : undefined;
+                      const hostNodeLabel = snap.agent.hostNodeId
+                        ? getAnyNodeLabel(snap.agent.hostNodeId)
+                        : null;
                       return (
                         <div
                           key={snap.agent.id}
@@ -1615,8 +1157,8 @@ export function WorkflowKanbanView({
                                 {renderAvailabilityIndicator(snap)}
                                 <span className="text-slate-300" aria-hidden="true">·</span>
                                 <span className="truncate">
-                                  {hostNode
-                                    ? hostNode.name
+                                  {hostNodeLabel
+                                    ? hostNodeLabel
                                     : snap.agent.ownership === 'marketplace'
                                       ? `云端专家 (${snap.agent.region})`
                                       : '待绑定节点'}
@@ -1660,7 +1202,7 @@ export function WorkflowKanbanView({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">
-                      新建工作项目（绑定 Agent 空间节点与存储）
+                      新建工作项目（支持绑定个人 Agent 节点或协作空间共享节点）
                     </span>
                     <button
                       type="button"
@@ -1688,12 +1230,22 @@ export function WorkflowKanbanView({
                     />
                     <select
                       value={projZoneId}
-                      onChange={(e) => setProjZoneId(e.target.value)}
+                      onChange={(e) => {
+                        const nextZoneId = e.target.value;
+                        setProjZoneId(nextZoneId);
+                        const matchingShared = accessibleSharedNodes.find(
+                          (sn) => sn.zoneId === nextZoneId && sn.status === 'online',
+                        );
+                        if (matchingShared) {
+                          setProjNodeId(matchingShared.id);
+                        }
+                      }}
                       className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                     >
+                      <option value="">归属：个人私有项目</option>
                       {joinedZones.map((z) => (
                         <option key={z.id} value={z.id}>
-                          关联协作空间：{z.name}
+                          归属：{z.name}（{z.typeLabel}）
                         </option>
                       ))}
                     </select>
@@ -1704,12 +1256,27 @@ export function WorkflowKanbanView({
                       onChange={(e) => setProjNodeId(e.target.value)}
                       className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                     >
-                      <option value="">暂不指定 Agent 空间节点</option>
-                      {computeNodes.map((n) => (
-                        <option key={n.id} value={n.id}>
-                          绑定载体节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
-                        </option>
-                      ))}
+                      <option value="">暂不指定运行节点</option>
+                      <optgroup label="个人 Agent 节点">
+                        {computeNodes.map((n) => (
+                          <option key={n.id} value={n.id}>
+                            个人节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
+                          </option>
+                        ))}
+                      </optgroup>
+                      {accessibleSharedNodes.length > 0 && (
+                        <optgroup label="协作空间 · 共享节点">
+                          {accessibleSharedNodes.map((sn) => {
+                            const z = zoneMap.get(sn.zoneId);
+                            return (
+                              <option key={sn.id} value={sn.id}>
+                                [{z?.shortCode || '共享'}·{z?.name || '协作空间'}] {sn.name} (
+                                {sn.cpuCores}C/{sn.memoryGb}G)
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      )}
                     </select>
                     <select
                       value={projVolumeId}
@@ -1762,11 +1329,10 @@ export function WorkflowKanbanView({
                           ? 100
                           : 0;
                     const projMembers = agents.filter((a) => proj.hiredAgentIds.includes(a.id));
-                    const linkedZone = proj.sourceZoneId ? zoneMap.get(proj.sourceZoneId) : undefined;
                     const roleInfo = ROLE_META[proj.role];
-                    const boundNodes = (proj.boundNodeIds || [])
-                      .map((id) => nodeMap.get(id))
-                      .filter((n): n is ComputeNode => Boolean(n));
+                    const boundNodeLabels = (proj.boundNodeIds || [])
+                      .map((id) => getAnyNodeLabel(id))
+                      .filter((v): v is string => Boolean(v));
                     const boundVol = proj.storageVolumeId
                       ? volumeMap.get(proj.storageVolumeId)
                       : undefined;
@@ -1781,10 +1347,10 @@ export function WorkflowKanbanView({
                       >
                         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                           <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <FolderKanban className="w-4 h-4 text-blue-600 shrink-0" />
                               <h2 className="text-base font-bold text-slate-900">{proj.name}</h2>
-                              <span className="text-slate-300" aria-hidden="true">·</span>
+                              {renderSpaceOwnershipBadge(proj.sourceZoneId)}
                               <span
                                 className={`inline-flex items-center gap-1 text-xs font-semibold ${life.cls}`}
                               >
@@ -1795,17 +1361,6 @@ export function WorkflowKanbanView({
                               <span className={`text-xs font-semibold ${roleInfo.cls}`}>
                                 {roleInfo.label}
                               </span>
-                              {linkedZone && (
-                                <>
-                                  <span className="text-slate-300" aria-hidden="true">·</span>
-                                  <span
-                                    className="text-xs font-semibold"
-                                    style={{ color: linkedZone.accentColor }}
-                                  >
-                                    {linkedZone.name}
-                                  </span>
-                                </>
-                              )}
                               {proj.completedAt && (
                                 <span className="text-[11px] font-mono text-slate-400">
                                   ({proj.completedAt})
@@ -1819,8 +1374,8 @@ export function WorkflowKanbanView({
                                 <Server className="w-3.5 h-3.5 text-slate-400" />
                                 <span>
                                   算力载体：
-                                  {boundNodes.length > 0
-                                    ? boundNodes.map((n) => n.name).join('、')
+                                  {boundNodeLabels.length > 0
+                                    ? boundNodeLabels.join('、')
                                     : '未绑定节点'}
                                 </span>
                               </span>
@@ -2003,12 +1558,12 @@ export function WorkflowKanbanView({
                   <section className="bg-white rounded-xl border border-slate-200 p-5">
                     <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
                       <div>
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                           <FolderKanban className="w-4 h-4 text-blue-600" />
                           <h2 className="text-base font-bold text-slate-900">
                             {focusedProject.name}
                           </h2>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
+                          {renderSpaceOwnershipBadge(focusedProject.sourceZoneId)}
                           <span
                             className={`text-xs font-semibold ${
                               LIFECYCLE_META[focusedProject.lifecycleStatus || 'active'].cls
@@ -2580,6 +2135,8 @@ export function WorkflowKanbanView({
                 slots={projectPipelines[activePipelineProject.id] || []}
                 agents={agents}
                 computeNodes={computeNodes}
+                spaceSharedNodes={spaceSharedNodes}
+                zones={zones}
                 storageVolumes={storageVolumes}
                 projectTasks={allTasks.filter((t) => t.sessionId === activePipelineProject.id)}
                 onUpdateStageSlot={onUpdateProjectStageSlot}

@@ -604,7 +604,7 @@ export function CollabSpaceManagePanel({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {(
                   [
-                    { id: 'share_mine', label: '共享我的 Agent 节点', desc: '从个人 Agent 空间一键共享' },
+                    { id: 'share_mine', label: '共享我的 Agent 节点', desc: '从 AGN 空间我的节点一键共享' },
                     { id: 'mount_private', label: '挂载公司私有节点', desc: '接入团队 Win11/Linux/Mac' },
                     { id: 'rent_cloud', label: '租用空间云端节点', desc: '空间统一按月租用云主机' },
                   ] as { id: AddNodeSource; label: string; desc: string }[]
@@ -971,7 +971,7 @@ export function CollabSpaceManagePanel({
                 当前协作空间尚未发布任何专业 Agent
               </p>
               <p className="text-xs text-slate-400">
-                请在上方选择专业 Agent 发布到本空间，或在 AGN 团队创建自建 Agent 时勾选上架本空间。
+                请在上方选择专业 Agent 发布到本空间，或在 AGN 空间创建自建 Agent 时勾选上架本空间。
               </p>
             </div>
           ) : (

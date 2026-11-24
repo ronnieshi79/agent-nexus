@@ -2,11 +2,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowUpRight,
   Bot,
+  Check,
   CheckCircle2,
   Receipt,
   Send,
   ShieldAlert,
   Sparkles,
+  UserCheck,
+  X,
 } from 'lucide-react';
 import type {
   AgentNexusAccount,
@@ -16,13 +19,15 @@ import type {
   PlatformAuditLog,
   PlatformServiceCategory,
   SettlementRecord,
+  SpaceJoinApplication,
 } from '../../types/agentnexus';
-import { AgentIdentityName, displayEntityName } from '../shared/EntityIdentity';
+import { AgentIdentityName, EntityAvatar, displayEntityName } from '../shared/EntityIdentity';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
 interface PlatformAssistantPaneProps {
   messages: AssistantMessage[];
   settlements: SettlementRecord[];
+  spaceApplications: SpaceJoinApplication[];
   auditLogs: PlatformAuditLog[];
   agents: ExpertAgent[];
   privateAgents: ExpertAgent[];
@@ -31,12 +36,14 @@ interface PlatformAssistantPaneProps {
   onSendMessage: (text: string) => Promise<void>;
   onSettleRecord: (settlementId: string) => void;
   onSettleAll: () => void;
+  onResolveSpaceApplication: (applicationId: string, decision: 'approved' | 'rejected') => void;
   onOpenDm: (agentId: string) => void;
   onOpenKanban: (projectId?: string) => void;
   onOpenTeam: () => void;
 }
 
 const CATEGORY_LABELS: Record<PlatformServiceCategory, { label: string; cls: string }> = {
+  approval: { label: '成员审批', cls: 'text-indigo-700' },
   settlement: { label: '结算服务', cls: 'text-emerald-700' },
   order: { label: '接单与协商', cls: 'text-blue-700' },
   audit: { label: '审计提醒', cls: 'text-amber-700' },
@@ -44,14 +51,15 @@ const CATEGORY_LABELS: Record<PlatformServiceCategory, { label: string; cls: str
 };
 
 const QUICK_COMMANDS = [
+  '帮我汇总协作空间的待审批成员入驻申请',
   '帮我核对当前所有项目的待结算项目款明细',
   '巡检有没有待验收交付物或项目预算超支风险',
-  '汇总外部专家项目报价协商与我私有节点的接单状态',
 ];
 
 export function PlatformAssistantPane({
   messages,
   settlements,
+  spaceApplications,
   auditLogs,
   agents,
   privateAgents,
@@ -60,18 +68,24 @@ export function PlatformAssistantPane({
   onSendMessage,
   onSettleRecord,
   onSettleAll,
+  onResolveSpaceApplication,
   onOpenDm,
   onOpenKanban,
   onOpenTeam,
 }: PlatformAssistantPaneProps) {
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
-  const [rightTab, setRightTab] = useState<'settlement' | 'audit'>('settlement');
+  const [rightTab, setRightTab] = useState<'approvals' | 'settlement' | 'audit'>('approvals');
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, isBusy]);
+
+  const pendingApplications = useMemo(
+    () => spaceApplications.filter((a) => a.status === 'pending'),
+    [spaceApplications],
+  );
 
   const unsettledRecords = useMemo(
     () => settlements.filter((s) => s.status === 'unsettled'),
@@ -116,6 +130,9 @@ export function PlatformAssistantPane({
       case 'open_team':
         onOpenTeam();
         break;
+      case 'space_application':
+        onResolveSpaceApplication(card.actionTarget.applicationId, 'approved');
+        break;
     }
   };
 
@@ -133,9 +150,9 @@ export function PlatformAssistantPane({
           title="Nexa 平台助理"
           tag="Nexa · 官方助理 Agent"
           tagClassName="text-blue-700"
-          subtitle="提供全平台项目签约结算、接单与协商提醒、交付审计与预算风控护栏服务"
+          subtitle="统一处理协作空间人员申请审批、项目签约结算、接单提醒与交付风控"
           panelOpen={panelOpen}
-          panelToggleLabel={`平台服务台 (${unsettledRecords.length})`}
+          panelToggleLabel={`平台服务台 (${pendingApplications.length + unsettledRecords.length})`}
           onTogglePanel={() => setPanelOpen((v) => !v)}
         />
 
@@ -205,28 +222,47 @@ export function PlatformAssistantPane({
                               </div>
 
                               {card.actionLabel && (
-                                <button
-                                  type="button"
-                                  disabled={card.resolved}
-                                  onClick={() => handleCardAction(card)}
-                                  className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer ${
-                                    card.resolved
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
-                                      : 'bg-slate-900 hover:bg-slate-800 text-white'
-                                  }`}
-                                >
-                                  {card.resolved ? (
-                                    <>
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>已处理</span>
-                                    </>
-                                  ) : (
-                                    <>
-                                      <span>{card.actionLabel}</span>
-                                      <ArrowUpRight className="w-3.5 h-3.5" />
-                                    </>
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {card.actionTarget?.type === 'space_application' && !card.resolved && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onResolveSpaceApplication(
+                                          card.actionTarget!.type === 'space_application'
+                                            ? card.actionTarget!.applicationId
+                                            : '',
+                                          'rejected',
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 text-xs font-semibold text-slate-600 whitespace-nowrap cursor-pointer"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                      <span>拒绝</span>
+                                    </button>
                                   )}
-                                </button>
+                                  <button
+                                    type="button"
+                                    disabled={card.resolved}
+                                    onClick={() => handleCardAction(card)}
+                                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer ${
+                                      card.resolved
+                                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-default'
+                                        : 'bg-slate-900 hover:bg-slate-800 text-white'
+                                    }`}
+                                  >
+                                    {card.resolved ? (
+                                      <>
+                                        <CheckCircle2 className="w-3.5 h-3.5" />
+                                        <span>{card.resolvedLabel || '已处理'}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <span>{card.actionLabel}</span>
+                                        <ArrowUpRight className="w-3.5 h-3.5" />
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
                               )}
                             </div>
                           );
@@ -293,33 +329,135 @@ export function PlatformAssistantPane({
         <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="p-3.5 border-b border-slate-200 bg-white shrink-0">
             <div className="text-xs font-bold text-slate-900">平台服务台</div>
-            <div className="mt-2.5 grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
+            <div className="mt-2.5 grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setRightTab('approvals')}
+                className={`py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
+                  rightTab === 'approvals'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                审批 ({pendingApplications.length})
+              </button>
               <button
                 type="button"
                 onClick={() => setRightTab('settlement')}
-                className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                className={`py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
                   rightTab === 'settlement'
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                结算台账 ({unsettledRecords.length})
+                结算 ({unsettledRecords.length})
               </button>
               <button
                 type="button"
                 onClick={() => setRightTab('audit')}
-                className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                className={`py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer ${
                   rightTab === 'audit'
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                审计与接单 ({auditLogs.length})
+                审计 ({auditLogs.length})
               </button>
             </div>
           </div>
 
-          {rightTab === 'settlement' ? (
+          {rightTab === 'approvals' ? (
+            <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-3">
+              <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                    <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>协作空间成员申请</span>
+                  </span>
+                  <span className="text-[11px] font-mono tabular-nums font-semibold text-indigo-700">
+                    待处理 {pendingApplications.length}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  人员入驻审批通过后将实时写入对应协作空间的成员列表。
+                </p>
+              </div>
+
+              {spaceApplications.length === 0 ? (
+                <div className="py-10 text-center text-xs text-slate-400">
+                  暂无协作空间人员申请
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {spaceApplications.map((app) => (
+                    <div
+                      key={app.id}
+                      className="bg-white rounded-lg border border-slate-200 p-3 space-y-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <EntityAvatar
+                            kind="human"
+                            code={app.avatarInitials}
+                            accent={app.avatarAccent}
+                            size="sm"
+                          />
+                          <div className="min-w-0">
+                            <div className="text-xs font-bold text-slate-900 truncate">
+                              {app.applicantName}
+                            </div>
+                            <div className="text-[11px] text-slate-500 truncate">
+                              {app.applicantTitle}
+                            </div>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                          {app.createdAt}
+                        </span>
+                      </div>
+
+                      <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-100 rounded px-2 py-1 truncate">
+                        申请空间：{app.zoneName}
+                      </div>
+
+                      <p className="text-[11px] text-slate-600 leading-relaxed">{app.note}</p>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                        {app.status === 'pending' ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => onResolveSpaceApplication(app.id, 'rejected')}
+                              className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>拒绝</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => onResolveSpaceApplication(app.id, 'approved')}
+                              className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer"
+                            >
+                              <Check className="w-3 h-3" />
+                              <span>同意加入</span>
+                            </button>
+                          </>
+                        ) : (
+                          <span
+                            className={`text-[11px] font-semibold ${
+                              app.status === 'approved' ? 'text-emerald-700' : 'text-slate-400'
+                            }`}
+                          >
+                            {app.status === 'approved' ? '已同意并加入空间成员' : '已拒绝申请'}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : rightTab === 'settlement' ? (
             <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-4">
               <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-3">
                 <div className="grid grid-cols-2 gap-3">
@@ -404,7 +542,7 @@ export function PlatformAssistantPane({
                     onClick={onOpenTeam}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                   >
-                    去 AGN 团队
+                    去 AGN 空间
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">

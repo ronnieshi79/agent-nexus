@@ -4,11 +4,13 @@ import type {
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
+  CommunityZone,
   ExpertAgent,
   NegotiationThread,
   PlatformAuditLog,
   ProjectWorkspace,
   SettlementRecord,
+  SpaceJoinApplication,
   TaskSessionMessage,
   WorkflowTask,
 } from '../../types/agentnexus';
@@ -19,6 +21,7 @@ import { TaskSessionPane } from './TaskSessionPane';
 
 interface UnifiedChatViewProps {
   activeChannel: ActiveChatChannel;
+  zones: CommunityZone[];
   workspaces: ProjectWorkspace[];
   activeWorkspace: ProjectWorkspace;
   agents: ExpertAgent[];
@@ -33,6 +36,7 @@ interface UnifiedChatViewProps {
   negotiations: NegotiationThread[];
   assistantMessages: AssistantMessage[];
   settlements: SettlementRecord[];
+  spaceApplications: SpaceJoinApplication[];
   auditLogs: PlatformAuditLog[];
   account: AgentNexusAccount | null;
   isGroupBusy: boolean;
@@ -67,6 +71,7 @@ interface UnifiedChatViewProps {
   onSendAssistantMessage: (text: string) => Promise<void>;
   onSettleRecord: (settlementId: string) => void;
   onSettleAll: () => void;
+  onResolveSpaceApplication: (applicationId: string, decision: 'approved' | 'rejected') => void;
   onJumpToMarket: () => void;
   onJumpToKanban: (projectId?: string) => void;
   onJumpToTeam: () => void;
@@ -74,6 +79,7 @@ interface UnifiedChatViewProps {
 
 export function UnifiedChatView({
   activeChannel,
+  zones,
   workspaces,
   activeWorkspace,
   agents,
@@ -88,6 +94,7 @@ export function UnifiedChatView({
   negotiations,
   assistantMessages,
   settlements,
+  spaceApplications,
   auditLogs,
   account,
   isGroupBusy,
@@ -114,6 +121,7 @@ export function UnifiedChatView({
   onSendAssistantMessage,
   onSettleRecord,
   onSettleAll,
+  onResolveSpaceApplication,
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
@@ -145,6 +153,11 @@ export function UnifiedChatView({
       {activeChannel.type === 'group' && (
         <GroupChatView
           workspace={activeWorkspace}
+          linkedZone={
+            activeWorkspace.sourceZoneId
+              ? zones.find((z) => z.id === activeWorkspace.sourceZoneId)
+              : undefined
+          }
           hiredAgents={hiredAgents}
           messages={sessionMessages}
           tasks={sessionTasks}
@@ -207,6 +220,7 @@ export function UnifiedChatView({
         <PlatformAssistantPane
           messages={assistantMessages}
           settlements={settlements}
+          spaceApplications={spaceApplications}
           auditLogs={auditLogs}
           agents={agents}
           privateAgents={privateAgents}
@@ -215,6 +229,7 @@ export function UnifiedChatView({
           onSendMessage={onSendAssistantMessage}
           onSettleRecord={onSettleRecord}
           onSettleAll={onSettleAll}
+          onResolveSpaceApplication={onResolveSpaceApplication}
           onOpenDm={(agentId) => onStartNegotiation(agentId)}
           onOpenKanban={onJumpToKanban}
           onOpenTeam={onJumpToTeam}

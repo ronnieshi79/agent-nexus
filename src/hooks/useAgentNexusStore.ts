@@ -11,6 +11,7 @@ import {
   INITIAL_NEGOTIATIONS,
   INITIAL_PROJECT_PIPELINES,
   INITIAL_SETTLEMENTS,
+  INITIAL_SPACE_APPLICATIONS,
   INITIAL_SPACE_SHARED_NODES,
   INITIAL_STORAGE_VOLUMES,
   INITIAL_TASKS,
@@ -60,6 +61,7 @@ import type {
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
+  SpaceJoinApplication,
   SpaceMember,
   SpaceMemberRole,
   SpaceSharedNode,
@@ -68,6 +70,7 @@ import type {
   TaskSessionMessage,
   TaskStatus,
   TeamExpertMembership,
+  TeamSectionTab,
   WorkCardType,
   WorkflowTask,
   WorkspaceTabId,
@@ -136,6 +139,9 @@ export function useAgentNexusStore() {
     INITIAL_ASSISTANT_MESSAGES,
   );
   const [settlements, setSettlements] = useState<SettlementRecord[]>(INITIAL_SETTLEMENTS);
+  const [spaceApplications, setSpaceApplications] = useState<SpaceJoinApplication[]>(
+    INITIAL_SPACE_APPLICATIONS,
+  );
   const [auditLogs, setAuditLogs] = useState<PlatformAuditLog[]>(INITIAL_AUDIT_LOGS);
   const [agentLeases, setAgentLeases] =
     useState<Record<string, AgentLeaseRecord>>(INITIAL_AGENT_LEASES);
@@ -165,6 +171,7 @@ export function useAgentNexusStore() {
   const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
   const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
   const [kanbanTabSeed, setKanbanTabSeed] = useState<WorkspaceTabId | null>(null);
+  const [teamTabSeed, setTeamTabSeed] = useState<TeamSectionTab | null>(null);
   const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
   const [account, setAccount] = useState<AgentNexusAccount | null>(null);
   const [authModalOpen, setAuthModalOpen] = useState(false);
@@ -266,7 +273,13 @@ export function useAgentNexusStore() {
     [allTasks],
   );
 
-  const assistantPendingCount = unsettledCount + reviewTaskCount + activeNegotiationCount;
+  const pendingSpaceApplicationCount = useMemo(
+    () => spaceApplications.filter((a) => a.status === 'pending').length,
+    [spaceApplications],
+  );
+
+  const assistantPendingCount =
+    unsettledCount + reviewTaskCount + activeNegotiationCount + pendingSpaceApplicationCount;
 
   const openAssistantChat = useCallback(() => {
     setActiveChatChannel({ type: 'assistant' });
@@ -288,6 +301,11 @@ export function useAgentNexusStore() {
   const openWorkspaceTab = useCallback((tab: WorkspaceTabId) => {
     setKanbanTabSeed(tab);
     setActiveView('kanban');
+  }, []);
+
+  const openTeamTab = useCallback((tab: TeamSectionTab) => {
+    setTeamTabSeed(tab);
+    setActiveView('team');
   }, []);
 
   const openCommunityDiscover = useCallback((zoneId?: string) => {
@@ -329,7 +347,7 @@ export function useAgentNexusStore() {
           category: 'general',
           title: currentlyJoined ? `已退出协作空间：${target.name}` : `已加入协作空间：${target.name}`,
           detail: currentlyJoined
-            ? '已从服务市场与交流社区的可切换空间列表中移除，可随时在「工作空间 → 协作空间」重新加入。'
+            ? '已从服务市场与交流社区的可切换空间列表中移除，可随时在「工作台 → 协作空间」重新加入。'
             : `空间类型：${target.typeLabel}；已同步开放至「服务市场」与「交流社区」空间切换器。`,
           severity: currentlyJoined ? 'info' : 'success',
           timestamp: nowTimeStr(),
@@ -638,6 +656,17 @@ export function useAgentNexusStore() {
     (nodeId: string) => {
       const node = spaceSharedNodes.find((n) => n.id === nodeId);
       setSpaceSharedNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      setAgents((prev) =>
+        prev.map((a) =>
+          a.hostNodeId === nodeId ? { ...a, hostNodeId: undefined, hostCliId: undefined } : a,
+        ),
+      );
+      setWorkspaces((prev) =>
+        prev.map((w) => ({
+          ...w,
+          boundNodeIds: (w.boundNodeIds || []).filter((id) => id !== nodeId),
+        })),
+      );
       if (node) {
         setAuditLogs((prev) => [
           {
@@ -855,7 +884,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 空间节点与持久化存储，默认接入 @产品策划师。你可以在工作编排中指定各阶段专业 Agent 身份。`,
+          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 节点与持久化存储，默认接入 @产品策划师。你可以在工作编排中指定各阶段专业 Agent 身份。`,
           timestamp: ts,
         },
       ]);
@@ -864,7 +893,7 @@ export function useAgentNexusStore() {
           id: `aud_${Date.now()}`,
           category: 'audit',
           title: `新建主管项目「${newWorkspace.name}」`,
-          detail: `已挂载 Agent 空间算力节点与存储卷，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
+          detail: `已挂载 Agent 算力节点与共享存储卷，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -886,7 +915,7 @@ export function useAgentNexusStore() {
     }) => {
       const cleanedTitle = input.title.trim();
       if (!cleanedTitle) return '';
-      const zoneName = zones.find((z) => z.id === input.zoneId)?.name || '专区';
+      const zoneName = zones.find((z) => z.id === input.zoneId)?.name || '协作空间';
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_${Date.now().toString().slice(-5)}`;
       const newOppId = `zproj_${Date.now().toString().slice(-5)}`;
@@ -908,7 +937,7 @@ export function useAgentNexusStore() {
         zoneId: input.zoneId,
         title: cleanedTitle,
         publisher: account ? `${account.name}（我方发布）` : '我方项目团队',
-        summary: input.summary.trim() || '面向该专区专家团队开放项目发包，欢迎直接私聊报价签约。',
+        summary: input.summary.trim() || '面向该协作空间专家团队开放项目发包，欢迎直接私聊报价签约。',
         budgetUsd: Math.max(1000, Math.round(input.budgetUsd)),
         durationDays: Math.max(1, Math.round(input.durationDays || 7)),
         requiredRoles:
@@ -954,7 +983,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」专区项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「服务市场 → ${zoneName}」主动咨询专家与 Agent 报价。`,
+          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「服务市场 → ${zoneName}」主动咨询专家与 Agent 报价。`,
           timestamp: ts,
         },
       ]);
@@ -979,7 +1008,7 @@ export function useAgentNexusStore() {
     (oppId: string) => {
       const opp = zoneProjects.find((p) => p.id === oppId);
       if (!opp || opp.status === 'claimed') return '';
-      const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || '专区';
+      const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || '协作空间';
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_part_${Date.now().toString().slice(-5)}`;
       const myPrivateIds = agents
@@ -992,7 +1021,7 @@ export function useAgentNexusStore() {
       const newWorkspace: ProjectWorkspace = {
         id: newWorkspaceId,
         name: opp.title,
-        goal: `承接「${zoneName}」专区项目：${opp.summary}`,
+        goal: `承接「${zoneName}」协作空间项目：${opp.summary}`,
         role: 'participating',
         sourceZoneId: opp.zoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
@@ -1032,7 +1061,7 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已承接「${zoneName}」专区项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻协作群并立项首张工作卡片。`,
+          content: `已承接「${zoneName}」协作空间项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻项目群并立项首张工作卡片。`,
           timestamp: ts,
           linkedTaskIds: [kickoffTask.id],
         },
@@ -1042,7 +1071,7 @@ export function useAgentNexusStore() {
           id: `aud_claim_${Date.now()}`,
           category: 'order',
           title: `已承接「${zoneName}」项目：${opp.title}`,
-          detail: `已归入「工作看板 → 我的项目（我参与）」，首张交付卡片已同步任务流看板。`,
+          detail: `已归入「工作台 → 我的项目（我参与）」，首张交付卡片已同步项目看板。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -1183,7 +1212,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已在项目群创建工作卡片「${newTask.title}」（所属模块：${newTask.featureModule}），指派给 ${newTask.assigneeHandle}，已自动同步至「工作看板」。`,
+          content: `已在项目群创建工作卡片「${newTask.title}」（所属模块：${newTask.featureModule}），指派给 ${newTask.assigneeHandle}，已自动同步至「项目看板」与左侧「Agent 任务」。`,
           timestamp: ts,
           linkedTaskIds: [newTask.id],
         },
@@ -1643,6 +1672,91 @@ export function useAgentNexusStore() {
     ]);
   }, [settlements]);
 
+  const resolveSpaceApplication = useCallback(
+    (applicationId: string, decision: 'approved' | 'rejected') => {
+      const app = spaceApplications.find((a) => a.id === applicationId);
+      if (!app || app.status !== 'pending') return;
+      const ts = nowTimeStr();
+
+      setSpaceApplications((prev) =>
+        prev.map((a) => (a.id === applicationId ? { ...a, status: decision } : a)),
+      );
+
+      if (decision === 'approved') {
+        const newMember: SpaceMember = {
+          id: `mem_app_${Date.now().toString().slice(-5)}`,
+          humanExpertId: app.humanExpertId,
+          name: app.applicantName,
+          title: app.applicantTitle,
+          role: app.requestedRole,
+          avatarInitials: app.avatarInitials,
+          avatarAccent: app.avatarAccent,
+          joinedAt: ts,
+        };
+        setZones((prev) =>
+          prev.map((z) => {
+            if (z.id !== app.zoneId) return z;
+            const existing = z.members || [];
+            if (
+              app.humanExpertId &&
+              existing.some((m) => m.humanExpertId === app.humanExpertId)
+            ) {
+              return z;
+            }
+            return {
+              ...z,
+              members: [...existing, newMember],
+              memberCount: Math.max(existing.length + 1, z.memberCount + 1),
+            };
+          }),
+        );
+      }
+
+      const resolvedLabel = decision === 'approved' ? '已同意入驻' : '已拒绝';
+      setAssistantMessages((prev) => [
+        ...prev.map((m) =>
+          m.cards
+            ? {
+                ...m,
+                cards: m.cards.map((c) =>
+                  c.actionTarget?.type === 'space_application' &&
+                  c.actionTarget.applicationId === applicationId
+                    ? { ...c, resolved: true, resolvedLabel }
+                    : c,
+                ),
+              }
+            : m,
+        ),
+        {
+          id: `asst_app_${Date.now()}`,
+          sender: 'assistant',
+          category: 'approval',
+          content:
+            decision === 'approved'
+              ? `已通过入驻申请：${app.applicantName}（${app.applicantTitle}）已正式加入「${app.zoneName}」成员列表，并同步获得该空间的协作访问权限。`
+              : `已拒绝入驻申请：已向 ${app.applicantName} 通知未通过「${app.zoneName}」的成员加入申请。`,
+          timestamp: ts,
+        },
+      ]);
+
+      setAuditLogs((prev) => [
+        {
+          id: `aud_app_${Date.now()}`,
+          category: 'approval',
+          title:
+            decision === 'approved'
+              ? `成员入驻审批通过：${app.applicantName}`
+              : `成员入驻审批拒绝：${app.applicantName}`,
+          detail: `${app.zoneName} · ${app.applicantTitle}`,
+          severity: decision === 'approved' ? 'success' : 'info',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [spaceApplications],
+  );
+
   const sendAssistantMessage = useCallback(
     async (text: string) => {
       const cleaned = text.trim();
@@ -1673,15 +1787,20 @@ export function useAgentNexusStore() {
         });
 
         const validCat = new Set<PlatformServiceCategory>([
+          'approval',
           'settlement',
           'order',
           'audit',
           'general',
         ]);
+        const isApprovalIntent = /审批|申请|入驻|加入空间|成员/.test(cleaned);
         const category: PlatformServiceCategory = validCat.has(res.category)
           ? res.category
-          : 'general';
+          : isApprovalIntent
+            ? 'approval'
+            : 'general';
 
+        const firstPendingApp = spaceApplications.find((a) => a.status === 'pending');
         const firstUnsettled = settlements.find((s) => s.status === 'unsettled');
         const firstActiveNeg = negotiations.find((n) => n.status !== 'hired');
 
@@ -1691,16 +1810,20 @@ export function useAgentNexusStore() {
           | { type: 'open_dm'; agentId: string }
           | { type: 'open_kanban'; projectId?: string }
           | { type: 'open_team' }
+          | { type: 'space_application'; applicationId: string }
           | undefined;
 
-        if (category === 'settlement' && firstUnsettled) {
+        if ((category === 'approval' || isApprovalIntent) && firstPendingApp) {
+          actionLabel = '同意加入';
+          actionTarget = { type: 'space_application', applicationId: firstPendingApp.id };
+        } else if (category === 'settlement' && firstUnsettled) {
           actionLabel = `确认结算 ${formatUsd(firstUnsettled.amountUsd)}`;
           actionTarget = { type: 'settle', settlementId: firstUnsettled.id };
         } else if (category === 'order' && firstActiveNeg) {
           actionLabel = '打开私聊协商';
           actionTarget = { type: 'open_dm', agentId: firstActiveNeg.agentId };
         } else if (category === 'audit') {
-          actionLabel = '去工作看板复核';
+          actionLabel = '去项目看板复核';
           actionTarget = { type: 'open_kanban' };
         }
 
@@ -1732,7 +1855,15 @@ export function useAgentNexusStore() {
         setAssistantBusy(false);
       }
     },
-    [allTasks, assistantMessages, negotiations, privateAgents, settlements, workspaces],
+    [
+      allTasks,
+      assistantMessages,
+      negotiations,
+      privateAgents,
+      settlements,
+      spaceApplications,
+      workspaces,
+    ],
   );
 
   const savePrivateAgent = useCallback(
@@ -1774,7 +1905,7 @@ export function useAgentNexusStore() {
       const target = agents.find((a) => a.id === agentId);
       if (!target || target.ownership !== 'private') return;
       const zoneId = targetZoneId || activeZone.id;
-      const zoneName = zones.find((z) => z.id === zoneId)?.name || '当前专区';
+      const zoneName = zones.find((z) => z.id === zoneId)?.name || '当前协作空间';
       const isInZone = target.listedZoneIds.includes(zoneId);
       const nextZones = isInZone
         ? target.listedZoneIds.filter((id) => id !== zoneId)
@@ -1804,7 +1935,7 @@ export function useAgentNexusStore() {
           detail: !isInZone
             ? `已在「${zoneName}」服务市场曝光接单，平台助理将实时播报雇佣协商与收益结算。`
             : nextZones.length > 0
-              ? `已撤回在「${zoneName}」的曝光，其余已勾选专区仍保持接单。`
+              ? `已撤回在「${zoneName}」的曝光，其余已勾选协作空间仍保持接单。`
               : '已撤回全部对外市场曝光，当前仅保留个人私有自用权限。',
           severity: 'info',
           timestamp: ts,
@@ -1927,7 +2058,7 @@ export function useAgentNexusStore() {
             sessionId: target.sessionId,
             senderType: 'system',
             senderId: 'system',
-            senderName: '工作看板同步',
+            senderName: '项目看板同步',
             senderHandle: '看板同步',
             content: `已审批通过工作卡片「${target.title}」（${target.assigneeHandle}），交付产物已归档至工作区。`,
             timestamp: ts,
@@ -3350,12 +3481,15 @@ export function useAgentNexusStore() {
     openNegotiationsHub,
     openKanbanForProject,
     openWorkspaceTab,
+    openTeamTab,
     openCommunityDiscover,
     openMarketForZone,
     kanbanProjectSeed,
     clearKanbanProjectSeed: () => setKanbanProjectSeed(null),
     kanbanTabSeed,
     clearKanbanTabSeed: () => setKanbanTabSeed(null),
+    teamTabSeed,
+    clearTeamTabSeed: () => setTeamTabSeed(null),
     discoverZoneSeed,
     clearDiscoverZoneSeed: () => setDiscoverZoneSeed(null),
     agents,
@@ -3411,6 +3545,9 @@ export function useAgentNexusStore() {
     assistantMessages,
     assistantBusy,
     assistantPendingCount,
+    spaceApplications,
+    pendingSpaceApplicationCount,
+    resolveSpaceApplication,
     settlements,
     unsettledCount,
     auditLogs,

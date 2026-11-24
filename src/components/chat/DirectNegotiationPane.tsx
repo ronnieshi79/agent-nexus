@@ -350,7 +350,7 @@ export function DirectNegotiationPane({
                 onChange={(e) => setCreateFirstCard(e.target.checked)}
                 className="mt-0.5 rounded border-slate-300"
               />
-              <span>确认雇佣后自动在项目群与「工作看板」立项该首张工作卡片</span>
+              <span>确认雇佣后自动在项目群与「项目看板」立项该首张工作卡片</span>
             </label>
 
           </div>

@@ -34,8 +34,8 @@ interface TopHeaderProps {
 }
 
 const VIEW_DESCRIPTIONS: Record<'kanban' | 'team', string> = {
-  kanban: '工作项目协作编排、协作空间管理，以及 Agent 空间节点、存储与并发沙箱配置',
-  team: 'Agent 成员、合作专家与我的好友',
+  kanban: '工作项目全生命周期管理、任务看板与阶段工位编排',
+  team: 'Agent 协作（成员、专家、好友、协作空间）与 Agent 基础设施',
 };
 
 export function TopHeader({
@@ -77,10 +77,15 @@ export function TopHeader({
         : '1v1 专家私聊与报价协商';
     } else if (activeChatChannel.type === 'assistant') {
       primaryLabel = 'Nexa 助理';
-      subLabel = '日常结算核销、审核评价与接单提醒';
+      subLabel = '空间人员申请审批、日常结算核销、审核评价与接单提醒';
     } else {
+      const projZone = workspace.sourceZoneId
+        ? zones.find((z) => z.id === workspace.sourceZoneId)
+        : undefined;
       primaryLabel = '项目群';
-      subLabel = workspace.name;
+      subLabel = `${workspace.name} · ${
+        projZone ? `${projZone.typeLabel}：${projZone.name}` : '个人私有项目'
+      }`;
     }
   } else if (activeView === 'market') {
     primaryLabel = '服务市场';
@@ -88,8 +93,8 @@ export function TopHeader({
     primaryLabel = '交流社区';
   } else {
     const labelMap: Record<'kanban' | 'team', string> = {
-      kanban: '工作空间',
-      team: 'AGN 团队',
+      kanban: '工作台',
+      team: 'AGN 空间',
     };
     primaryLabel = labelMap[activeView];
     subLabel = VIEW_DESCRIPTIONS[activeView];

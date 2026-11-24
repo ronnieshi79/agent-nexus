@@ -12,11 +12,13 @@ import {
   Sparkles,
 } from 'lucide-react';
 import type {
+  CommunityZone,
   ComputeNode,
   ExpertAgent,
   PipelineHandoffMode,
   ProjectStageSlot,
   ProjectWorkspace,
+  SpaceSharedNode,
   StorageVolume,
   WorkCardType,
   WorkflowTask,
@@ -45,6 +47,8 @@ interface ProjectOrchestrationPanelProps {
   slots: ProjectStageSlot[];
   agents: ExpertAgent[];
   computeNodes: ComputeNode[];
+  spaceSharedNodes?: SpaceSharedNode[];
+  zones?: CommunityZone[];
   storageVolumes: StorageVolume[];
   projectTasks: WorkflowTask[];
   onUpdateStageSlot: (
@@ -67,6 +71,8 @@ export function ProjectOrchestrationPanel({
   slots,
   agents,
   computeNodes,
+  spaceSharedNodes = [],
+  zones = [],
   storageVolumes,
   projectTasks,
   onUpdateStageSlot,
@@ -79,12 +85,30 @@ export function ProjectOrchestrationPanel({
 
   const agentMap = new Map(agents.map((a) => [a.id, a]));
   const nodeMap = new Map(computeNodes.map((n) => [n.id, n]));
+  const sharedNodeMap = new Map(spaceSharedNodes.map((n) => [n.id, n]));
+  const zoneMap = new Map(zones.map((z) => [z.id, z]));
   const privateAgents = agents.filter((a) => a.ownership === 'private');
   const marketAgents = agents.filter((a) => a.ownership === 'marketplace');
 
-  const boundNodes = (project.boundNodeIds || [])
-    .map((id) => nodeMap.get(id))
-    .filter((n): n is ComputeNode => Boolean(n));
+  const resolveHostNode = (nodeId?: string) => {
+    if (!nodeId) return undefined;
+    const personal = nodeMap.get(nodeId);
+    if (personal) return { name: personal.name, osVersion: personal.osVersion, isShared: false };
+    const shared = sharedNodeMap.get(nodeId);
+    if (shared) {
+      const z = zoneMap.get(shared.zoneId);
+      return {
+        name: `${z ? `${z.shortCode}共享 · ` : '空间共享 · '}${shared.name}`,
+        osVersion: shared.osVersion,
+        isShared: true,
+      };
+    }
+    return undefined;
+  };
+
+  const boundNodeLabels = (project.boundNodeIds || [])
+    .map((id) => resolveHostNode(id)?.name)
+    .filter((v): v is string => Boolean(v));
   const boundVolume = project.storageVolumeId
     ? storageVolumes.find((v) => v.id === project.storageVolumeId)
     : undefined;
@@ -128,8 +152,8 @@ export function ProjectOrchestrationPanel({
               <Server className="w-3.5 h-3.5 text-slate-400" />
               <span>
                 项目算力节点：
-                {boundNodes.length > 0
-                  ? boundNodes.map((n) => n.name).join('、')
+                {boundNodeLabels.length > 0
+                  ? boundNodeLabels.join('、')
                   : '未显式绑定（随工位 Agent 节点运行）'}
               </span>
             </span>
@@ -171,9 +195,7 @@ export function ProjectOrchestrationPanel({
             deliverableContract: '阶段交付物与验收清单',
           };
           const assignedAgent = agentMap.get(slot.agentId);
-          const hostNode = assignedAgent?.hostNodeId
-            ? nodeMap.get(assignedAgent.hostNodeId)
-            : undefined;
+          const hostNode = resolveHostNode(assignedAgent?.hostNodeId);
           const stageTasks = projectTasks.filter((t) => t.workType === meta.stage);
           const stageDone = stageTasks.filter((t) => t.status === 'done').length;
 
@@ -229,7 +251,7 @@ export function ProjectOrchestrationPanel({
                     className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   >
                     {privateAgents.length > 0 && (
-                      <optgroup label="自建专业 Agent（AGN 团队）">
+                      <optgroup label="自建专业 Agent（AGN 空间）">
                         {privateAgents.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.handle} · {a.runtimeAgent}
@@ -390,7 +412,7 @@ export function ProjectOrchestrationPanel({
             const assignedStages = STAGE_ORDER.filter(
               (st) => slotMap.get(st.stage)?.agentId === ag.id,
             ).map((st) => slotMap.get(st.stage)?.roleTitle || st.label);
-            const hostNode = ag.hostNodeId ? nodeMap.get(ag.hostNodeId) : undefined;
+            const hostNode = resolveHostNode(ag.hostNodeId);
 
             return (
               <div
