@@ -1,4 +1,12 @@
-export type NavViewId = 'chat' | 'kanban' | 'team' | 'market' | 'discover';
+export type NavViewId = 'chat' | 'kanban' | 'team' | 'community';
+
+export type CommunityHubTab =
+  | 'service_agents'
+  | 'service_humans'
+  | 'service_skills'
+  | 'social_all'
+  | 'social_following'
+  | 'social_pinned';
 
 export type ChatChannelType = 'assistant' | 'group' | 'task_session' | 'dm';
 
@@ -445,11 +453,51 @@ export interface ProjectStageSlot {
   deliverableContract: string;
 }
 
+export type ArtifactKind = 'ppt' | 'design' | 'solution' | 'prd' | 'architecture' | 'code_test';
+
+export type ArtifactSourceType = 'task_session' | 'project_group' | 'manual';
+
+export type ArtifactOwnership = 'yours' | 'shared';
+
+export type ArtifactScopeTab = 'all' | 'yours' | 'shared' | 'starred';
+
+export type ArtifactCategoryGroup = 'all' | 'docs' | 'slides' | 'design' | 'code';
+
+export interface ProjectArtifact {
+  id: string;
+  projectId: string;
+  title: string;
+  kind: ArtifactKind;
+  ownership: ArtifactOwnership;
+  sharedByName?: string;
+  sharedToProjectIds?: string[];
+  summary: string;
+  content: string;
+  slides?: { heading: string; bullets: string[] }[];
+  designSpec?: {
+    palette: string[];
+    typography: string;
+    components: string[];
+  };
+  sourceType: ArtifactSourceType;
+  sourceTaskId?: string;
+  authorName: string;
+  authorType: 'agent' | 'human';
+  version: string;
+  updatedAt: string;
+  starred?: boolean;
+  tags: string[];
+}
+
 export type WorkspaceTabId =
   | 'overview'
   | 'my_projects'
   | 'kanban'
-  | 'orchestration';
+  | 'orchestration'
+  | 'artifacts_all'
+  | 'artifacts_yours'
+  | 'artifacts_shared'
+  | 'artifacts_starred';
 
 export type TeamSectionTab =
   | 'agents'

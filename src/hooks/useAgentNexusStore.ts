@@ -9,6 +9,7 @@ import {
   INITIAL_HUMAN_EXPERTS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
+  INITIAL_PROJECT_ARTIFACTS,
   INITIAL_PROJECT_PIPELINES,
   INITIAL_SETTLEMENTS,
   INITIAL_SPACE_APPLICATIONS,
@@ -37,10 +38,13 @@ import type {
   AgentCategory,
   AgentLeaseRecord,
   AgentNexusAccount,
+  ArtifactKind,
+  ArtifactSourceType,
   AssistantMessage,
   ChatMessage,
   CliAuthMode,
   CliToolType,
+  CommunityHubTab,
   CommunityPost,
   CommunityPostType,
   CommunityZone,
@@ -57,6 +61,7 @@ import type {
   PipelineHandoffMode,
   PlatformAuditLog,
   PlatformServiceCategory,
+  ProjectArtifact,
   ProjectLifecycleStatus,
   ProjectStageSlot,
   ProjectWorkspace,
@@ -99,10 +104,11 @@ export interface CreateWorkCardInput {
 export function useAgentNexusStore() {
   const [zones, setZones] = useState<CommunityZone[]>(INITIAL_ZONES);
   const [humanExperts] = useState(INITIAL_HUMAN_EXPERTS);
-  const [activeZoneId, setActiveZoneId] = useState<string>('zone_public');
+  const [activeZoneId, setActiveZoneId] = useState<string>('zone_aibuilder');
   const [joinedZoneIds, setJoinedZoneIds] = useState<string[]>([
     'zone_public',
     'zone_my_company',
+    'zone_aibuilder',
     'zone_hz_dnx',
     'zone_zj_opc',
     'zone_ai_robotics',
@@ -116,9 +122,11 @@ export function useAgentNexusStore() {
   const [zoneProjects, setZoneProjects] = useState<ZoneProjectOpportunity[]>(INITIAL_ZONE_PROJECTS);
   const [communityPosts, setCommunityPosts] = useState<CommunityPost[]>(INITIAL_COMMUNITY_POSTS);
   const [followedEntityKeys, setFollowedEntityKeys] = useState<string[]>([
+    'human:程予安',
+    'human:唐星河',
     'human:陈可心',
     'human:沈知行',
-    'human:顾承砚',
+    'agent:全栈创客极速手',
     'agent:架构审查员',
   ]);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
@@ -155,6 +163,8 @@ export function useAgentNexusStore() {
   const [storageVolumes, setStorageVolumes] = useState<StorageVolume[]>(INITIAL_STORAGE_VOLUMES);
   const [projectPipelines, setProjectPipelines] =
     useState<Record<string, ProjectStageSlot[]>>(INITIAL_PROJECT_PIPELINES);
+  const [artifacts, setArtifacts] = useState<ProjectArtifact[]>(INITIAL_PROJECT_ARTIFACTS);
+  const [activeCommunityTab, setActiveCommunityTab] = useState<CommunityHubTab>('social_all');
 
   const [dmBusyAgentId, setDmBusyAgentId] = useState<string | null>(null);
   const [dmError, setDmError] = useState<string | null>(null);
@@ -308,17 +318,139 @@ export function useAgentNexusStore() {
     setActiveView('team');
   }, []);
 
+  const openCommunityService = useCallback(
+    (zoneId?: string, subTab: CommunityHubTab = 'service_agents') => {
+      if (zoneId) setActiveZoneId(zoneId);
+      setActiveCommunityTab(subTab);
+      setActiveView('community');
+    },
+    [],
+  );
+
   const openCommunityDiscover = useCallback((zoneId?: string) => {
     if (zoneId) {
       setActiveZoneId(zoneId);
       setDiscoverZoneSeed(zoneId);
     }
-    setActiveView('discover');
+    setActiveCommunityTab('social_all');
+    setActiveView('community');
   }, []);
 
   const openMarketForZone = useCallback((zoneId: string) => {
     setActiveZoneId(zoneId);
-    setActiveView('market');
+    setActiveCommunityTab('service_agents');
+    setActiveView('community');
+  }, []);
+
+  const createProjectArtifact = useCallback(
+    (input: {
+      projectId: string;
+      title: string;
+      kind: ArtifactKind;
+      summary: string;
+      content: string;
+      sourceType: ArtifactSourceType;
+      sourceTaskId?: string;
+      tags: string[];
+      slides?: { heading: string; bullets: string[] }[];
+      designSpec?: { palette: string[]; typography: string; components: string[] };
+    }) => {
+      const cleanTitle = input.title.trim();
+      if (!cleanTitle) return;
+      const ts = nowTimeStr();
+      const creatorName = account?.name || '林致远（我）';
+      const newArtifact: ProjectArtifact = {
+        id: `art_${Date.now().toString().slice(-6)}`,
+        projectId: input.projectId,
+        title: cleanTitle,
+        kind: input.kind,
+        ownership: 'yours',
+        summary: input.summary.trim() || '由 Artifacts 工作空间新建或归档的协作产物。',
+        content: input.content.trim() || input.summary.trim() || cleanTitle,
+        slides: input.slides,
+        designSpec: input.designSpec,
+        sourceType: input.sourceType,
+        sourceTaskId: input.sourceTaskId,
+        authorName: creatorName,
+        authorType: 'human',
+        version: 'v1.0',
+        updatedAt: `今天 ${ts}`,
+        tags: input.tags.length > 0 ? input.tags : ['Artifact'],
+      };
+      setArtifacts((prev) => [newArtifact, ...prev]);
+      const projName = workspaces.find((w) => w.id === input.projectId)?.name || '当前项目';
+      setAuditLogs((prev) => [
+        {
+          id: `aud_art_${Date.now()}`,
+          category: 'audit',
+          title: `已创建 Artifact：${cleanTitle}`,
+          detail: `关联项目：${projName}，已同步归档至 Artifacts 产物库。`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [account?.name, workspaces],
+  );
+
+  const shareArtifactToProjectChat = useCallback(
+    (artifactId: string, targetProjectId: string, note?: string) => {
+      const targetArt = artifacts.find((a) => a.id === artifactId);
+      const targetProj = workspaces.find((w) => w.id === targetProjectId);
+      if (!targetArt || !targetProj) return;
+      const ts = nowTimeStr();
+      const senderName = account?.name || '林致远（我）';
+      setArtifacts((prev) =>
+        prev.map((a) =>
+          a.id === artifactId
+            ? {
+                ...a,
+                sharedToProjectIds: Array.from(
+                  new Set([...(a.sharedToProjectIds || []), targetProjectId]),
+                ),
+              }
+            : a,
+        ),
+      );
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_art_share_${Date.now()}`,
+          sessionId: targetProjectId,
+          senderType: 'employer',
+          senderId: 'employer',
+          senderName,
+          senderHandle: `@${senderName}`,
+          content: `📎 分享了 Artifact「${targetArt.title}」（${targetArt.version}）：${
+            note?.trim() || targetArt.summary
+          }`,
+          timestamp: ts,
+        },
+      ]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_art_share_${Date.now()}`,
+          category: 'general',
+          title: `已分享 Artifact 至项目群「${targetProj.name}」`,
+          detail: `产物：${targetArt.title}（${targetArt.version}）`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [account?.name, artifacts, workspaces],
+  );
+
+  const toggleStarArtifact = useCallback((artifactId: string) => {
+    setArtifacts((prev) =>
+      prev.map((a) => (a.id === artifactId ? { ...a, starred: !a.starred } : a)),
+    );
+  }, []);
+
+  const deleteProjectArtifact = useCallback((artifactId: string) => {
+    setArtifacts((prev) => prev.filter((a) => a.id !== artifactId));
   }, []);
 
   const toggleJoinZone = useCallback(
@@ -2458,7 +2590,8 @@ export function useAgentNexusStore() {
 
   const jumpToMarketWithCategory = useCallback((category: 'all' | AgentCategory) => {
     setMarketCategorySeed(category);
-    setActiveView('market');
+    setActiveCommunityTab('service_agents');
+    setActiveView('community');
   }, []);
 
   const jumpToMountPrivateAgent = useCallback(() => {
@@ -3482,8 +3615,16 @@ export function useAgentNexusStore() {
     openKanbanForProject,
     openWorkspaceTab,
     openTeamTab,
+    openCommunityService,
     openCommunityDiscover,
     openMarketForZone,
+    activeCommunityTab,
+    setActiveCommunityTab,
+    artifacts,
+    createProjectArtifact,
+    shareArtifactToProjectChat,
+    toggleStarArtifact,
+    deleteProjectArtifact,
     kanbanProjectSeed,
     clearKanbanProjectSeed: () => setKanbanProjectSeed(null),
     kanbanTabSeed,

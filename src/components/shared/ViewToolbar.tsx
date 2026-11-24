@@ -12,16 +12,19 @@ export const WORKSPACE_MAX_WIDTH_CLASS = 'max-w-[1360px] mx-auto w-full';
 export function WorkspacePrimaryRail({
   ariaLabel,
   children,
+  footer,
 }: {
   ariaLabel: string;
   children: ReactNode;
+  footer?: ReactNode;
 }) {
   return (
     <aside
       aria-label={ariaLabel}
-      className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200 bg-white overflow-y-auto clean-scroll px-2.5 py-3.5 space-y-3"
+      className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200 bg-white overflow-y-auto clean-scroll px-2.5 py-3.5"
     >
-      {children}
+      <div className="space-y-3">{children}</div>
+      {footer && <div className="mt-auto pt-6">{footer}</div>}
     </aside>
   );
 }

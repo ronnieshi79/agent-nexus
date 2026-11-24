@@ -1,15 +1,14 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
+  Bot,
   Compass,
   KanbanSquare,
-  Layers,
   LogIn,
   MessageSquare,
   MessageSquareCode,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
-  Store,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -51,8 +50,6 @@ interface SidebarProps {
   reviewTaskCount: number;
   hiredCount: number;
   privateCount: number;
-  marketCount: number;
-  discoverCount: number;
   account: AgentNexusAccount | null;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -92,8 +89,6 @@ export function Sidebar({
   reviewTaskCount,
   hiredCount,
   privateCount,
-  marketCount,
-  discoverCount,
   account,
   collapsed,
   onToggleCollapse,
@@ -187,33 +182,35 @@ export function Sidebar({
     id: Exclude<NavViewId, 'chat'>;
     label: string;
     icon: typeof KanbanSquare;
-    count?: string;
+    badge?: string;
+    tooltip: string;
     highlight?: boolean;
+    isInfra?: boolean;
   }[] = [
-    {
-      id: 'team',
-      label: 'AGN 空间',
-      icon: Layers,
-      count: `${hiredCount}+${privateCount}`,
-    },
     {
       id: 'kanban',
       label: '工作台',
       icon: KanbanSquare,
-      count: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : `${workspaces.length} 项目`,
+      badge: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : undefined,
+      tooltip:
+        reviewTaskCount > 0
+          ? `工作台（${workspaces.length} 项目 · ${reviewTaskCount} 待验证）`
+          : `工作台（${workspaces.length} 项目）`,
       highlight: reviewTaskCount > 0,
     },
     {
-      id: 'market',
-      label: '服务市场',
-      icon: Store,
-      count: `${marketCount}`,
+      id: 'community',
+      label: 'AGN社区',
+      icon: Compass,
+      tooltip: 'AGN社区 · 为 FDE / OPC Agent 协作而建',
     },
     {
-      id: 'discover',
-      label: '交流社区',
-      icon: Compass,
-      count: `${discoverCount} 项目`,
+      id: 'team',
+      label: 'Agents',
+      icon: Bot,
+      badge: '基建',
+      tooltip: `Agents 协作与基础设施（${hiredCount} 外雇 · ${privateCount} 自建）`,
+      isInfra: true,
     },
   ];
 
@@ -252,8 +249,8 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Top Workspace Navigation */}
-      <div className="px-3 py-3 border-b border-slate-200/80 bg-white shrink-0">
+      {/* Top Vertical Primary Navigation (Extensible Claude/Agent Style) */}
+      <div className="px-2.5 py-2.5 border-b border-slate-200/80 bg-white shrink-0">
         <nav aria-label="主导航" className="space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -262,11 +259,12 @@ export function Sidebar({
               <button
                 key={item.id}
                 type="button"
+                title={item.tooltip}
                 onClick={() => {
                   onSelectView(item.id);
                   onCloseMobile();
                 }}
-                className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-[13px] font-medium transition-colors cursor-pointer ${
                   active
                     ? 'bg-slate-900 text-white'
                     : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -278,17 +276,19 @@ export function Sidebar({
                   />
                   <span className="truncate">{item.label}</span>
                 </span>
-                {item.count && (
+                {item.badge && (
                   <span
-                    className={`text-xs font-mono tabular-nums shrink-0 ${
+                    className={`text-[10px] shrink-0 ${
+                      item.isInfra ? 'font-medium' : 'font-mono tabular-nums text-[11px]'
+                    } ${
                       active
                         ? 'text-slate-300'
                         : item.highlight
                           ? 'text-blue-700 font-semibold'
-                          : 'text-slate-500'
+                          : 'text-slate-400'
                     }`}
                   >
-                    {item.count}
+                    {item.badge}
                   </span>
                 )}
               </button>
@@ -840,7 +840,7 @@ export function Sidebar({
               key={item.id}
               type="button"
               onClick={() => onSelectView(item.id)}
-              title={item.count ? `${item.label}（${item.count}）` : item.label}
+              title={item.tooltip}
               aria-label={item.label}
               className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
                 active

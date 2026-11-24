@@ -140,9 +140,12 @@ interface AgentMarketViewProps {
   onRelease: (agentId: string) => void;
   onJumpToMountPrivate: () => void;
   onJumpToZoneProjects: (zoneId: string) => void;
+  embeddedMode?: boolean;
+  controlledEntityTab?: MarketEntityTab;
+  onChangeEntityTab?: (tab: MarketEntityTab) => void;
 }
 
-type MarketEntityTab = 'agents' | 'humans' | 'skills';
+export type MarketEntityTab = 'agents' | 'humans' | 'skills';
 type MarketSortOption = 'recommended' | 'popular' | 'top_rated' | 'price_asc';
 type SkillPriceFilter = 'all' | 'free' | 'paid';
 
@@ -191,8 +194,18 @@ export function AgentMarketView({
   onRelease,
   onJumpToMountPrivate,
   onJumpToZoneProjects,
+  embeddedMode = false,
+  controlledEntityTab,
+  onChangeEntityTab,
 }: AgentMarketViewProps) {
-  const [entityTab, setEntityTab] = useState<MarketEntityTab>('agents');
+  const [internalEntityTab, setInternalEntityTab] = useState<MarketEntityTab>(
+    controlledEntityTab || 'agents',
+  );
+  const entityTab = controlledEntityTab ?? internalEntityTab;
+  const setEntityTab = (next: MarketEntityTab) => {
+    setInternalEntityTab(next);
+    onChangeEntityTab?.(next);
+  };
   const [ownerFilterId, setOwnerFilterId] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [runtimeFilter, setRuntimeFilter] = useState<string>('all');
@@ -636,41 +649,47 @@ export function AgentMarketView({
   const hasActiveSubStrip = Boolean(activeOwnerFilter || matchResult || matchError);
 
   return (
-    <div className="h-full flex min-h-0 bg-white relative @container/shell">
+    <div
+      className={`${
+        embeddedMode ? 'flex-1 min-w-0' : ''
+      } h-full flex min-h-0 bg-white relative @container/shell`}
+    >
       {/* FAR-LEFT FULL-HEIGHT PRIMARY NAVIGATION RAIL: Core Service Types Only */}
-      <WorkspacePrimaryRail ariaLabel="服务市场导航">
-        <div className="space-y-0.5">
-          <RailSectionLabel>服务类型</RailSectionLabel>
-          {[
-            { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu, tint: 'text-indigo-500' },
-            { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase, tint: 'text-emerald-600' },
-            { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks, tint: 'text-amber-600' },
-          ].map((item) => {
-            const Icon = item.icon;
-            const active = entityTab === item.id;
-            return (
-              <RailNavButton
-                key={item.id}
-                active={active}
-                variant="primary"
-                label={item.label}
-                count={item.count}
-                icon={
-                  <Icon
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      active ? 'text-sky-300' : item.tint
-                    }`}
-                  />
-                }
-                onClick={() => {
-                  setEntityTab(item.id);
-                  if (item.id !== 'agents') setOwnerFilterId(null);
-                }}
-              />
-            );
-          })}
-        </div>
-      </WorkspacePrimaryRail>
+      {!embeddedMode && (
+        <WorkspacePrimaryRail ariaLabel="服务市场导航">
+          <div className="space-y-0.5">
+            <RailSectionLabel>服务类型</RailSectionLabel>
+            {[
+              { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu, tint: 'text-indigo-500' },
+              { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase, tint: 'text-emerald-600' },
+              { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks, tint: 'text-amber-600' },
+            ].map((item) => {
+              const Icon = item.icon;
+              const active = entityTab === item.id;
+              return (
+                <RailNavButton
+                  key={item.id}
+                  active={active}
+                  variant="primary"
+                  label={item.label}
+                  count={item.count}
+                  icon={
+                    <Icon
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        active ? 'text-sky-300' : item.tint
+                      }`}
+                    />
+                  }
+                  onClick={() => {
+                    setEntityTab(item.id);
+                    if (item.id !== 'agents') setOwnerFilterId(null);
+                  }}
+                />
+              );
+            })}
+          </div>
+        </WorkspacePrimaryRail>
+      )}
 
       {/* RIGHT MAIN WORKSPACE COLUMN: Top Search & Secondary Filters Aligned Flush with Content */}
       <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
@@ -888,38 +907,40 @@ export function AgentMarketView({
         {/* Scrollable Content Canvas (Aligned Flush with ViewToolbar Above: 2-Col Catalog + Right Leaderboard) */}
         <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
           <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
-            {/* Compact Narrow Strip (visible only when shell < 760px) */}
-            <div className="@[760px]/shell:hidden space-y-2">
-              <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                {[
-                  { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu },
-                  { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase },
-                  { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const active = entityTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => {
-                        setEntityTab(item.id);
-                        if (item.id !== 'agents') setOwnerFilterId(null);
-                      }}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
-                        active
-                          ? 'bg-slate-900 text-white border-slate-900'
-                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                      }`}
-                    >
-                      <Icon className="w-3.5 h-3.5 shrink-0" />
-                      <span>{item.label}</span>
-                      <span className="text-[11px] font-mono opacity-75">{item.count}</span>
-                    </button>
-                  );
-                })}
+            {/* Compact Narrow Strip (visible only when shell < 760px and standalone) */}
+            {!embeddedMode && (
+              <div className="@[760px]/shell:hidden space-y-2">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+                  {[
+                    { id: 'agents' as const, label: '专业 Agent', count: agents.length, icon: Cpu },
+                    { id: 'humans' as const, label: '人类专家', count: zoneHumansAllCount, icon: Briefcase },
+                    { id: 'skills' as const, label: 'Skills / MCP', count: zoneSkillsAll.length, icon: Blocks },
+                  ].map((item) => {
+                    const Icon = item.icon;
+                    const active = entityTab === item.id;
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => {
+                          setEntityTab(item.id);
+                          if (item.id !== 'agents') setOwnerFilterId(null);
+                        }}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap shrink-0 cursor-pointer border transition-colors ${
+                          active
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5 shrink-0" />
+                        <span>{item.label}</span>
+                        <span className="text-[11px] font-mono opacity-75">{item.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* CENTER 2-COL CATALOG + RIGHT LEADERBOARD */}
             <div className="flex flex-col @[820px]:flex-row gap-4 @[1100px]:gap-5 items-start">

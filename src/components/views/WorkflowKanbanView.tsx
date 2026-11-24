@@ -22,19 +22,27 @@ import {
   Plus,
   RotateCcw,
   Server,
+  Shapes,
+  Star,
   TrendingUp,
+  User,
   UserMinus,
   Users,
   X,
 } from 'lucide-react';
 import type {
   AgentLeaseRecord,
+  ArtifactCategoryGroup,
+  ArtifactKind,
+  ArtifactScopeTab,
+  ArtifactSourceType,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
   HumanExpert,
   LeasePeriod,
   NegotiationThread,
+  ProjectArtifact,
   ProjectLifecycleStatus,
   ProjectRole,
   ProjectStageSlot,
@@ -68,6 +76,7 @@ import {
 } from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WorkStatusBadge } from '../workcard/WorkCardFlow';
 import { ProjectOrchestrationPanel } from '../workspace/ProjectOrchestrationPanel';
+import { ArtifactsView } from './ArtifactsView';
 
 export type WorkKanbanTab = WorkspaceTabId;
 
@@ -123,6 +132,29 @@ interface WorkflowKanbanViewProps {
     patch: Partial<Omit<ProjectStageSlot, 'stage'>>,
   ) => void;
   onSyncPipelineAgentsToProject: (projectId: string) => void;
+  artifacts: ProjectArtifact[];
+  onCreateArtifact: (input: {
+    projectId: string;
+    title: string;
+    kind: ArtifactKind;
+    summary: string;
+    content: string;
+    sourceType: ArtifactSourceType;
+    sourceTaskId?: string;
+    tags: string[];
+    slides?: { heading: string; bullets: string[] }[];
+    designSpec?: { palette: string[]; typography: string; components: string[] };
+  }) => void;
+  onShareArtifactToChat: (artifactId: string, projectId: string, note?: string) => void;
+  onToggleStarArtifact: (artifactId: string) => void;
+  onDeleteArtifact: (artifactId: string) => void;
+  onOpenProjectChat: (projectId: string) => void;
+  onBreadcrumbContextChange?: (ctx: {
+    tab: WorkKanbanTab;
+    focusedProjectName?: string | null;
+    artifactCategory?: ArtifactCategoryGroup;
+    onClearFocus?: () => void;
+  }) => void;
 }
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
@@ -221,8 +253,16 @@ export function WorkflowKanbanView({
   onUpdateProjectLifecycle,
   onUpdateProjectStageSlot,
   onSyncPipelineAgentsToProject,
+  artifacts,
+  onCreateArtifact,
+  onShareArtifactToChat,
+  onToggleStarArtifact,
+  onDeleteArtifact,
+  onOpenProjectChat,
+  onBreadcrumbContextChange,
 }: WorkflowKanbanViewProps) {
   const [activeTab, setActiveTab] = useState<WorkKanbanTab>('overview');
+  const [artifactCategory, setArtifactCategory] = useState<ArtifactCategoryGroup>('all');
   const [assignExpertId, setAssignExpertId] = useState<string>('');
 
   // Shared right-toolbar keyword search
@@ -484,6 +524,38 @@ export function WorkflowKanbanView({
     [focusedProjectId, workspaceMap],
   );
 
+  const artifactScopeCounts = useMemo(() => {
+    const existingTaskIds = new Set(artifacts.map((a) => a.sourceTaskId).filter(Boolean));
+    const derivedCount = allTasks.filter(
+      (t) => Boolean(t.deliverableArtifact) && !existingTaskIds.has(t.id),
+    ).length;
+    return {
+      all: artifacts.length + derivedCount,
+      yours: artifacts.filter((a) => a.ownership === 'yours').length + derivedCount,
+      shared: artifacts.filter((a) => a.ownership === 'shared').length,
+      starred: artifacts.filter((a) => Boolean(a.starred)).length,
+    };
+  }, [allTasks, artifacts]);
+
+  const isArtifactsTab = activeTab.startsWith('artifacts_');
+  const activeArtifactScope: ArtifactScopeTab =
+    activeTab === 'artifacts_yours'
+      ? 'yours'
+      : activeTab === 'artifacts_shared'
+        ? 'shared'
+        : activeTab === 'artifacts_starred'
+          ? 'starred'
+          : 'all';
+
+  useEffect(() => {
+    onBreadcrumbContextChange?.({
+      tab: activeTab,
+      focusedProjectName: activeTab === 'my_projects' && focusedProject ? focusedProject.name : null,
+      artifactCategory: isArtifactsTab ? artifactCategory : 'all',
+      onClearFocus: () => setFocusedProjectId(null),
+    });
+  }, [activeTab, artifactCategory, focusedProject, isArtifactsTab, onBreadcrumbContextChange]);
+
   const focusedProjectTasks = useMemo(
     () => (focusedProject ? allTasks.filter((t) => t.sessionId === focusedProject.id) : []),
     [allTasks, focusedProject],
@@ -588,7 +660,7 @@ export function WorkflowKanbanView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Focused Pure Work Projects Group */}
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Work Projects + Artifacts (Parallel Independent Groups) */}
       <WorkspacePrimaryRail ariaLabel="工作台导航">
         <div className="space-y-1">
           <RailSectionLabel>工作项目</RailSectionLabel>
@@ -627,10 +699,77 @@ export function WorkflowKanbanView({
             count={4}
           />
         </div>
+
+        <div className="space-y-1 pt-3 border-t border-slate-100">
+          <RailSectionLabel>Artifacts</RailSectionLabel>
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'artifacts_all'}
+            onClick={() => switchTab('artifacts_all')}
+            icon={<Shapes className="w-3.5 h-3.5" />}
+            label="全部产物"
+            count={artifactScopeCounts.all}
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'artifacts_yours'}
+            onClick={() => switchTab('artifacts_yours')}
+            icon={<User className="w-3.5 h-3.5" />}
+            label="我创建的"
+            count={artifactScopeCounts.yours}
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'artifacts_shared'}
+            onClick={() => switchTab('artifacts_shared')}
+            icon={<Users className="w-3.5 h-3.5" />}
+            label="分享给我的"
+            count={artifactScopeCounts.shared}
+          />
+          <RailNavButton
+            variant="primary"
+            active={activeTab === 'artifacts_starred'}
+            onClick={() => switchTab('artifacts_starred')}
+            icon={
+              <Star
+                className={`w-3.5 h-3.5 ${
+                  activeTab === 'artifacts_starred' ? 'text-amber-300' : 'text-amber-500'
+                }`}
+              />
+            }
+            label="标星收藏"
+            count={artifactScopeCounts.starred}
+          />
+        </div>
       </WorkspacePrimaryRail>
 
-      {/* RIGHT WORKSPACE COLUMN: Flush-Aligned Toolbar + Main Canvas */}
-      <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
+      {/* RIGHT WORKSPACE COLUMN: Either Independent Artifacts Workspace OR Project Toolbar + Canvas */}
+      {isArtifactsTab ? (
+        <ArtifactsView
+          embeddedMode
+          controlledScope={activeArtifactScope}
+          onChangeScope={(nextScope) => {
+            const map: Record<ArtifactScopeTab, WorkKanbanTab> = {
+              all: 'artifacts_all',
+              yours: 'artifacts_yours',
+              shared: 'artifacts_shared',
+              starred: 'artifacts_starred',
+            };
+            switchTab(map[nextScope]);
+          }}
+          artifacts={artifacts}
+          workspaces={workspaces}
+          allTasks={allTasks}
+          onCreateArtifact={onCreateArtifact}
+          onShareArtifactToChat={onShareArtifactToChat}
+          onToggleStarArtifact={onToggleStarArtifact}
+          onDeleteArtifact={onDeleteArtifact}
+          onOpenTaskSession={onOpenTaskSession}
+          onOpenProjectChat={onOpenProjectChat}
+          onBreadcrumbContextChange={({ category }) => setArtifactCategory(category)}
+        />
+      ) : (
+        <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
         <ViewToolbar
           left={
             <>
@@ -782,7 +921,7 @@ export function WorkflowKanbanView({
                   className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer"
                 >
                   <Users className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>管理 AGN 空间 Agent</span>
+                  <span>管理 Agents 成员</span>
                 </button>
               )}
             </>
@@ -803,6 +942,7 @@ export function WorkflowKanbanView({
                 { id: 'my_projects', label: '我的项目' },
                 { id: 'kanban', label: '项目看板' },
                 { id: 'orchestration', label: '工作编排' },
+                { id: 'artifacts_all', label: 'Artifacts' },
               ] as { id: WorkKanbanTab; label: string }[]
             ).map((item) => {
               const active = activeTab === item.id;
@@ -2153,6 +2293,7 @@ export function WorkflowKanbanView({
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

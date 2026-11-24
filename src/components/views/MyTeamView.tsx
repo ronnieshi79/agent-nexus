@@ -96,6 +96,10 @@ interface MyTeamViewProps {
   openMountDrawerSignal: number;
   teamSectionSeed?: TeamSectionTab | null;
   onClearTeamSectionSeed?: () => void;
+  onBreadcrumbContextChange?: (ctx: {
+    section: TeamSectionTab;
+    managedZoneName?: string | null;
+  }) => void;
   onHireAgent: (agentId: string) => void;
   onReleaseAgent: (agentId: string) => void;
   onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
@@ -280,6 +284,7 @@ export function MyTeamView({
   openMountDrawerSignal,
   teamSectionSeed,
   onClearTeamSectionSeed,
+  onBreadcrumbContextChange,
   onHireAgent,
   onReleaseAgent,
   onLeaseAgent,
@@ -361,6 +366,13 @@ export function MyTeamView({
       onClearTeamSectionSeed?.();
     }
   }, [teamSectionSeed, onClearTeamSectionSeed]);
+
+  useEffect(() => {
+    onBreadcrumbContextChange?.({
+      section: teamSection,
+      managedZoneName: teamSection === 'collab_manage' ? activeManagedZone?.name || null : null,
+    });
+  }, [activeManagedZone?.name, onBreadcrumbContextChange, teamSection]);
 
   // Space Expert Invite Slide-in Drawer State
   const [inviteDrawerOpen, setInviteDrawerOpen] = useState(false);

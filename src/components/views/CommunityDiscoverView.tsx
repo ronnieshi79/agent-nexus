@@ -88,6 +88,9 @@ interface CommunityDiscoverViewProps {
   onStartNegotiation: (agentId: string) => void;
   onJumpToZoneMarket: (zoneId: string) => void;
   onJumpToKanban: (projectId?: string) => void;
+  embeddedMode?: boolean;
+  controlledFeedScope?: 'all' | 'following' | 'pinned';
+  onChangeFeedScope?: (scope: 'all' | 'following' | 'pinned') => void;
 }
 
 const POST_TYPE_META: Record<
@@ -173,8 +176,18 @@ export function CommunityDiscoverView({
   onStartNegotiation,
   onJumpToZoneMarket,
   onJumpToKanban,
+  embeddedMode = false,
+  controlledFeedScope,
+  onChangeFeedScope,
 }: CommunityDiscoverViewProps) {
-  const [feedScope, setFeedScope] = useState<'all' | 'following' | 'pinned'>('all');
+  const [internalFeedScope, setInternalFeedScope] = useState<'all' | 'following' | 'pinned'>(
+    controlledFeedScope || 'all',
+  );
+  const feedScope = controlledFeedScope ?? internalFeedScope;
+  const setFeedScope = (next: 'all' | 'following' | 'pinned') => {
+    setInternalFeedScope(next);
+    onChangeFeedScope?.(next);
+  };
   const [topicFilter, setTopicFilter] = useState<'all' | CommunityPostType>('all');
   const [crossZoneFollowing, setCrossZoneFollowing] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -238,10 +251,12 @@ export function CommunityDiscoverView({
   const activeCommunity = activeZone;
 
   useEffect(() => {
-    setFeedScope('all');
+    if (!embeddedMode) {
+      setInternalFeedScope('all');
+    }
     setTopicFilter('all');
     setSearchKeyword('');
-  }, [activeZone.id]);
+  }, [activeZone.id, embeddedMode]);
 
   const isPublicCommunity = activeCommunity.kind === 'public';
   const hasAccess = isPublicCommunity || joinedZoneIds.includes(activeCommunity.id);
@@ -599,41 +614,47 @@ export function CommunityDiscoverView({
     topicFilter === 'all' ? 'discussion' : topicFilter;
 
   return (
-    <div className="h-full flex min-h-0 bg-white relative @container/shell">
+    <div
+      className={`${
+        embeddedMode ? 'flex-1 min-w-0' : ''
+      } h-full flex min-h-0 bg-white relative @container/shell`}
+    >
       {/* FAR-LEFT FULL-HEIGHT PRIMARY NAVIGATION RAIL: Core Feed Scopes Only */}
-      <WorkspacePrimaryRail ariaLabel="交流社区导航">
-        <div className="space-y-0.5">
-          <RailSectionLabel>动态视角</RailSectionLabel>
-          {socialChannels.map((item) => {
-            const Icon = item.icon;
-            const active = feedScope === item.id;
-            return (
-              <RailNavButton
-                key={item.id}
-                active={active}
-                variant="primary"
-                disabled={!hasAccess}
-                label={item.label}
-                count={item.count}
-                icon={
-                  <Icon
-                    className={`w-3.5 h-3.5 shrink-0 ${
-                      active
-                        ? item.id === 'pinned'
-                          ? 'text-amber-300'
-                          : 'text-sky-300'
-                        : item.id === 'pinned'
-                          ? 'text-amber-500'
-                          : 'text-slate-400'
-                    }`}
-                  />
-                }
-                onClick={() => setFeedScope(item.id)}
-              />
-            );
-          })}
-        </div>
-      </WorkspacePrimaryRail>
+      {!embeddedMode && (
+        <WorkspacePrimaryRail ariaLabel="交流社区导航">
+          <div className="space-y-0.5">
+            <RailSectionLabel>动态视角</RailSectionLabel>
+            {socialChannels.map((item) => {
+              const Icon = item.icon;
+              const active = feedScope === item.id;
+              return (
+                <RailNavButton
+                  key={item.id}
+                  active={active}
+                  variant="primary"
+                  disabled={!hasAccess}
+                  label={item.label}
+                  count={item.count}
+                  icon={
+                    <Icon
+                      className={`w-3.5 h-3.5 shrink-0 ${
+                        active
+                          ? item.id === 'pinned'
+                            ? 'text-amber-300'
+                            : 'text-sky-300'
+                          : item.id === 'pinned'
+                            ? 'text-amber-500'
+                            : 'text-slate-400'
+                      }`}
+                    />
+                  }
+                  onClick={() => setFeedScope(item.id)}
+                />
+              );
+            })}
+          </div>
+        </WorkspacePrimaryRail>
+      )}
 
       {/* RIGHT MAIN WORKSPACE COLUMN: Top Search, Contextual Filters & Actions Flush-Aligned with Content */}
       <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
@@ -685,14 +706,16 @@ export function CommunityDiscoverView({
         right={
           hasAccess ? (
             <>
-              <button
-                type="button"
-                onClick={() => onJumpToZoneMarket(activeCommunity.id)}
-                className="hidden @[640px]:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap transition-colors shrink-0"
-              >
-                <Store className="w-3.5 h-3.5 text-blue-600" />
-                <span>服务市场</span>
-              </button>
+              {!embeddedMode && (
+                <button
+                  type="button"
+                  onClick={() => onJumpToZoneMarket(activeCommunity.id)}
+                  className="hidden @[640px]:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap transition-colors shrink-0"
+                >
+                  <Store className="w-3.5 h-3.5 text-blue-600" />
+                  <span>服务市场</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => openComposer(resolveComposerMode())}
@@ -709,8 +732,8 @@ export function CommunityDiscoverView({
       {/* Scrollable Community Workspace (Center Feed + Right Community Projects) */}
       <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
         <div className={WORKSPACE_MAX_WIDTH_CLASS}>
-          {/* Compact Horizontal Scope Strip (< @[760px]/shell) */}
-          {hasAccess && (
+          {/* Compact Horizontal Scope Strip (< @[760px]/shell and standalone) */}
+          {hasAccess && !embeddedMode && (
             <div className="@[760px]/shell:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1">
               {socialChannels.map((item) => {
                 const Icon = item.icon;
