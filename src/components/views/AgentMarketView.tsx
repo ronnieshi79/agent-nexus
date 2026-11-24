@@ -1884,7 +1884,7 @@ export function AgentMarketView({
                     ))}
                   </select>
                   <p className="text-[11px] text-slate-500 leading-relaxed">
-                    租赁生效后，该专业 Agent 将立即派驻至所选项目群与任务看板，并同步纳入「AGN 空间」管理，支持随时续租或调整租期。
+                    租赁生效后，该专业 Agent 将立即派驻至所选项目群与任务看板，并同步纳入「Agents → Agent 团队」管理，支持随时续租或调整租期。
                   </p>
                 </div>
 
@@ -2460,7 +2460,7 @@ export function AgentMarketView({
                   onClick={onJumpToMountPrivate}
                   className="w-full py-2 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
-                  先前往 AGN 空间创建自建 Agent
+                  先前往 Agents 创建自建 Agent
                 </button>
               ) : (
                 <div className="flex items-center gap-2">

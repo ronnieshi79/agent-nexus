@@ -13,6 +13,7 @@ import {
   LogIn,
   MessageSquare,
   MessageSquareCode,
+  MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
@@ -78,6 +79,7 @@ interface SidebarProps {
   onSelectTaskSession: (taskId: string) => void;
   onCreateAndOpenTaskSession: (input: CreateWorkCardInput) => void;
   onCreateProject: (name: string, goal: string, sourceZoneId?: string) => void;
+  onOpenNewSessionLauncher: () => void;
   onSwitchConversationMode: (mode: ConversationInteractionMode) => void;
   onOpenLogin: () => void;
   onLogout: () => void;
@@ -86,7 +88,7 @@ interface SidebarProps {
 type TaskGroupBy = 'agent' | 'project' | 'none';
 type TaskSortBy = 'last_updated' | 'attention' | 'status';
 type TaskStatusFilter = 'all' | TaskStatus;
-type HeaderDropdownMenu = 'none' | 'mode' | 'filter' | 'create';
+type HeaderDropdownMenu = 'none' | 'filter' | 'create';
 type PopoverSubMenu = 'none' | 'group' | 'sort' | 'filter';
 
 const DM_STATUS_LABEL: Record<NegotiationThread['status'], { text: string; cls: string }> = {
@@ -193,6 +195,7 @@ export function Sidebar({
   onSelectTaskSession,
   onCreateAndOpenTaskSession,
   onCreateProject,
+  onOpenNewSessionLauncher,
   onSwitchConversationMode,
   onOpenLogin,
   onLogout,
@@ -510,8 +513,8 @@ export function Sidebar({
       id: 'team',
       label: 'Agents',
       icon: Bot,
-      badge: '基建',
-      tooltip: `Agents 协作与基础设施（${hiredCount} 外雇 · ${privateCount} 自建）`,
+      badge: '空间',
+      tooltip: `Agents · Agent 团队与 Agent 空间（${hiredCount} 外雇 · ${privateCount} 自建）`,
       isInfra: true,
     },
   ];
@@ -635,9 +638,34 @@ export function Sidebar({
         </div>
       </div>
 
-      {/* Top Vertical Primary Navigation */}
+      {/* Top Vertical Primary Navigation (starts with prominent '新会话') */}
       <div className="px-2.5 py-2.5 border-b border-slate-200/80 bg-white shrink-0">
         <nav aria-label="主导航" className="space-y-0.5">
+          <button
+            type="button"
+            title="新会话 · 快速选择项目与专家 Agent 启动协作"
+            onClick={() => {
+              onOpenNewSessionLauncher();
+              onCloseMobile();
+            }}
+            className={`w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-lg text-[13px] font-semibold transition-colors cursor-pointer ${
+              isChatView && activeChatChannel.type === 'new_session'
+                ? 'bg-slate-900 text-white'
+                : 'text-slate-800 hover:bg-slate-100 hover:text-slate-950'
+            }`}
+          >
+            <span className="inline-flex items-center gap-2.5 min-w-0 truncate">
+              <MessageSquarePlus
+                className={`w-4 h-4 shrink-0 ${
+                  isChatView && activeChatChannel.type === 'new_session'
+                    ? 'text-sky-300'
+                    : 'text-blue-600'
+                }`}
+              />
+              <span className="truncate">新会话</span>
+            </span>
+          </button>
+
           {navItems.map((item) => {
             const Icon = item.icon;
             const active = activeView === item.id;
@@ -685,75 +713,49 @@ export function Sidebar({
 
       {/* Lower Core Section: Single Active Interaction Mode (对话模式 OR 任务模式) with Figure-2 Icon Header */}
       <div className="flex-1 min-h-0 flex flex-col">
-        {/* Unified Conversation Header Row: Mode Title + Top-Right Hover-Tooltip Icon Triggers & Dropdowns */}
+        {/* Unified Conversation Header Row: Full Plain Label + Top-Right Icon Toolbar */}
         <div className="px-3 pt-3 pb-2 space-y-2 shrink-0 relative" ref={headerMenuRef}>
           <div className="flex items-center justify-between gap-1.5 px-0.5">
-            {/* Left Mode Label (clickable to open Mode Switch dropdown) */}
-            <div className="relative group/tip min-w-0">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenHeaderMenu((cur) => (cur === 'mode' ? 'none' : 'mode'));
-                  setActiveSubMenu('none');
-                }}
-                aria-expanded={openHeaderMenu === 'mode'}
-                className="inline-flex items-center gap-1 py-0.5 px-1 -ml-1 rounded-md text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-200/50 transition-colors cursor-pointer max-w-full"
-              >
-                <span className="truncate">
-                  {conversationMode === 'chat'
-                    ? '消息列表'
-                    : taskGroupBy === 'project'
-                      ? '项目任务'
-                      : taskGroupBy === 'agent'
-                        ? 'Agent 任务'
-                        : '全部任务流'}
-                </span>
-                <span className="font-mono tabular-nums text-[11px] font-normal text-slate-400 shrink-0">
-                  {conversationMode === 'chat'
-                    ? unifiedChatStream.length
-                    : filteredAndSortedTasks.length}
-                </span>
-                <ChevronDown
-                  className={`w-3 h-3 text-slate-400 shrink-0 transition-transform ${
-                    openHeaderMenu === 'mode' ? 'rotate-180 text-slate-700' : ''
-                  }`}
-                />
-              </button>
-              {openHeaderMenu !== 'mode' && (
-                <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 left-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
-                  切换对话模式 / 任务模式
-                </div>
-              )}
+            {/* Full Non-Truncated Mode Title (No dropdown chevron) */}
+            <div className="inline-flex items-center gap-1.5 min-w-0 whitespace-nowrap">
+              <span className="text-xs font-semibold text-slate-600">
+                {conversationMode === 'chat'
+                  ? '消息列表'
+                  : taskGroupBy === 'project'
+                    ? '项目任务'
+                    : taskGroupBy === 'agent'
+                      ? 'Agent 任务'
+                      : '全部任务'}
+              </span>
+              <span className="font-mono tabular-nums text-[11px] font-normal text-slate-400">
+                {conversationMode === 'chat'
+                  ? unifiedChatStream.length
+                  : filteredAndSortedTasks.length}
+              </span>
             </div>
 
-            {/* Right Minimal Icon Toolbar (Hover Tooltip + Click Dropdown) */}
+            {/* Right Minimal Icon Toolbar */}
             <div className="flex items-center gap-0.5 shrink-0">
-              {/* 1. Switch Mode Icon */}
+              {/* 1. Direct One-Click Mode Switch Icon (No Dropdown) */}
               <div className="relative group/tip">
                 <button
                   type="button"
-                  onClick={() => {
-                    setOpenHeaderMenu((cur) => (cur === 'mode' ? 'none' : 'mode'));
-                    setActiveSubMenu('none');
-                  }}
-                  aria-label="切换对话模式或任务模式"
-                  aria-expanded={openHeaderMenu === 'mode'}
-                  className={`relative p-1.5 rounded-md transition-colors cursor-pointer ${
-                    openHeaderMenu === 'mode'
-                      ? 'bg-slate-200/80 text-slate-900'
-                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/50'
-                  }`}
+                  onClick={() =>
+                    handleSelectMode(conversationMode === 'chat' ? 'task' : 'chat')
+                  }
+                  aria-label={
+                    conversationMode === 'chat' ? '切换至任务模式' : '切换至对话模式'
+                  }
+                  className="relative p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/50 transition-colors cursor-pointer"
                 >
                   <ArrowLeftRight className="w-3.5 h-3.5" />
                   {conversationMode === 'chat' && awaitingTaskSessionCount > 0 && (
                     <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-blue-600" />
                   )}
                 </button>
-                {openHeaderMenu !== 'mode' && (
-                  <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
-                    切换模式 · 当前：{conversationMode === 'chat' ? '对话模式' : '任务模式'}
-                  </div>
-                )}
+                <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
+                  {conversationMode === 'chat' ? '切换至任务模式' : '切换至对话模式'}
+                </div>
               </div>
 
               {/* 2. Task Mode Filter / Group / Sort Icon */}
@@ -815,83 +817,6 @@ export function Sidebar({
               </div>
             </div>
           </div>
-
-          {/* Dropdown 1: Mode Switcher Popover (对话模式 / 任务模式) */}
-          {openHeaderMenu === 'mode' && (
-            <div className="absolute left-2.5 right-2.5 top-10 z-40 rounded-xl bg-white border border-slate-200 shadow-xl py-1.5 text-xs text-slate-700">
-              <div className="px-3 py-1 text-[10.5px] font-semibold text-slate-400">
-                切换交互模式
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSelectMode('chat')}
-                className="w-full px-3 py-2 hover:bg-slate-100/80 flex items-center justify-between gap-2 text-left cursor-pointer"
-              >
-                <div className="flex items-start gap-2 min-w-0">
-                  <MessageSquare
-                    className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
-                      conversationMode === 'chat' ? 'text-slate-900' : 'text-slate-400'
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <div
-                      className={`text-xs ${
-                        conversationMode === 'chat'
-                          ? 'font-bold text-slate-900'
-                          : 'font-medium text-slate-700'
-                      }`}
-                    >
-                      对话模式
-                    </div>
-                    <div className="text-[10.5px] text-slate-400 truncate">
-                      统一消息时间流 · 群聊 / 单聊 / 助理
-                    </div>
-                  </div>
-                </div>
-                {conversationMode === 'chat' && (
-                  <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                )}
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleSelectMode('task')}
-                className="w-full px-3 py-2 hover:bg-slate-100/80 flex items-center justify-between gap-2 text-left cursor-pointer"
-              >
-                <div className="flex items-start gap-2 min-w-0">
-                  <MessageSquareCode
-                    className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${
-                      conversationMode === 'task' ? 'text-slate-900' : 'text-slate-400'
-                    }`}
-                  />
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span
-                        className={`text-xs ${
-                          conversationMode === 'task'
-                            ? 'font-bold text-slate-900'
-                            : 'font-medium text-slate-700'
-                        }`}
-                      >
-                        任务模式
-                      </span>
-                      {awaitingTaskSessionCount > 0 && (
-                        <span className="font-mono tabular-nums text-[10px] font-semibold text-blue-700">
-                          {awaitingTaskSessionCount} 待确认
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[10.5px] text-slate-400 truncate">
-                      单 Agent 任务 Session · 分组与筛选
-                    </div>
-                  </div>
-                </div>
-                {conversationMode === 'task' && (
-                  <Check className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                )}
-              </button>
-            </div>
-          )}
 
           {/* Dropdown 2: Task Mode Antigravity / Codex-Style Filter, Group & Sort Popover */}
           {openHeaderMenu === 'filter' && conversationMode === 'task' && (
@@ -1206,7 +1131,7 @@ export function Sidebar({
               <select
                 value={newSourceZoneId}
                 onChange={(e) => setNewSourceZoneId(e.target.value)}
-                aria-label="项目所属协作空间"
+                aria-label="项目所属 Agent 社区"
                 className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:bg-white"
               >
                 <option value="">归属：个人私有项目</option>
@@ -1767,6 +1692,20 @@ export function Sidebar({
 
       {/* Primary Workspace Nav Icons */}
       <nav aria-label="快捷导航" className="py-3 flex flex-col items-center gap-1.5 w-full px-2">
+        <button
+          type="button"
+          onClick={onOpenNewSessionLauncher}
+          title="新会话"
+          aria-label="新会话"
+          className={`w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
+            isChatView && activeChatChannel.type === 'new_session'
+              ? 'bg-slate-900 text-sky-300 shadow-2xs'
+              : 'text-blue-600 hover:bg-white hover:text-slate-900 border border-transparent hover:border-slate-200/80'
+          }`}
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+        </button>
+
         {navItems.map((item) => {
           const Icon = item.icon;
           const active = activeView === item.id;

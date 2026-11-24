@@ -309,7 +309,7 @@ export function WorkflowKanbanView({
 
   const zoneMap = useMemo(() => new Map(zones.map((z) => [z.id, z])), [zones]);
   const joinedZones = useMemo(
-    () => zones.filter((z) => z.isPlatformDefault || joinedZoneIds.includes(z.id)),
+    () => zones.filter((z) => !z.comingSoon && (z.isPlatformDefault || joinedZoneIds.includes(z.id))),
     [joinedZoneIds, zones],
   );
   const workspaceMap = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
@@ -361,22 +361,22 @@ export function WorkflowKanbanView({
         </span>
       );
     }
-    const isEnterprise = z.kind === 'enterprise';
+    const isPrivate = z.kind === 'private';
     return (
       <span
         className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded border text-[10px] font-semibold ${
-          isEnterprise
+          isPrivate
             ? 'bg-indigo-50 border-indigo-200 text-indigo-700'
             : 'bg-sky-50 border-sky-200 text-sky-700'
         }`}
       >
-        {isEnterprise ? (
+        {isPrivate ? (
           <Building2 className="w-2.5 h-2.5 shrink-0" />
         ) : (
           <Globe className="w-2.5 h-2.5 shrink-0" />
         )}
         <span>
-          {isEnterprise ? '企业封闭' : '开放社区'} · {z.name}
+          {z.typeLabel} · {z.name}
         </span>
       </span>
     );
@@ -990,7 +990,7 @@ export function WorkflowKanbanView({
                     <span>
                       {storageVolumes.length} 存储卷 · {totalInstalledClisCount} CLI
                     </span>
-                    <span className="text-blue-700 font-semibold">AGN 空间设置 →</span>
+                    <span className="text-blue-700 font-semibold">Agent 空间设置 →</span>
                   </div>
                 </button>
 
@@ -1342,7 +1342,7 @@ export function WorkflowKanbanView({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">
-                      新建工作项目（支持绑定个人 Agent 节点或协作空间共享节点）
+                      新建工作项目（支持绑定个人 Agent 节点或 Agent 社区共享节点）
                     </span>
                     <button
                       type="button"
@@ -1405,12 +1405,12 @@ export function WorkflowKanbanView({
                         ))}
                       </optgroup>
                       {accessibleSharedNodes.length > 0 && (
-                        <optgroup label="协作空间 · 共享节点">
+                        <optgroup label="Agent 社区 · 共享节点">
                           {accessibleSharedNodes.map((sn) => {
                             const z = zoneMap.get(sn.zoneId);
                             return (
                               <option key={sn.id} value={sn.id}>
-                                [{z?.shortCode || '共享'}·{z?.name || '协作空间'}] {sn.name} (
+                                [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name} (
                                 {sn.cpuCores}C/{sn.memoryGb}G)
                               </option>
                             );

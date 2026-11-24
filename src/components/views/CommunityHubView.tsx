@@ -236,7 +236,7 @@ export function CommunityHubView({
   );
 
   const hasCommunityAccess =
-    activeZone.kind === 'public' || joinedZoneIds.includes(activeZone.id);
+    activeZone.kind === 'official' || joinedZoneIds.includes(activeZone.id);
 
   const getZoneStat = (z: CommunityZone) => {
     const suspended = new Set(z.suspendedAgentIds || []);

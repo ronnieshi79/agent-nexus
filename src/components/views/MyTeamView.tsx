@@ -53,6 +53,7 @@ import type {
   CliAuthMode,
   CliToolType,
   CommunityPost,
+  CommunityPostType,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
@@ -61,7 +62,9 @@ import type {
   LeasePeriod,
   NodeCliEntry,
   NodeOsType,
+  PrivateCommunityScope,
   ProjectWorkspace,
+  SpaceJoinApplication,
   SpaceMemberRole,
   SpaceSharedNode,
   StorageBillingMode,
@@ -79,8 +82,23 @@ interface MyTeamViewProps {
   activeZone: CommunityZone;
   communityPosts: CommunityPost[];
   zoneProjects: ZoneProjectOpportunity[];
+  spaceApplications: SpaceJoinApplication[];
   pendingSpaceApplicationsCount?: number;
   onOpenAssistant?: () => void;
+  onResolveSpaceApplication?: (applicationId: string, decision: 'approved' | 'rejected') => void;
+  onApplyToJoinZone?: (zoneId: string, note: string) => void;
+  onUpdateZoneInviteCode?: (zoneId: string, newCode: string) => void;
+  onTogglePinPost?: (postId: string, principalName?: string) => void;
+  onDeleteCommunityPost?: (postId: string) => void;
+  onCreateCommunityPost?: (input: {
+    zoneId: string;
+    type: Exclude<CommunityPostType, 'project'>;
+    title: string;
+    content: string;
+    tags?: string[];
+    pinned?: boolean;
+    pinnedBy?: string;
+  }) => void;
   workspace: ProjectWorkspace;
   workspaces: ProjectWorkspace[];
   allAgents: ExpertAgent[];
@@ -180,7 +198,7 @@ interface MyTeamViewProps {
   onCreateCollabZone: (input: {
     name: string;
     shortCode: string;
-    kind: 'community' | 'enterprise';
+    privateScope: PrivateCommunityScope;
     regionCulture: string;
     tagline: string;
     focusDomains: string[];
@@ -269,8 +287,15 @@ export function MyTeamView({
   activeZone,
   communityPosts,
   zoneProjects,
+  spaceApplications,
   pendingSpaceApplicationsCount = 0,
   onOpenAssistant,
+  onResolveSpaceApplication,
+  onApplyToJoinZone,
+  onUpdateZoneInviteCode,
+  onTogglePinPost,
+  onDeleteCommunityPost,
+  onCreateCommunityPost,
   workspace,
   workspaces,
   allAgents,
@@ -346,24 +371,32 @@ export function MyTeamView({
   const [volumeBillingFilter, setVolumeBillingFilter] = useState<'all' | StorageBillingMode>('all');
   const [volumeDrawerOpen, setVolumeDrawerOpen] = useState(false);
 
-  // Collaboration Spaces (协作空间) state
-  const [collabKindFilter, setCollabKindFilter] = useState<'all' | 'open' | 'enterprise'>('all');
+  // Agent Communities (Agent 社区) state
+  const [collabKindFilter, setCollabKindFilter] = useState<'all' | 'official' | 'private'>('all');
   const [collabRoleFilter, setCollabRoleFilter] = useState<'all' | 'managed' | 'joined'>('all');
   const [createZoneDrawerOpen, setCreateZoneDrawerOpen] = useState(false);
   const [managedZoneId, setManagedZoneId] = useState<string | null>(
-    () => allZones.find((z) => z.createdByMe || z.isCurrentUserPrincipal)?.id || null,
+    () =>
+      allZones.find(
+        (z) => z.kind === 'private' && (z.createdByMe || z.isCurrentUserPrincipal),
+      )?.id || null,
   );
 
   const onlineNodesCount = computeNodes.filter((n) => n.status === 'online').length;
   const managedZones = useMemo(
-    () => allZones.filter((z) => Boolean(z.createdByMe || z.isCurrentUserPrincipal)),
+    () =>
+      allZones.filter(
+        (z) => z.kind === 'private' && Boolean(z.createdByMe || z.isCurrentUserPrincipal),
+      ),
     [allZones],
   );
   const activeManagedZone = useMemo(
     () => managedZones.find((z) => z.id === managedZoneId) || managedZones[0] || null,
     [managedZoneId, managedZones],
   );
-  const discoverableUnjoinedCount = Math.max(0, allZones.length - zones.length);
+  const discoverableUnjoinedCount = allZones.filter(
+    (z) => !z.comingSoon && !z.isPlatformDefault && !joinedZoneIds.includes(z.id),
+  ).length;
 
   useEffect(() => {
     if (teamSectionSeed) {
@@ -425,7 +458,7 @@ export function MyTeamView({
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '基于 AGN 空间已挂载/租用的 Agent 节点与 CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
+    '基于 Agent 空间已挂载/租用的 Agent 节点与 CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '自动化脚本执行', '产出质量自检']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
@@ -845,7 +878,7 @@ export function MyTeamView({
     setDefaultModel(preferredCli?.defaultModel || 'Claude 4.5 Sonnet');
     setRegion(preferredNode?.name || '个人 Agent 节点');
     setProjectPriceUsd(1800);
-    setBio('基于 AGN 空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
+    setBio('基于 Agent 空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
     setSkills(['接口契约联调', '边界单测补全', '自动化产出校验']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
     setListedZoneIds(defaultZones);
@@ -1053,10 +1086,10 @@ export function MyTeamView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Two Symmetric Core Groups (Agent 协作 + Agent 基础设施) */}
-      <WorkspacePrimaryRail ariaLabel="AGN 空间导航">
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Two Symmetric Core Groups (Agent 团队 + Agent 空间) */}
+      <WorkspacePrimaryRail ariaLabel="Agents 导航">
         <div className="space-y-1">
-          <RailSectionLabel>Agent 协作</RailSectionLabel>
+          <RailSectionLabel>Agent 团队</RailSectionLabel>
           <RailNavButton
             variant="primary"
             active={teamSection === 'agents'}
@@ -1090,25 +1123,10 @@ export function MyTeamView({
             label="我的好友"
             count={expertRelationCounts.mutualFriend}
           />
-          <RailNavButton
-            variant="primary"
-            active={
-              teamSection === 'collab_my' ||
-              teamSection === 'collab_manage' ||
-              teamSection === 'collab_discover'
-            }
-            onClick={() => {
-              setTeamSection('collab_my');
-              setOpenActionMenuId(null);
-            }}
-            icon={<Globe className="w-3.5 h-3.5" />}
-            label="协作空间"
-            count={zones.length}
-          />
         </div>
 
         <div className="pt-3 border-t border-slate-100 space-y-1">
-          <RailSectionLabel>Agent 基础设施</RailSectionLabel>
+          <RailSectionLabel>Agent 空间</RailSectionLabel>
           <RailNavButton
             variant="primary"
             active={teamSection === 'nodes'}
@@ -1131,6 +1149,21 @@ export function MyTeamView({
             label="Agent 存储"
             count={storageVolumes.length}
           />
+          <RailNavButton
+            variant="primary"
+            active={
+              teamSection === 'collab_my' ||
+              teamSection === 'collab_manage' ||
+              teamSection === 'collab_discover'
+            }
+            onClick={() => {
+              setTeamSection('collab_my');
+              setOpenActionMenuId(null);
+            }}
+            icon={<Globe className="w-3.5 h-3.5" />}
+            label="Agent 社区"
+            count={zones.length}
+          />
         </div>
       </WorkspacePrimaryRail>
 
@@ -1146,14 +1179,14 @@ export function MyTeamView({
                   className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>返回协作空间</span>
+                  <span>返回 Agent 社区</span>
                 </button>
               )}
 
               {teamSection === 'collab_manage' ? (
                 activeManagedZone ? (
                   <ToolbarDropdown
-                    label="当前管理空间"
+                    label="当前主理社区"
                     value={activeManagedZone.id}
                     defaultValue=""
                     onChange={setManagedZoneId}
@@ -1165,7 +1198,7 @@ export function MyTeamView({
                   />
                 ) : (
                   <span className="text-xs font-medium text-slate-500">
-                    暂无可管理的协作空间，点击右侧创建
+                    暂无你主理的私有社区，点击右侧创建
                   </span>
                 )
               ) : (
@@ -1180,7 +1213,7 @@ export function MyTeamView({
                         : teamSection === 'storage'
                           ? '搜索共享云存储名称、套餐或可用区...'
                           : teamSection === 'collab_my' || teamSection === 'collab_discover'
-                            ? '搜索协作空间名称、地域/文化标签、领域或主理人...'
+                            ? '搜索 Agent 社区名称、语言区域、领域或主理人...'
                             : teamSection === 'collaborators'
                               ? '搜索合作专家姓名、专长方向或内建 Agent...'
                               : '搜索好友姓名、专长方向或内建 Agent...'
@@ -1267,8 +1300,8 @@ export function MyTeamView({
                     defaultValue="all"
                     onChange={setCollabRoleFilter}
                     options={[
-                      { id: 'all', label: '全部空间', hint: `${zones.length}` },
-                      { id: 'managed', label: '我管理的', hint: `${managedZones.length}` },
+                      { id: 'all', label: '全部社区', hint: `${zones.length}` },
+                      { id: 'managed', label: '我主理的', hint: `${managedZones.length}` },
                       {
                         id: 'joined',
                         label: '我加入的',
@@ -1277,27 +1310,27 @@ export function MyTeamView({
                     ]}
                   />
                   <ToolbarDropdown
-                    label="空间分类"
+                    label="社区分类"
                     value={collabKindFilter}
                     defaultValue="all"
                     onChange={setCollabKindFilter}
                     options={[
                       { id: 'all', label: '全部类型' },
-                      { id: 'open', label: '开放性空间（社区）' },
-                      { id: 'enterprise', label: '企业封闭空间' },
+                      { id: 'official', label: '官方社区' },
+                      { id: 'private', label: '私有社区' },
                     ]}
                   />
                 </>
               ) : teamSection === 'collab_discover' ? (
                 <ToolbarDropdown
-                  label="空间分类"
+                  label="社区分类"
                   value={collabKindFilter}
                   defaultValue="all"
                   onChange={setCollabKindFilter}
                   options={[
                     { id: 'all', label: '全部类型' },
-                    { id: 'open', label: '开放性空间（社区）' },
-                    { id: 'enterprise', label: '企业封闭空间' },
+                    { id: 'private', label: '私有社区' },
+                    { id: 'official', label: '官方社区' },
                   ]}
                 />
               ) : teamSection === 'collab_manage' ? null : (
@@ -1405,7 +1438,7 @@ export function MyTeamView({
                     className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
                   >
                     <Compass className="w-3.5 h-3.5 text-blue-600" />
-                    <span>发现空间</span>
+                    <span>发现社区</span>
                     {discoverableUnjoinedCount > 0 && (
                       <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-mono tabular-nums leading-none">
                         {discoverableUnjoinedCount}
@@ -1419,7 +1452,7 @@ export function MyTeamView({
                   className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>创建协作空间</span>
+                  <span>创建私有社区</span>
                 </button>
               </>
             ) : (
@@ -1473,12 +1506,6 @@ export function MyTeamView({
                     icon: UserCheck,
                   },
                   {
-                    id: 'collab_my' as const,
-                    label: '协作空间',
-                    count: `${zones.length}`,
-                    icon: Globe,
-                  },
-                  {
                     id: 'nodes' as const,
                     label: 'Agent 节点',
                     count: `${onlineNodesCount}/${computeNodes.length}`,
@@ -1489,6 +1516,12 @@ export function MyTeamView({
                     label: 'Agent 存储',
                     count: `${storageVolumes.length}`,
                     icon: Database,
+                  },
+                  {
+                    id: 'collab_my' as const,
+                    label: 'Agent 社区',
+                    count: `${zones.length}`,
+                    icon: Globe,
                   },
                 ].map((item) => {
                   const Icon = item.icon;
@@ -1576,6 +1609,7 @@ export function MyTeamView({
                 sharedNodes={spaceSharedNodes}
                 myComputeNodes={computeNodes}
                 humanExperts={humanExperts}
+                spaceApplications={spaceApplications}
                 searchKeyword={searchKeyword}
                 kindFilter={collabKindFilter}
                 roleFilter={collabRoleFilter}
@@ -1585,6 +1619,9 @@ export function MyTeamView({
                 onChangeCreateDrawerOpen={setCreateZoneDrawerOpen}
                 onCreateZone={onCreateCollabZone}
                 onToggleJoinZone={onToggleJoinZone}
+                onApplyToJoinZone={onApplyToJoinZone}
+                onResolveSpaceApplication={onResolveSpaceApplication}
+                onUpdateZoneInviteCode={onUpdateZoneInviteCode}
                 onDeleteZone={onDeleteCollabZone}
                 onEnterZoneCommunity={onJumpToZoneDiscover}
                 onEnterZoneMarket={onJumpToZoneMarket}
@@ -1603,6 +1640,9 @@ export function MyTeamView({
                 onToggleSpaceAgentOnline={onToggleSpaceAgentOnline}
                 onPublishAgentToSpace={onPublishAgentToSpace}
                 onRemoveAgentFromSpace={onRemoveAgentFromSpace}
+                onTogglePinPost={onTogglePinPost}
+                onDeletePost={onDeleteCommunityPost}
+                onCreatePost={onCreateCommunityPost}
               />
             ) : teamSection === 'agents' ? (
               <>
@@ -2584,7 +2624,7 @@ export function MyTeamView({
                   <div className="flex items-center justify-between gap-2">
                     <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900">
                       <Server className="w-3.5 h-3.5 text-blue-600" />
-                      <span>依托个人 Agent 节点或协作空间共享节点</span>
+                      <span>依托个人 Agent 节点或 Agent 社区共享节点</span>
                     </span>
                     <button
                       type="button"
@@ -2600,7 +2640,7 @@ export function MyTeamView({
 
                   <label className="block">
                     <span className="text-[11px] font-semibold text-slate-600">
-                      承载节点（个人 Agent 节点 / 协作空间共享节点）
+                      承载节点（个人 Agent 节点 / Agent 社区共享节点）
                     </span>
                     <select
                       value={hostNodeId}
@@ -2625,7 +2665,7 @@ export function MyTeamView({
                         })}
                       </optgroup>
                       {accessibleSharedNodes.length > 0 && (
-                        <optgroup label="协作空间 · 共享节点">
+                        <optgroup label="Agent 社区 · 共享节点">
                           {accessibleSharedNodes.map((sn) => {
                             const z = zoneMap.get(sn.zoneId);
                             const myBound = privateAgents.filter(
@@ -2633,7 +2673,7 @@ export function MyTeamView({
                             ).length;
                             return (
                               <option key={sn.id} value={sn.id}>
-                                [{z?.shortCode || '共享'}·{z?.name || '协作空间'}] {sn.name}（共享沙箱{' '}
+                                [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name}（共享沙箱{' '}
                                 {sn.usedSandboxes + myBound}/{sn.sharedSandboxQuota}）
                               </option>
                             );
@@ -2647,7 +2687,7 @@ export function MyTeamView({
                     <div className="space-y-2.5 pt-1">
                       <div className="rounded-lg bg-indigo-50/70 border border-indigo-200 px-3 py-2 text-[11px] text-indigo-900 flex flex-wrap items-center justify-between gap-2">
                         <span className="font-semibold">
-                          来自协作空间「{selectedSharedZone?.name || '企业空间'}」共享算力 ·{' '}
+                          来自私有社区「{selectedSharedZone?.name || '私有社区'}」共享算力 ·{' '}
                           {selectedSharedNode.osVersion} ({selectedSharedNode.cpuCores}C/
                           {selectedSharedNode.memoryGb}G)
                         </span>
@@ -2659,7 +2699,7 @@ export function MyTeamView({
                       {selectedSharedUsed >= selectedSharedNode.sharedSandboxQuota && (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 flex flex-wrap items-center justify-between gap-2">
                           <span>
-                            该空间共享节点的并发沙箱配额已满，请在「AGN 空间 → 协作空间 → 空间管理」调大配额。
+                            该社区共享节点的并发沙箱配额已满，请在「Agent 空间 → Agent 社区 → 主理人管理」调大配额。
                           </span>
                           <button
                             type="button"
@@ -2900,7 +2940,7 @@ export function MyTeamView({
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
                   <div>
                     <div className="text-xs font-bold text-slate-900">
-                      可选：对外上架协作空间服务市场（不选则仅私有自用）
+                      可选：对外上架 Agent 社区服务市场（不选则仅私有自用）
                     </div>
                   </div>
                   <div className="space-y-1.5">
@@ -3034,7 +3074,7 @@ export function MyTeamView({
                   {selectedCliFull
                     ? '沙箱已满 · 请调大配额'
                     : listedZoneIds.length > 0
-                      ? `保存并上架 (${listedZoneIds.length} 个协作空间)`
+                      ? `保存并上架 (${listedZoneIds.length} 个社区)`
                       : '保存自建 Agent'}
                 </button>
               </div>

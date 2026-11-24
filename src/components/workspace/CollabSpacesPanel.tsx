@@ -3,13 +3,16 @@ import {
   ArrowUpRight,
   Building2,
   Check,
+  Clock,
   Compass,
   Copy,
   Globe,
   KeyRound,
+  Lock,
   LogOut,
   MessageSquare,
   Plus,
+  Send,
   Settings2,
   ShieldCheck,
   Store,
@@ -19,11 +22,14 @@ import {
 } from 'lucide-react';
 import type {
   CommunityPost,
+  CommunityPostType,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
   HumanExpert,
   NodeOsType,
+  PrivateCommunityScope,
+  SpaceJoinApplication,
   SpaceMemberRole,
   SpaceSharedNode,
   ZoneProjectOpportunity,
@@ -53,8 +59,9 @@ interface CollabSpacesPanelProps {
   sharedNodes: SpaceSharedNode[];
   myComputeNodes: ComputeNode[];
   humanExperts: HumanExpert[];
+  spaceApplications: SpaceJoinApplication[];
   searchKeyword: string;
-  kindFilter: 'all' | 'open' | 'enterprise';
+  kindFilter: 'all' | 'official' | 'private';
   roleFilter?: 'all' | 'managed' | 'joined';
   pendingApplicationsCount?: number;
   onOpenAssistant?: () => void;
@@ -63,7 +70,7 @@ interface CollabSpacesPanelProps {
   onCreateZone: (input: {
     name: string;
     shortCode: string;
-    kind: 'community' | 'enterprise';
+    privateScope: PrivateCommunityScope;
     regionCulture: string;
     tagline: string;
     focusDomains: string[];
@@ -71,6 +78,9 @@ interface CollabSpacesPanelProps {
     inviteCode?: string;
   }) => string;
   onToggleJoinZone: (zoneId: string) => void;
+  onApplyToJoinZone?: (zoneId: string, note: string) => void;
+  onResolveSpaceApplication?: (applicationId: string, decision: 'approved' | 'rejected') => void;
+  onUpdateZoneInviteCode?: (zoneId: string, newCode: string) => void;
   onDeleteZone: (zoneId: string) => void;
   onEnterZoneCommunity: (zoneId: string) => void;
   onEnterZoneMarket: (zoneId: string) => void;
@@ -115,6 +125,17 @@ interface CollabSpacesPanelProps {
   onToggleSpaceAgentOnline: (zoneId: string, agentId: string) => void;
   onPublishAgentToSpace: (zoneId: string, agentId: string) => void;
   onRemoveAgentFromSpace: (zoneId: string, agentId: string) => void;
+  onTogglePinPost?: (postId: string, principalName?: string) => void;
+  onDeletePost?: (postId: string) => void;
+  onCreatePost?: (input: {
+    zoneId: string;
+    type: Exclude<CommunityPostType, 'project'>;
+    title: string;
+    content: string;
+    tags?: string[];
+    pinned?: boolean;
+    pinnedBy?: string;
+  }) => void;
 }
 
 export function CollabSpacesPanel({
@@ -129,6 +150,7 @@ export function CollabSpacesPanel({
   sharedNodes,
   myComputeNodes,
   humanExperts,
+  spaceApplications,
   searchKeyword,
   kindFilter,
   roleFilter = 'all',
@@ -138,6 +160,9 @@ export function CollabSpacesPanel({
   onChangeCreateDrawerOpen,
   onCreateZone,
   onToggleJoinZone,
+  onApplyToJoinZone,
+  onResolveSpaceApplication,
+  onUpdateZoneInviteCode,
   onDeleteZone,
   onEnterZoneCommunity,
   onEnterZoneMarket,
@@ -153,36 +178,43 @@ export function CollabSpacesPanel({
   onToggleSpaceAgentOnline,
   onPublishAgentToSpace,
   onRemoveAgentFromSpace,
+  onTogglePinPost,
+  onDeletePost,
+  onCreatePost,
 }: CollabSpacesPanelProps) {
-  // Enterprise space invite verification inline state
-  const [verifyingZoneId, setVerifyingZoneId] = useState<string | null>(null);
+  // Private community join inline state (invite code OR join application)
+  const [joiningZoneId, setJoiningZoneId] = useState<string | null>(null);
+  const [joinTab, setJoinTab] = useState<'invite' | 'apply'>('invite');
   const [inviteInput, setInviteInput] = useState('');
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [applyNote, setApplyNote] = useState('');
   const [copiedCodeZoneId, setCopiedCodeZoneId] = useState<string | null>(null);
 
-  // Create Space Drawer Form State
-  const [newKind, setNewKind] = useState<'community' | 'enterprise'>('community');
+  // Create Private Community Drawer Form State (Official communities cannot be self-created)
+  const [newScope, setNewScope] = useState<PrivateCommunityScope>('opc');
   const [newName, setNewName] = useState('');
   const [newShortCode, setNewShortCode] = useState('');
-  const [newRegionCulture, setNewRegionCulture] = useState('中文 · 华语圈');
+  const [newRegionCulture, setNewRegionCulture] = useState('中文 · OPC 共创');
   const [newTagline, setNewTagline] = useState('');
   const [newDomainsText, setNewDomainsText] = useState('多 Agent 协同, 全栈交付, Skills 共创');
   const [newAccent, setNewAccent] = useState('#0f766e');
-  const [newInviteCode, setNewInviteCode] = useState('SPACE-2026');
+  const [newInviteCode, setNewInviteCode] = useState('AGN-2026');
 
   const isZoneJoined = (z: CommunityZone) =>
-    Boolean(z.isPlatformDefault || joinedZoneIds.includes(z.id));
+    !z.comingSoon && Boolean(z.isPlatformDefault || joinedZoneIds.includes(z.id));
 
   const joinedList = zones.filter((z) => isZoneJoined(z));
-  const discoverableUnjoined = zones.filter((z) => !isZoneJoined(z));
-  const joinedOpenCount = joinedList.filter((z) => z.kind !== 'enterprise').length;
-  const joinedEnterpriseCount = joinedList.filter((z) => z.kind === 'enterprise').length;
+  const discoverableUnjoined = zones.filter((z) => !z.comingSoon && !isZoneJoined(z));
+  const comingSoonOfficialZones = zones.filter((z) => Boolean(z.comingSoon));
+
+  const joinedOfficialCount = joinedList.filter((z) => z.kind === 'official').length;
+  const joinedPrivateCount = joinedList.filter((z) => z.kind === 'private').length;
 
   const q = searchKeyword.trim().toLowerCase();
 
   const matchesFilters = (z: CommunityZone) => {
-    if (kindFilter === 'open' && z.kind === 'enterprise') return false;
-    if (kindFilter === 'enterprise' && z.kind !== 'enterprise') return false;
+    if (kindFilter === 'official' && z.kind !== 'official') return false;
+    if (kindFilter === 'private' && z.kind !== 'private') return false;
     if (!q) return true;
     return (
       z.name.toLowerCase().includes(q) ||
@@ -194,10 +226,15 @@ export function CollabSpacesPanel({
   };
 
   const isManagedZone = (z: CommunityZone) =>
-    Boolean(z.createdByMe || z.isCurrentUserPrincipal);
+    z.kind === 'private' && Boolean(z.createdByMe || z.isCurrentUserPrincipal);
 
-  // In 'my' mode: filter by roleFilter and sort managed spaces first so admins can immediately jump into governance;
-  // in 'discover' mode: show unjoined first, then joined third-party/platform spaces for searchability.
+  const hasMyPendingApplication = (zoneId: string) =>
+    spaceApplications.some(
+      (a) => a.zoneId === zoneId && a.humanExpertId === 'human_me' && a.status === 'pending',
+    );
+
+  // In 'my' mode: official default & managed private communities first;
+  // in 'discover' mode: unjoined private communities first, then joined communities, then upcoming official language communities.
   const displayedZones =
     mode === 'my'
       ? joinedList
@@ -206,10 +243,15 @@ export function CollabSpacesPanel({
             if (roleFilter === 'joined' && isManagedZone(z)) return false;
             return matchesFilters(z);
           })
-          .sort((a, b) => Number(isManagedZone(b)) - Number(isManagedZone(a)))
+          .sort((a, b) => {
+            const rankA = a.kind === 'official' ? 2 : isManagedZone(a) ? 1 : 0;
+            const rankB = b.kind === 'official' ? 2 : isManagedZone(b) ? 1 : 0;
+            return rankB - rankA;
+          })
       : [
           ...discoverableUnjoined.filter(matchesFilters),
           ...joinedList.filter((z) => !z.createdByMe && matchesFilters(z)),
+          ...comingSoonOfficialZones.filter(matchesFilters),
         ];
 
   const handleCopyInviteCode = (zone: CommunityZone) => {
@@ -221,23 +263,32 @@ export function CollabSpacesPanel({
     setTimeout(() => setCopiedCodeZoneId(null), 1600);
   };
 
-  const handleOpenEnterpriseJoin = (zone: CommunityZone) => {
-    setVerifyingZoneId(zone.id);
+  const handleOpenPrivateJoin = (zone: CommunityZone, preferredTab: 'invite' | 'apply' = 'invite') => {
+    setJoiningZoneId(zone.id);
+    setJoinTab(preferredTab);
     setInviteInput(zone.inviteCode || '');
+    setApplyNote('');
     setInviteError(null);
   };
 
-  const handleConfirmEnterpriseJoin = (zone: CommunityZone) => {
+  const handleConfirmInviteJoin = (zone: CommunityZone) => {
     const expected = (zone.inviteCode || '').trim().toUpperCase();
     const entered = inviteInput.trim().toUpperCase();
     if (expected && entered !== expected) {
-      setInviteError(`邀请码不匹配，请输入 ${expected} 或联系空间管理员 ${zone.principalName}`);
+      setInviteError(`邀请码不匹配，请输入 ${expected} 或切换至「申请加入」由主理人 ${zone.principalName} 审批`);
       return;
     }
     onToggleJoinZone(zone.id);
-    setVerifyingZoneId(null);
+    setJoiningZoneId(null);
     setInviteInput('');
     setInviteError(null);
+  };
+
+  const handleConfirmApplyJoin = (zone: CommunityZone) => {
+    if (!onApplyToJoinZone) return;
+    onApplyToJoinZone(zone.id, applyNote);
+    setJoiningZoneId(null);
+    setApplyNote('');
   };
 
   const handleCreateSubmit = (e: FormEvent) => {
@@ -251,21 +302,26 @@ export function CollabSpacesPanel({
       .filter(Boolean)
       .slice(0, 5);
 
+    const defaultRegionByScope: Record<PrivateCommunityScope, string> = {
+      enterprise: '企业内部 · 私有隔离',
+      opc: '中文 · OPC 社区运营',
+      topic: '垂直领域 · 主题共创',
+    };
+    const defaultTaglineByScope: Record<PrivateCommunityScope, string> = {
+      enterprise: '企业内部私有 Agent 社区，主理人统一治理成员准入、共享节点、专属服务市场与内部公告',
+      opc: '由主理人自治运营的 OPC 私有社区，支持邀请码与申请准入，沉淀垂直领域专家与共创项目',
+      topic: '面向特定技术或行业方向的私有 Agent 社区，聚焦 Skills 沉淀、Agent 协同与精选内容交流',
+    };
+
     const newId = onCreateZone({
       name: cleanedName,
       shortCode: derivedShort,
-      kind: newKind,
-      regionCulture:
-        newRegionCulture.trim() ||
-        (newKind === 'enterprise' ? '企业内部 · 私有隔离' : '中文 · 开放协作'),
-      tagline:
-        newTagline.trim() ||
-        (newKind === 'enterprise'
-          ? '企业内部封闭协作空间，隔离核心研发项目、私有 Agent 与内部知识资产'
-          : '面向同领域开发者的开放性协作社区，交流实战经验与撮合项目'),
+      privateScope: newScope,
+      regionCulture: newRegionCulture.trim() || defaultRegionByScope[newScope],
+      tagline: newTagline.trim() || defaultTaglineByScope[newScope],
       focusDomains: parsedDomains.length > 0 ? parsedDomains : ['多 Agent 协同', '项目交付'],
       accentColor: newAccent,
-      inviteCode: newKind === 'enterprise' ? newInviteCode.trim() || 'SPACE-2026' : undefined,
+      inviteCode: newInviteCode.trim().toUpperCase() || 'AGN-2026',
     });
 
     setNewName('');
@@ -277,13 +333,15 @@ export function CollabSpacesPanel({
     }
   };
 
-  const renderSpaceKindIcon = (kind: CommunityZone['kind']) => {
-    if (kind === 'public') return <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />;
-    if (kind === 'enterprise') return <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />;
-    return <Compass className="w-3.5 h-3.5 text-emerald-600 shrink-0" />;
+  const renderCommunityKindIcon = (zone: CommunityZone) => {
+    if (zone.kind === 'official') return <Globe className="w-3.5 h-3.5 text-sky-600 shrink-0" />;
+    if (zone.privateScope === 'enterprise') {
+      return <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />;
+    }
+    return <Lock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />;
   };
 
-  const managedZones = zones.filter((z) => Boolean(z.createdByMe || z.isCurrentUserPrincipal));
+  const managedZones = zones.filter(isManagedZone);
   const activeManagedZone =
     managedZones.find((z) => z.id === managedZoneId) || managedZones[0] || null;
 
@@ -296,10 +354,10 @@ export function CollabSpacesPanel({
               <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5">
                 <div className="text-xs text-indigo-950">
                   <span className="font-bold">
-                    有 {pendingApplicationsCount} 条人员入驻申请待审批
+                    有 {pendingApplicationsCount} 条私有社区入驻申请待审批
                   </span>
                   <span className="text-indigo-800/80 ml-1.5">
-                    动态成员申请已收口至「Nexa 助理」消息卡片处理，同意后自动写入空间成员列表。
+                    可在下方「成员管理」直接审批，或在「Nexa 助理」消息卡片一键处理。
                   </span>
                 </div>
                 <button
@@ -307,7 +365,7 @@ export function CollabSpacesPanel({
                   onClick={onOpenAssistant}
                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-indigo-600 hover:bg-indigo-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
                 >
-                  <span>去 Nexa 助理审批</span>
+                  <span>去 Nexa 助理查看</span>
                   <ArrowUpRight className="w-3 h-3" />
                 </button>
               </div>
@@ -318,11 +376,15 @@ export function CollabSpacesPanel({
               myComputeNodes={myComputeNodes}
               allAgents={agents}
               humanExperts={humanExperts}
+              communityPosts={communityPosts}
+              spaceApplications={spaceApplications}
               onEnterCommunity={onEnterZoneCommunity}
               onEnterMarket={onEnterZoneMarket}
               onInviteMember={onInviteSpaceMember}
               onUpdateMemberRole={onUpdateSpaceMemberRole}
               onKickMember={onKickSpaceMember}
+              onResolveApplication={onResolveSpaceApplication}
+              onUpdateInviteCode={onUpdateZoneInviteCode}
               onAddSharedNode={onAddSpaceSharedNode}
               onToggleSharedNodeStatus={onToggleSpaceSharedNodeStatus}
               onUpdateSharedNode={onUpdateSpaceSharedNode}
@@ -330,15 +392,18 @@ export function CollabSpacesPanel({
               onToggleSpaceAgentOnline={onToggleSpaceAgentOnline}
               onPublishAgentToSpace={onPublishAgentToSpace}
               onRemoveAgentFromSpace={onRemoveAgentFromSpace}
+              onTogglePinPost={onTogglePinPost}
+              onDeletePost={onDeletePost}
+              onCreatePost={onCreatePost}
             />
           </div>
         ) : (
           <div className="py-16 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
             <p className="text-sm font-semibold text-slate-800">
-              当前暂无可管理的自建或主理协作空间
+              当前暂无你主理的私有 Agent 社区
             </p>
             <p className="text-xs text-slate-500 max-w-md mx-auto">
-              创建企业封闭空间或开放性社区后，即可在此统一管理空间成员、共享 Agent 节点配额与已发布专业 Agent 的上下线状态。
+              官方社区由平台按语言区域统一运营；创建私有社区后，你作为社区主理人即可在此统一管理成员审批、社区共享资源、服务市场与内容公告。
             </p>
             <button
               type="button"
@@ -346,39 +411,40 @@ export function CollabSpacesPanel({
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>创建协作空间</span>
+              <span>创建私有社区</span>
             </button>
           </div>
         )
       ) : (
         <div className="space-y-4">
-          {/* Concise Context Line — matching Agent 成员 / 合作专家 / 我的好友 */}
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-slate-500 truncate">
+          {/* Concise Context Line explaining Official vs Private Agent Communities */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-slate-500">
               {mode === 'my' ? (
                 <span>
-                  已加入空间自动同步为「服务市场」与「交流社区」范围，我创建/主理的空间置顶展示
+                  <strong className="text-slate-700">官方社区</strong>默认加入且无需申请（当前仅开放官方中文社区）；
+                  <strong className="text-slate-700">私有社区</strong>支持自建、邀请与申请加入，由主理人运营管理
                 </span>
               ) : (
                 <span>
-                  按地域/文化检索平台开放社区，或输入邀请码加入第三方企业封闭空间
+                  浏览更多私有社区（支持邀请码直接入驻或提交加入申请），以及即将开放的多语言官方社区
                 </span>
               )}
             </div>
             <div className="flex items-center gap-3 text-xs text-slate-400 shrink-0">
               {mode === 'my' && (
                 <span className="hidden md:inline text-[11px] font-mono tabular-nums">
-                  开放 {joinedOpenCount} · 企业 {joinedEnterpriseCount} · 我管理 {managedZones.length}
+                  官方 {joinedOfficialCount} · 私有 {joinedPrivateCount} · 我主理 {managedZones.length}
                 </span>
               )}
-              <span className="font-mono tabular-nums">共 {displayedZones.length} 个空间</span>
+              <span className="font-mono tabular-nums">共 {displayedZones.length} 个社区</span>
             </div>
           </div>
 
           {/* Unified Bordered Roster List */}
           {displayedZones.length === 0 ? (
             <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-              <p className="text-sm font-medium text-slate-700">当前筛选下暂无匹配的协作空间</p>
+              <p className="text-sm font-medium text-slate-700">当前筛选下暂无匹配的 Agent 社区</p>
               <div className="flex items-center justify-center gap-2">
                 {mode === 'my' && (
                   <button
@@ -387,7 +453,7 @@ export function CollabSpacesPanel({
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
                   >
                     <Compass className="w-3.5 h-3.5" />
-                    <span>发现更多空间</span>
+                    <span>发现更多社区</span>
                   </button>
                 )}
                 <button
@@ -396,25 +462,26 @@ export function CollabSpacesPanel({
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>创建协作空间</span>
+                  <span>创建私有社区</span>
                 </button>
               </div>
             </div>
           ) : (
             <div className="border border-slate-200 rounded-xl bg-white mb-16">
               {/* Desktop Column Header */}
-              <div className="hidden @[880px]:grid @[880px]:grid-cols-[minmax(0,1fr)_148px_176px_96px_228px] @[880px]:items-center @[880px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
-                <div>协作空间</div>
-                <div>类型 / 归属</div>
-                <div>成员与资源</div>
+              <div className="hidden @[880px]:grid @[880px]:grid-cols-[minmax(0,1fr)_156px_176px_104px_236px] @[880px]:items-center @[880px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                <div>Agent 社区</div>
+                <div>分类 / 运营归属</div>
+                <div>成员与社区资源</div>
                 <div>状态</div>
                 <div className="text-right">操作</div>
               </div>
 
               <div className="divide-y divide-slate-200">
                 {displayedZones.map((zone) => {
+                  const isComingSoon = Boolean(zone.comingSoon);
                   const joined = isZoneJoined(zone);
-                  const isActive = zone.id === activeZoneId;
+                  const isActive = joined && zone.id === activeZoneId;
                   const suspendedSet = new Set(zone.suspendedAgentIds || []);
                   const listedAgents = agents.filter((a) => a.listedZoneIds.includes(zone.id));
                   const activeAgentCnt = listedAgents.filter((a) => !suspendedSet.has(a.id)).length;
@@ -424,18 +491,28 @@ export function CollabSpacesPanel({
                   const openProjCnt = zoneProjects.filter(
                     (p) => p.zoneId === zone.id && p.status === 'open',
                   ).length;
-                  const canManageSpace = Boolean(zone.createdByMe || zone.isCurrentUserPrincipal);
-                  const isVerifying = verifyingZoneId === zone.id;
+                  const canManageCommunity = isManagedZone(zone);
+                  const pendingForThisZone = canManageCommunity
+                    ? spaceApplications.filter(
+                        (a) => a.zoneId === zone.id && a.status === 'pending',
+                      ).length
+                    : 0;
+                  const myPendingApplied = !joined && hasMyPendingApplication(zone.id);
+                  const isJoiningPanelOpen = joiningZoneId === zone.id;
 
                   return (
                     <div
                       key={zone.id}
                       className={`px-5 py-3.5 transition-colors ${
-                        isActive ? 'bg-blue-50/25 hover:bg-blue-50/40' : 'hover:bg-slate-50/70'
+                        isComingSoon
+                          ? 'bg-slate-50/60 opacity-85'
+                          : isActive
+                            ? 'bg-blue-50/25 hover:bg-blue-50/40'
+                            : 'hover:bg-slate-50/70'
                       }`}
                     >
-                      <div className="grid grid-cols-1 @[880px]:grid-cols-[minmax(0,1fr)_148px_176px_96px_228px] @[880px]:items-center gap-3 @[880px]:gap-4">
-                        {/* Col 1: Space Identity & Tagline */}
+                      <div className="grid grid-cols-1 @[880px]:grid-cols-[minmax(0,1fr)_156px_176px_104px_236px] @[880px]:items-center gap-3 @[880px]:gap-4">
+                        {/* Col 1: Community Identity & Tagline */}
                         <div className="flex items-start gap-3 min-w-0">
                           <span
                             className="w-9 h-9 rounded-lg text-xs font-bold text-white inline-flex items-center justify-center shrink-0 mt-0.5"
@@ -448,21 +525,21 @@ export function CollabSpacesPanel({
                               <span className="text-sm font-bold text-slate-900 truncate">
                                 {zone.name}
                               </span>
-                              {zone.createdByMe && (
+                              {zone.kind === 'official' && !isComingSoon && (
+                                <span className="text-[11px] font-semibold text-sky-700 whitespace-nowrap">
+                                  默认加入 · 免申请
+                                </span>
+                              )}
+                              {canManageCommunity && (
                                 <span className="text-[11px] font-semibold text-emerald-700 whitespace-nowrap">
-                                  我创建
+                                  我主理
                                 </span>
                               )}
-                              {zone.isPlatformDefault && (
-                                <span className="text-[11px] font-semibold text-blue-700 whitespace-nowrap">
-                                  平台默认
-                                </span>
-                              )}
-                              {zone.createdByMe && zone.kind === 'enterprise' && zone.inviteCode && (
+                              {canManageCommunity && zone.inviteCode && (
                                 <button
                                   type="button"
                                   onClick={() => handleCopyInviteCode(zone)}
-                                  title="复制空间邀请码"
+                                  title="复制私有社区邀请码"
                                   className="inline-flex items-center gap-1 text-[11px] font-mono text-indigo-700 hover:text-indigo-900 cursor-pointer whitespace-nowrap"
                                 >
                                   <KeyRound className="w-3 h-3" />
@@ -484,44 +561,59 @@ export function CollabSpacesPanel({
                           </div>
                         </div>
 
-                        {/* Col 2: Type & Principal / Region */}
+                        {/* Col 2: Category & Principal / Language Region */}
                         <div className="min-w-0 space-y-0.5">
                           <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-800">
-                            {renderSpaceKindIcon(zone.kind)}
+                            {renderCommunityKindIcon(zone)}
                             <span className="truncate">{zone.typeLabel}</span>
                           </div>
                           <div className="text-[11px] text-slate-500 truncate">
-                            {zone.regionCulture || `主理：${zone.principalName}`}
+                            {zone.regionCulture || zone.principalName}
                           </div>
                           <div className="text-[11px] text-slate-400 truncate">
-                            主理：{zone.principalName}
+                            {zone.kind === 'official' ? '官方语言区运营' : `主理人：${zone.principalName}`}
                           </div>
                         </div>
 
-                        {/* Col 3: Scale & Resources */}
+                        {/* Col 3: Scale & Community Resources */}
                         <div className="min-w-0 space-y-0.5 text-[11px] font-mono tabular-nums">
-                          <div className="flex items-center gap-1.5 text-slate-800 font-semibold">
-                            <Users className="w-3 h-3 text-slate-400 shrink-0" />
-                            <span>{zone.memberCount} 成员</span>
-                            {sharedNodeCnt > 0 && (
-                              <>
-                                <span className="text-slate-300" aria-hidden="true">·</span>
-                                <span className="text-indigo-700">{sharedNodeCnt} 共享节点</span>
-                              </>
-                            )}
-                          </div>
-                          <div className="text-slate-500 truncate">
-                            {activeAgentCnt} 在线 Agent
-                            {offlineAgentCnt > 0 ? ` (${offlineAgentCnt} 下线)` : ''}
-                          </div>
-                          <div className="text-slate-400 truncate">
-                            {postCnt} 帖子 · {openProjCnt} 开放项目
-                          </div>
+                          {isComingSoon ? (
+                            <div className="text-slate-400 font-sans">
+                              多语言官方社区规划中
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-1.5 text-slate-800 font-semibold">
+                                <Users className="w-3 h-3 text-slate-400 shrink-0" />
+                                <span>{zone.memberCount} 成员</span>
+                                {sharedNodeCnt > 0 && (
+                                  <>
+                                    <span className="text-slate-300" aria-hidden="true">
+                                      ·
+                                    </span>
+                                    <span className="text-indigo-700">{sharedNodeCnt} 共享节点</span>
+                                  </>
+                                )}
+                              </div>
+                              <div className="text-slate-500 truncate">
+                                {activeAgentCnt} 在线 Agent
+                                {offlineAgentCnt > 0 ? ` (${offlineAgentCnt} 下线)` : ''}
+                              </div>
+                              <div className="text-slate-400 truncate">
+                                {postCnt} 动态 · {openProjCnt} 共创项目
+                              </div>
+                            </>
+                          )}
                         </div>
 
                         {/* Col 4: Membership Status */}
                         <div className="flex items-center">
-                          {joined ? (
+                          {isComingSoon ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 whitespace-nowrap">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>即将开放</span>
+                            </span>
+                          ) : joined ? (
                             <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 whitespace-nowrap">
                               <span
                                 className={`w-1.5 h-1.5 rounded-full shrink-0 ${
@@ -531,6 +623,11 @@ export function CollabSpacesPanel({
                               <span className={isActive ? 'text-blue-700' : 'text-emerald-700'}>
                                 {isActive ? '当前所在' : '已加入'}
                               </span>
+                            </span>
+                          ) : myPendingApplied ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 whitespace-nowrap">
+                              <Clock className="w-3.5 h-3.5 shrink-0" />
+                              <span>待主理审批</span>
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 whitespace-nowrap">
@@ -542,43 +639,52 @@ export function CollabSpacesPanel({
 
                         {/* Col 5: Actions */}
                         <div className="flex flex-wrap items-center @[880px]:justify-end gap-1.5">
-                          {joined ? (
+                          {isComingSoon ? (
+                            <span className="text-[11px] text-slate-400 whitespace-nowrap">
+                              当前仅开放官方中文社区
+                            </span>
+                          ) : joined ? (
                             <>
-                              {canManageSpace && (
+                              {canManageCommunity && (
                                 <button
                                   type="button"
                                   onClick={() => onOpenSpaceManage(zone.id)}
                                   className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white transition-colors cursor-pointer whitespace-nowrap"
                                 >
                                   <Settings2 className="w-3 h-3" />
-                                  <span>管理</span>
+                                  <span>主理管理</span>
+                                  {pendingForThisZone > 0 && (
+                                    <span className="px-1 rounded bg-amber-400 text-slate-950 text-[10px] font-mono leading-tight">
+                                      {pendingForThisZone}
+                                    </span>
+                                  )}
                                 </button>
                               )}
                               <button
                                 type="button"
                                 onClick={() => onEnterZoneCommunity(zone.id)}
-                                title="进入该空间交流社区"
+                                title="进入该社区交流广场"
                                 className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-slate-900 hover:text-white hover:border-slate-900 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 <MessageSquare className="w-3 h-3" />
-                                <span>社区</span>
+                                <span>交流</span>
                               </button>
                               <button
                                 type="button"
                                 onClick={() => onEnterZoneMarket(zone.id)}
-                                title="进入该空间服务市场"
+                                title="进入该社区服务市场"
                                 className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-blue-600 hover:text-white hover:border-blue-600 text-[11px] font-semibold text-slate-700 transition-colors cursor-pointer whitespace-nowrap"
                               >
                                 <Store className="w-3 h-3" />
                                 <span>市场</span>
                               </button>
-                              {!zone.isPlatformDefault &&
+                              {zone.kind === 'private' &&
                                 (zone.createdByMe ? (
                                   <button
                                     type="button"
                                     onClick={() => onDeleteZone(zone.id)}
-                                    title="解散空间"
-                                    aria-label="解散空间"
+                                    title="解散私有社区"
+                                    aria-label="解散私有社区"
                                     className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -587,80 +693,139 @@ export function CollabSpacesPanel({
                                   <button
                                     type="button"
                                     onClick={() => onToggleJoinZone(zone.id)}
-                                    title="退出空间"
-                                    aria-label="退出空间"
+                                    title="退出私有社区"
+                                    aria-label="退出私有社区"
                                     className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer shrink-0"
                                   >
                                     <LogOut className="w-3.5 h-3.5" />
                                   </button>
                                 ))}
                             </>
-                          ) : zone.kind === 'enterprise' ? (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEnterpriseJoin(zone)}
-                              className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              <KeyRound className="w-3 h-3" />
-                              <span>验证加入</span>
-                            </button>
                           ) : (
-                            <button
-                              type="button"
-                              onClick={() => onToggleJoinZone(zone.id)}
-                              className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              <Plus className="w-3 h-3" />
-                              <span>加入空间</span>
-                            </button>
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPrivateJoin(zone, 'invite')}
+                                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                <span>邀请码加入</span>
+                              </button>
+                              {!myPendingApplied && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenPrivateJoin(zone, 'apply')}
+                                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
+                                >
+                                  <Send className="w-3 h-3" />
+                                  <span>申请加入</span>
+                                </button>
+                              )}
+                            </>
                           )}
                         </div>
                       </div>
 
-                      {/* Inline Enterprise Invite Code Verification Strip */}
-                      {!joined && isVerifying && zone.kind === 'enterprise' && (
-                        <div className="mt-3 rounded-lg bg-indigo-50/70 border border-indigo-200 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
-                            <span className="inline-flex items-center gap-1 font-semibold text-indigo-900">
-                              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                              <span>企业封闭空间准入验证</span>
-                            </span>
-                            {zone.inviteCode && (
-                              <span className="font-mono text-indigo-700">
-                                演示邀请码：{zone.inviteCode}
-                              </span>
-                            )}
-                            {inviteError && <span className="text-red-600">{inviteError}</span>}
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <input
-                              type="text"
-                              value={inviteInput}
-                              onChange={(e) => {
-                                setInviteInput(e.target.value);
-                                setInviteError(null);
-                              }}
-                              placeholder="输入邀请码..."
-                              className="w-40 h-7 rounded-md border border-indigo-200 bg-white px-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => handleConfirmEnterpriseJoin(zone)}
-                              className="h-7 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              确认加入
-                            </button>
+                      {/* Inline Private Community Join Strip (Invite Code OR Join Application) */}
+                      {!joined && !isComingSoon && isJoiningPanelOpen && (
+                        <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-2.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="inline-flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setJoinTab('invite');
+                                  setInviteError(null);
+                                }}
+                                className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11px] font-semibold cursor-pointer transition-colors ${
+                                  joinTab === 'invite'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                }`}
+                              >
+                                <KeyRound className="w-3 h-3" />
+                                <span>凭邀请码直接加入</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setJoinTab('apply');
+                                  setInviteError(null);
+                                }}
+                                className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11px] font-semibold cursor-pointer transition-colors ${
+                                  joinTab === 'apply'
+                                    ? 'bg-slate-900 text-white'
+                                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+                                }`}
+                              >
+                                <Send className="w-3 h-3" />
+                                <span>提交申请（主理人审批）</span>
+                              </button>
+                            </div>
                             <button
                               type="button"
                               onClick={() => {
-                                setVerifyingZoneId(null);
+                                setJoiningZoneId(null);
                                 setInviteError(null);
                               }}
-                              className="h-7 px-2 rounded-md text-xs text-slate-500 hover:text-slate-800 cursor-pointer"
+                              className="text-xs text-slate-400 hover:text-slate-700 cursor-pointer"
                             >
                               取消
                             </button>
                           </div>
+
+                          {joinTab === 'invite' ? (
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px]">
+                                <span className="inline-flex items-center gap-1 font-semibold text-indigo-900">
+                                  <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
+                                  <span>私有社区邀请码验证</span>
+                                </span>
+                                {zone.inviteCode && (
+                                  <span className="font-mono text-indigo-700">
+                                    演示邀请码：{zone.inviteCode}
+                                  </span>
+                                )}
+                                {inviteError && <span className="text-red-600">{inviteError}</span>}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <input
+                                  type="text"
+                                  value={inviteInput}
+                                  onChange={(e) => {
+                                    setInviteInput(e.target.value);
+                                    setInviteError(null);
+                                  }}
+                                  placeholder="输入社区邀请码..."
+                                  className="w-40 h-7 rounded-md border border-indigo-200 bg-white px-2.5 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleConfirmInviteJoin(zone)}
+                                  className="h-7 px-3 rounded-md bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                                >
+                                  验证并加入
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <input
+                                type="text"
+                                value={applyNote}
+                                onChange={(e) => setApplyNote(e.target.value)}
+                                placeholder={`向主理人 ${zone.principalName} 说明加入目的、擅长领域或携入 Agent...`}
+                                className="flex-1 h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleConfirmApplyJoin(zone)}
+                                className="h-8 px-3.5 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                              >
+                                提交加入申请
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -672,7 +837,7 @@ export function CollabSpacesPanel({
         </div>
       )}
 
-      {/* Slide-in Drawer: Create Collaboration Space */}
+      {/* Slide-in Drawer: Create Private Agent Community (Official communities are platform-managed) */}
       {createDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
@@ -683,9 +848,9 @@ export function CollabSpacesPanel({
           <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
               <div>
-                <h2 className="text-sm font-bold text-slate-900">创建协作空间</h2>
+                <h2 className="text-sm font-bold text-slate-900">创建私有 Agent 社区</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  可创建企业封闭空间（私有隔离）或开放性社区空间，创建后自动同步至服务市场与交流社区。
+                  官方社区由平台按语言区域统一运营、不可自建；此处创建由你担任主理人的私有社区，支持邀请码与申请审批准入。
                 </p>
               </div>
               <button
@@ -701,78 +866,80 @@ export function CollabSpacesPanel({
               onSubmit={handleCreateSubmit}
               className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
             >
-              {/* Space Category Selection */}
+              {/* Private Community Positioning */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">协作空间类型 *</label>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewKind('community');
-                      if (newRegionCulture === '企业内部 · 私有隔离') {
-                        setNewRegionCulture('中文 · 华语圈');
-                      }
-                    }}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-colors space-y-1 ${
-                      newKind === 'community'
-                        ? 'border-slate-900 bg-slate-900 text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold">
-                      <Compass className="w-3.5 h-3.5" />
-                      <span>开放性空间（社区）</span>
-                    </div>
-                    <p
-                      className={`text-[11px] leading-snug ${
-                        newKind === 'community' ? 'text-slate-300' : 'text-slate-500'
-                      }`}
-                    >
-                      公开可检索加入，适合地域/行业社区交流、共享 Skills 与项目撮合
-                    </p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setNewKind('enterprise');
-                      if (newRegionCulture === '中文 · 华语圈') {
-                        setNewRegionCulture('企业内部 · 私有隔离');
-                      }
-                    }}
-                    className={`p-3 rounded-xl border text-left cursor-pointer transition-colors space-y-1 ${
-                      newKind === 'enterprise'
-                        ? 'border-indigo-700 bg-indigo-700 text-white'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <div className="inline-flex items-center gap-1.5 text-xs font-bold">
-                      <Building2 className="w-3.5 h-3.5" />
-                      <span>企业封闭空间</span>
-                    </div>
-                    <p
-                      className={`text-[11px] leading-snug ${
-                        newKind === 'enterprise' ? 'text-indigo-100' : 'text-slate-500'
-                      }`}
-                    >
-                      凭邀请码准入，隔离企业私有 Agent、内部代码规范与保密项目
-                    </p>
-                  </button>
+                <label className="text-xs font-semibold text-slate-700">私有社区运营形态 *</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      {
+                        id: 'enterprise',
+                        label: '企业私有社区',
+                        desc: '企业内部隔离研发、共享节点与合规 Agent',
+                        defaultRegion: '企业内部 · 私有隔离',
+                      },
+                      {
+                        id: 'opc',
+                        label: 'OPC 创业社区',
+                        desc: '适合一人公司、FDE 与独立开发者圈层运营',
+                        defaultRegion: '中文 · OPC 社区',
+                      },
+                      {
+                        id: 'topic',
+                        label: '垂直主题社区',
+                        desc: '聚焦垂直行业或专项 AI 方案共创与撮合',
+                        defaultRegion: '垂直领域 · 主题共创',
+                      },
+                    ] as {
+                      id: PrivateCommunityScope;
+                      label: string;
+                      desc: string;
+                      defaultRegion: string;
+                    }[]
+                  ).map((opt) => {
+                    const active = newScope === opt.id;
+                    return (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => {
+                          setNewScope(opt.id);
+                          setNewRegionCulture(opt.defaultRegion);
+                        }}
+                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-colors space-y-1 ${
+                          active
+                            ? 'border-slate-900 bg-slate-900 text-white'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="text-xs font-bold">{opt.label}</div>
+                        <p
+                          className={`text-[10px] leading-snug ${
+                            active ? 'text-slate-300' : 'text-slate-500'
+                          }`}
+                        >
+                          {opt.desc}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div className="sm:col-span-2 space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">空间名称 *</label>
+                  <label className="text-xs font-semibold text-slate-700">社区名称 *</label>
                   <input
                     type="text"
                     required
                     value={newName}
                     onChange={(e) => setNewName(e.target.value)}
                     placeholder={
-                      newKind === 'enterprise'
-                        ? '如：星火研发内部封闭空间'
-                        : '如：粤港澳 AI 独立开发社区'
+                      newScope === 'enterprise'
+                        ? '如：星火研发内部私有社区'
+                        : newScope === 'opc'
+                          ? '如：深圳湾 OPC 共创社'
+                          : '如：具身智能开发者私有社'
                     }
                     className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   />
@@ -793,41 +960,39 @@ export function CollabSpacesPanel({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-slate-700">
-                    地域 / 文化或组织标识
+                    组织 / 区域标识
                   </label>
                   <input
                     type="text"
                     value={newRegionCulture}
                     onChange={(e) => setNewRegionCulture(e.target.value)}
-                    placeholder="如：中文 · 华语圈 / 企业内部"
+                    placeholder="如：企业内部 · 私有隔离"
                     className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
                   />
                 </div>
 
-                {newKind === 'enterprise' && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">
-                      准入邀请码（企业封闭）
-                    </label>
-                    <input
-                      type="text"
-                      value={newInviteCode}
-                      onChange={(e) => setNewInviteCode(e.target.value)}
-                      placeholder="SPACE-2026"
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    准入邀请码（支持随时修改）
+                  </label>
+                  <input
+                    type="text"
+                    value={newInviteCode}
+                    onChange={(e) => setNewInviteCode(e.target.value)}
+                    placeholder="AGN-2026"
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">空间定位简介 *</label>
+                <label className="text-xs font-semibold text-slate-700">社区定位简介 *</label>
                 <textarea
                   rows={3}
                   required
                   value={newTagline}
                   onChange={(e) => setNewTagline(e.target.value)}
-                  placeholder="描述该协作空间的核心议题、服务市场方向或项目协作规范..."
+                  placeholder="描述该私有社区的服务市场方向、成员准入标准、共享算力与项目共创规范..."
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                 />
               </div>
@@ -846,7 +1011,7 @@ export function CollabSpacesPanel({
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">空间标识色</label>
+                <label className="text-xs font-semibold text-slate-700">社区标识色</label>
                 <div className="flex flex-wrap items-center gap-2">
                   {ZONE_ACCENT_PALETTE.map((color) => (
                     <button
@@ -877,7 +1042,7 @@ export function CollabSpacesPanel({
                   type="submit"
                   className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                 >
-                  创建并加入协作空间
+                  创建私有社区并进入主理台
                 </button>
               </div>
             </form>

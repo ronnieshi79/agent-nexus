@@ -51,7 +51,7 @@ const CATEGORY_LABELS: Record<PlatformServiceCategory, { label: string; cls: str
 };
 
 const QUICK_COMMANDS = [
-  '帮我汇总协作空间的待审批成员入驻申请',
+  '帮我汇总私有社区的待审批成员入驻申请',
   '帮我核对当前所有项目的待结算项目款明细',
   '巡检有没有待验收交付物或项目预算超支风险',
 ];
@@ -150,7 +150,7 @@ export function PlatformAssistantPane({
           title="Nexa 平台助理"
           tag="Nexa · 官方助理 Agent"
           tagClassName="text-blue-700"
-          subtitle="统一处理协作空间人员申请审批、项目签约结算、接单提醒与交付风控"
+          subtitle="统一处理私有社区成员申请审批、项目签约结算、接单提醒与交付风控"
           panelOpen={panelOpen}
           panelToggleLabel={`平台服务台 (${pendingApplications.length + unsettledRecords.length})`}
           onTogglePanel={() => setPanelOpen((v) => !v)}
@@ -372,20 +372,20 @@ export function PlatformAssistantPane({
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
                     <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>协作空间成员申请</span>
+                    <span>私有社区入驻申请</span>
                   </span>
                   <span className="text-[11px] font-mono tabular-nums font-semibold text-indigo-700">
                     待处理 {pendingApplications.length}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 leading-relaxed">
-                  人员入驻审批通过后将实时写入对应协作空间的成员列表。
+                  成员入驻审批通过后将实时写入对应私有社区的成员列表。
                 </p>
               </div>
 
               {spaceApplications.length === 0 ? (
                 <div className="py-10 text-center text-xs text-slate-400">
-                  暂无协作空间人员申请
+                  暂无私有社区成员申请
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -417,7 +417,7 @@ export function PlatformAssistantPane({
                       </div>
 
                       <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-100 rounded px-2 py-1 truncate">
-                        申请空间：{app.zoneName}
+                        申请社区：{app.zoneName}
                       </div>
 
                       <p className="text-[11px] text-slate-600 leading-relaxed">{app.note}</p>
@@ -448,7 +448,7 @@ export function PlatformAssistantPane({
                               app.status === 'approved' ? 'text-emerald-700' : 'text-slate-400'
                             }`}
                           >
-                            {app.status === 'approved' ? '已同意并加入空间成员' : '已拒绝申请'}
+                            {app.status === 'approved' ? '已同意并加入社区成员' : '已拒绝申请'}
                           </span>
                         )}
                       </div>
@@ -542,7 +542,7 @@ export function PlatformAssistantPane({
                     onClick={onOpenTeam}
                     className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                   >
-                    去 AGN 空间
+                    去 Agents
                   </button>
                 </div>
                 <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">

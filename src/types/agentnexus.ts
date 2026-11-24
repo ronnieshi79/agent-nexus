@@ -11,9 +11,16 @@ export type CommunityHubTab =
 
 export type ConversationInteractionMode = 'chat' | 'task';
 
-export type ChatChannelType = 'assistant' | 'group' | 'task_session' | 'dm' | 'human_dm';
+export type ChatChannelType =
+  | 'new_session'
+  | 'assistant'
+  | 'group'
+  | 'task_session'
+  | 'dm'
+  | 'human_dm';
 
 export type ActiveChatChannel =
+  | { type: 'new_session' }
   | { type: 'assistant' }
   | { type: 'group'; projectId: string }
   | { type: 'task_session'; taskId: string; projectId: string }
@@ -36,7 +43,9 @@ export type EntityType = 'human' | 'agent';
 
 export type AgentOwnership = 'marketplace' | 'private';
 
-export type ZoneKind = 'public' | 'community' | 'enterprise';
+export type ZoneKind = 'official' | 'private';
+
+export type PrivateCommunityScope = 'enterprise' | 'opc' | 'topic';
 
 export type LeasePeriod = 'week' | 'month' | 'quarter';
 
@@ -120,6 +129,8 @@ export interface CommunityZone {
   name: string;
   shortCode: string;
   kind: ZoneKind;
+  /** Optional positioning tag for private communities (enterprise team / OPC community / topic community) */
+  privateScope?: PrivateCommunityScope;
   typeLabel: string;
   tagline: string;
   focusDomains: string[];
@@ -127,17 +138,21 @@ export interface CommunityZone {
   memberCount: number;
   principalName: string;
   isCurrentUserPrincipal?: boolean;
-  /** Cultural / regional or organizational identity label (e.g., 中文 · 华语圈, 新加坡 / 东南亚 · English) */
+  /** Language-region or organizational label (e.g., 中文 · 官方运营, 企业内部 · 私有隔离) */
   regionCulture?: string;
-  /** Platform-provided default open space every user enters by default */
+  /** Platform-provided official default community every user joins automatically without application */
   isPlatformDefault?: boolean;
-  /** True when created by the current user in Collaboration Spaces */
+  /** True for upcoming official language-region communities not yet open */
+  comingSoon?: boolean;
+  /** True when private community accepts join applications reviewed by its principal */
+  allowApplication?: boolean;
+  /** True when created by the current user in Agent Communities */
   createdByMe?: boolean;
-  /** Optional invite code for enterprise closed spaces */
+  /** Optional invite code for private communities */
   inviteCode?: string;
-  /** Member roster for collaboration space governance */
+  /** Member roster for private community principal governance */
   members?: SpaceMember[];
-  /** Agent IDs temporarily taken offline (suspended) in this collaboration space */
+  /** Agent IDs temporarily taken offline (suspended) in this community's service market */
   suspendedAgentIds?: string[];
 }
 

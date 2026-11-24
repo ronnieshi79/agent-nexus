@@ -209,7 +209,7 @@ export function GroupChatView({
           }
           title={workspace.name}
           tag={`项目群 · ${spaceOwnershipLabel} · ${hiredAgents.length} 专家 · ${tasks.length} 任务卡`}
-          tagClassName={linkedZone?.kind === 'enterprise' ? 'text-indigo-700' : 'text-blue-700'}
+          tagClassName={linkedZone?.kind === 'private' ? 'text-indigo-700' : 'text-blue-700'}
           subtitle={workspace.goal}
           panelOpen={rightOpen}
           panelToggleLabel={`任务卡片 (${tasks.length})`}
@@ -917,7 +917,7 @@ export function GroupChatView({
                     onClick={onJumpToTeam}
                     className="py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer"
                   >
-                    AGN 空间
+                    Agent 团队
                   </button>
                 </div>
               </>

@@ -31,8 +31,8 @@ export function ZoneSelectorDropdown({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const activeZone = zones.find((z) => z.id === activeZoneId) || zones[0];
-  const publicZones = zones.filter((z) => z.kind === 'public');
-  const privateZones = zones.filter((z) => z.kind !== 'public');
+  const officialZones = zones.filter((z) => z.kind === 'official');
+  const privateZones = zones.filter((z) => z.kind === 'private');
 
   useEffect(() => {
     if (!open) return;
@@ -53,15 +53,15 @@ export function ZoneSelectorDropdown({
   }, [open]);
 
   const renderKindIcon = (zone: CommunityZone, cls = 'w-3 h-3 shrink-0') => {
-    if (zone.kind === 'public') return <Globe className={cls} />;
-    if (zone.kind === 'enterprise') return <Building2 className={cls} />;
+    if (zone.kind === 'official') return <Globe className={cls} />;
+    if (zone.privateScope === 'enterprise') return <Building2 className={cls} />;
     return <Lock className={cls} />;
   };
 
   const renderZoneItem = (z: CommunityZone) => {
     const isSelected = z.id === activeZone.id;
-    const isPub = z.kind === 'public';
-    const isJoined = isPub || (joinedZoneIds ? joinedZoneIds.includes(z.id) : true);
+    const isOfficial = z.kind === 'official';
+    const isJoined = isOfficial || (joinedZoneIds ? joinedZoneIds.includes(z.id) : true);
     const statText = getZoneStat ? getZoneStat(z) : `${z.memberCount} 成员`;
 
     return (
@@ -107,7 +107,7 @@ export function ZoneSelectorDropdown({
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {!isPub && onToggleJoinZone && (
+          {!isOfficial && onToggleJoinZone && (
             <button
               type="button"
               onClick={(e) => {
@@ -208,19 +208,19 @@ export function ZoneSelectorDropdown({
           role="listbox"
           className="absolute left-0 mt-1.5 w-[min(320px,calc(100vw-2rem))] bg-white rounded-xl border border-slate-200 shadow-lg p-1.5 z-50 space-y-1.5"
         >
-          {publicZones.length > 0 && (
+          {officialZones.length > 0 && (
             <div className="space-y-0.5">
               <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                已加入 · 平台开放空间
+                官方社区（默认加入）
               </div>
-              {publicZones.map(renderZoneItem)}
+              {officialZones.map(renderZoneItem)}
             </div>
           )}
 
           {privateZones.length > 0 && (
             <div className="pt-1 border-t border-slate-100 space-y-0.5">
               <div className="px-2.5 pt-1 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-                已加入 · 开放社区与企业空间 ({privateZones.length})
+                已加入 · 私有社区 ({privateZones.length})
               </div>
               {privateZones.map(renderZoneItem)}
             </div>
@@ -236,7 +236,7 @@ export function ZoneSelectorDropdown({
                 }}
                 className="w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-semibold text-blue-700 hover:bg-blue-50 transition-colors cursor-pointer"
               >
-                <span>管理 / 发现更多协作空间</span>
+                <span>管理 / 发现更多 Agent 社区</span>
                 <span aria-hidden="true">→</span>
               </button>
             </div>

@@ -66,6 +66,7 @@ import type {
   PipelineHandoffMode,
   PlatformAuditLog,
   PlatformServiceCategory,
+  PrivateCommunityScope,
   ProjectArtifact,
   ProjectLifecycleStatus,
   ProjectStageSlot,
@@ -137,10 +138,9 @@ export function useAgentNexusStore() {
   ]);
   const [activeSessionId, setActiveSessionId] = useState<string>(INITIAL_WORKSPACES[0].id);
 
-  // Unified Chat Channel: Platform Assistant | Project Group | Human DM | Agent DM | Task Session
+  // Unified Chat Channel: New Session Launcher | Platform Assistant | Project Group | Human DM | Agent DM | Task Session
   const [activeChatChannel, setActiveChatChannel] = useState<ActiveChatChannel>({
-    type: 'group',
-    projectId: INITIAL_WORKSPACES[0].id,
+    type: 'new_session',
   });
   const [lastChatChannel, setLastChatChannel] = useState<ActiveChatChannel>({
     type: 'group',
@@ -149,9 +149,15 @@ export function useAgentNexusStore() {
   const [lastTaskSessionId, setLastTaskSessionId] = useState<string>(
     INITIAL_TASKS[1]?.id || INITIAL_TASKS[0]?.id || '',
   );
+  const [preferredConversationMode, setPreferredConversationMode] =
+    useState<ConversationInteractionMode>('task');
 
   const conversationMode: ConversationInteractionMode =
-    activeChatChannel.type === 'task_session' ? 'task' : 'chat';
+    activeChatChannel.type === 'task_session'
+      ? 'task'
+      : activeChatChannel.type === 'new_session'
+        ? preferredConversationMode
+        : 'chat';
 
   const [agents, setAgents] = useState<ExpertAgent[]>(INITIAL_EXPERT_AGENTS);
   const [allTasks, setAllTasks] = useState<WorkflowTask[]>(INITIAL_TASKS);
@@ -229,7 +235,7 @@ export function useAgentNexusStore() {
   }, []);
 
   const joinedZones = useMemo(
-    () => zones.filter((z) => z.isPlatformDefault || joinedZoneIds.includes(z.id)),
+    () => zones.filter((z) => !z.comingSoon && (z.isPlatformDefault || joinedZoneIds.includes(z.id))),
     [joinedZoneIds, zones],
   );
 
@@ -301,20 +307,45 @@ export function useAgentNexusStore() {
     [allTasks],
   );
 
+  const managedZoneIdSet = useMemo(
+    () =>
+      new Set(
+        zones
+          .filter((z) => z.kind === 'private' && Boolean(z.createdByMe || z.isCurrentUserPrincipal))
+          .map((z) => z.id),
+      ),
+    [zones],
+  );
+
+  const managedSpaceApplications = useMemo(
+    () =>
+      spaceApplications.filter(
+        (a) => managedZoneIdSet.has(a.zoneId) && a.humanExpertId !== 'human_me',
+      ),
+    [managedZoneIdSet, spaceApplications],
+  );
+
   const pendingSpaceApplicationCount = useMemo(
-    () => spaceApplications.filter((a) => a.status === 'pending').length,
-    [spaceApplications],
+    () => managedSpaceApplications.filter((a) => a.status === 'pending').length,
+    [managedSpaceApplications],
   );
 
   const assistantPendingCount =
     unsettledCount + reviewTaskCount + activeNegotiationCount + pendingSpaceApplicationCount;
 
+  const openNewSessionLauncher = useCallback(() => {
+    setActiveChatChannel({ type: 'new_session' });
+    setActiveView('chat');
+  }, []);
+
   const openAssistantChat = useCallback(() => {
+    setPreferredConversationMode('chat');
     setActiveChatChannel({ type: 'assistant' });
     setActiveView('chat');
   }, []);
 
   const selectSession = useCallback((sessionId: string) => {
+    setPreferredConversationMode('chat');
     setActiveSessionId(sessionId);
     setActiveChatChannel({ type: 'group', projectId: sessionId });
     setActiveView('chat');
@@ -474,8 +505,8 @@ export function useAgentNexusStore() {
   const toggleJoinZone = useCallback(
     (zoneId: string) => {
       const target = zones.find((z) => z.id === zoneId);
-      if (!target) return;
-      if (target.isPlatformDefault) return;
+      if (!target || target.comingSoon) return;
+      if (target.isPlatformDefault || target.kind === 'official') return;
 
       const currentlyJoined = joinedZoneIds.includes(zoneId);
       setJoinedZoneIds((prev) =>
@@ -495,10 +526,10 @@ export function useAgentNexusStore() {
         {
           id: `aud_zone_${Date.now()}`,
           category: 'general',
-          title: currentlyJoined ? `已退出协作空间：${target.name}` : `已加入协作空间：${target.name}`,
+          title: currentlyJoined ? `已退出私有社区：${target.name}` : `已加入私有社区：${target.name}`,
           detail: currentlyJoined
-            ? '已从服务市场与交流社区的可切换空间列表中移除，可随时在「工作台 → 协作空间」重新加入。'
-            : `空间类型：${target.typeLabel}；已同步开放至「服务市场」与「交流社区」空间切换器。`,
+            ? '已从服务市场与社区交流的可切换社区列表中移除，可随时在「Agents → Agent 空间 → Agent 社区」重新加入。'
+            : `社区类型：${target.typeLabel}；已同步开放至「AGN 社区」切换器。`,
           severity: currentlyJoined ? 'info' : 'success',
           timestamp: nowTimeStr(),
         },
@@ -508,11 +539,76 @@ export function useAgentNexusStore() {
     [activeZoneId, joinedZoneIds, zones],
   );
 
+  const applyToJoinZone = useCallback(
+    (zoneId: string, note: string) => {
+      const target = zones.find((z) => z.id === zoneId);
+      if (!target || target.kind !== 'private' || target.comingSoon) return;
+      const applicantName = account?.name || '林致远（我）';
+      const alreadyPending = spaceApplications.some(
+        (a) => a.zoneId === zoneId && a.humanExpertId === 'human_me' && a.status === 'pending',
+      );
+      if (alreadyPending) return;
+      const ts = nowTimeStr();
+      const newApp: SpaceJoinApplication = {
+        id: `app_self_${Date.now().toString().slice(-5)}`,
+        zoneId: target.id,
+        zoneName: target.name,
+        applicantName,
+        applicantTitle: 'OPC 成员 / 全栈工程负责人',
+        humanExpertId: 'human_me',
+        avatarInitials: account?.avatarInitials || '致远',
+        avatarAccent: '#0284c7',
+        requestedRole: 'member',
+        note: note.trim() || `申请加入私有社区「${target.name}」，参与项目共创与专家协作。`,
+        createdAt: ts,
+        status: 'pending',
+      };
+      setSpaceApplications((prev) => [newApp, ...prev]);
+      setAuditLogs((prev) => [
+        {
+          id: `aud_zone_apply_${Date.now()}`,
+          category: 'approval',
+          title: `已提交私有社区加入申请：${target.name}`,
+          detail: `等待主理人 ${target.principalName} 审批；若持有邀请码也可直接验证加入。`,
+          severity: 'info',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [account?.avatarInitials, account?.name, spaceApplications, zones],
+  );
+
+  const updateZoneInviteCode = useCallback(
+    (zoneId: string, newCode: string) => {
+      const clean = newCode.trim().toUpperCase();
+      if (!clean) return;
+      setZones((prev) =>
+        prev.map((z) => (z.id === zoneId && z.kind === 'private' ? { ...z, inviteCode: clean } : z)),
+      );
+      const target = zones.find((z) => z.id === zoneId);
+      if (target) {
+        setAuditLogs((prev) => [
+          {
+            id: `aud_zone_code_${Date.now()}`,
+            category: 'general',
+            title: `已更新社区邀请码：${target.name}`,
+            detail: `最新邀请码：${clean}`,
+            severity: 'info',
+            timestamp: nowTimeStr(),
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [zones],
+  );
+
   const createCollabZone = useCallback(
     (input: {
       name: string;
       shortCode: string;
-      kind: 'community' | 'enterprise';
+      privateScope: PrivateCommunityScope;
       regionCulture: string;
       tagline: string;
       focusDomains: string[];
@@ -520,14 +616,21 @@ export function useAgentNexusStore() {
       inviteCode?: string;
     }) => {
       const newId = `zone_custom_${Date.now().toString().slice(-5)}`;
-      const isEnterprise = input.kind === 'enterprise';
+      const scopeTypeLabelMap: Record<PrivateCommunityScope, string> = {
+        enterprise: '私有社区 · 企业',
+        opc: '私有社区 · OPC',
+        topic: '私有社区 · 主题',
+      };
       const ownerName = account?.name || '林致远（我）';
+      const resolvedCode =
+        input.inviteCode?.trim().toUpperCase() || `AGN-${Date.now().toString().slice(-4)}`;
       const newZone: CommunityZone = {
         id: newId,
         name: input.name.trim(),
         shortCode: input.shortCode.trim().slice(0, 2) || input.name.trim().slice(0, 1),
-        kind: input.kind,
-        typeLabel: isEnterprise ? '企业封闭空间' : '开放社区',
+        kind: 'private',
+        privateScope: input.privateScope,
+        typeLabel: scopeTypeLabelMap[input.privateScope],
         regionCulture: input.regionCulture.trim(),
         tagline: input.tagline.trim(),
         focusDomains: input.focusDomains,
@@ -535,14 +638,18 @@ export function useAgentNexusStore() {
         memberCount: 1,
         principalName: ownerName,
         isCurrentUserPrincipal: true,
+        allowApplication: true,
         createdByMe: true,
-        inviteCode: isEnterprise ? input.inviteCode?.trim() || 'SPACE-2026' : undefined,
+        inviteCode: resolvedCode,
         members: [
           {
             id: `mem_owner_${newId}`,
             humanExpertId: 'human_me',
             name: ownerName,
-            title: isEnterprise ? '空间创建者 · 负责人' : '社区发起人 · 主理人',
+            title:
+              input.privateScope === 'enterprise'
+                ? '社区主理人 · 企业负责人'
+                : '社区主理人 · 发起人',
             role: 'owner',
             avatarInitials: account?.avatarInitials || '致远',
             avatarAccent: input.accentColor,
@@ -562,13 +669,11 @@ export function useAgentNexusStore() {
           pinnedBy: newZone.principalName,
           authorName: newZone.principalName,
           authorHandle: '@zhiyuan_opc',
-          authorRole: `${newZone.name} · 空间创建者`,
+          authorRole: `${newZone.name} · 社区主理人`,
           authorAccent: newZone.accentColor,
           authorCode: newZone.shortCode,
-          title: `【空间公告】欢迎进入「${newZone.name}」${newZone.typeLabel}`,
-          content: `${newZone.tagline}${
-            newZone.inviteCode ? `（企业空间邀请码：${newZone.inviteCode}）` : ''
-          }`,
+          title: `【社区公告】欢迎加入私有社区「${newZone.name}」`,
+          content: `${newZone.tagline}（社区准入邀请码：${resolvedCode}，亦支持外部成员提交加入申请由主理人审批）`,
           tags: newZone.focusDomains.slice(0, 3),
           createdAt: nowTimeStr(),
           likes: 1,
@@ -580,8 +685,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_zone_new_${Date.now()}`,
           category: 'general',
-          title: `已创建协作空间：${newZone.name}`,
-          detail: `${newZone.typeLabel} · ${newZone.regionCulture || '自定义空间'}；已自动加入并同步至服务市场与交流社区。`,
+          title: `已创建私有 Agent 社区：${newZone.name}`,
+          detail: `${newZone.typeLabel} · ${newZone.regionCulture || '主理人自治'}；已自动加入并同步至 AGN 社区。`,
           severity: 'success',
           timestamp: nowTimeStr(),
         },
@@ -589,13 +694,14 @@ export function useAgentNexusStore() {
       ]);
       return newId;
     },
-    [account?.name],
+    [account?.avatarInitials, account?.name],
   );
 
   const deleteCollabZone = useCallback(
     (zoneId: string) => {
       const target = zones.find((z) => z.id === zoneId);
-      if (!target || target.isPlatformDefault || !target.createdByMe) return;
+      if (!target || target.isPlatformDefault || target.kind === 'official' || !target.createdByMe)
+        return;
       setZones((prev) => prev.filter((z) => z.id !== zoneId));
       setJoinedZoneIds((prev) => prev.filter((id) => id !== zoneId));
       setSpaceSharedNodes((prev) => prev.filter((n) => n.zoneId !== zoneId));
@@ -606,8 +712,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_zone_del_${Date.now()}`,
           category: 'general',
-          title: `已解散协作空间：${target.name}`,
-          detail: '该自建协作空间及其共享节点已从您的空间列表及市场/社区切换器中移除。',
+          title: `已解散私有社区：${target.name}`,
+          detail: '该自建私有社区及其共享资源已从您的 Agent 社区列表与切换器中移除。',
           severity: 'warning',
           timestamp: nowTimeStr(),
         },
@@ -639,7 +745,7 @@ export function useAgentNexusStore() {
         id: `mem_${Date.now().toString().slice(-5)}`,
         humanExpertId: input.humanExpertId,
         name: cleanName,
-        title: input.title.trim() || '协作空间成员',
+        title: input.title.trim() || '私有社区成员',
         role: input.role,
         avatarInitials: input.avatarInitials || cleanName.slice(0, 2).toUpperCase(),
         avatarAccent: input.avatarAccent || '#1d4ed8',
@@ -715,7 +821,7 @@ export function useAgentNexusStore() {
           id: `aud_mem_kick_${Date.now()}`,
           category: 'general',
           title: `已将 ${member.name} 移出「${target.name}」`,
-          detail: '该成员已失去该协作空间的共享节点与内部服务市场访问权限。',
+          detail: '该成员已失去该私有社区的共享节点与内部服务市场访问权限。',
           severity: 'warning',
           timestamp: nowTimeStr(),
         },
@@ -860,8 +966,8 @@ export function useAgentNexusStore() {
             ? `已恢复上线：${targetAgent.handle}（${targetZone.name}）`
             : `已下线停服：${targetAgent.handle}（${targetZone.name}）`,
           detail: currentlySuspended
-            ? '该专业 Agent 已重新展示在该协作空间的服务市场并恢复接单。'
-            : '该专业 Agent 已从该协作空间服务市场暂时下线，不影响其他空间或历史项目。',
+            ? '该专业 Agent 已重新展示在该社区的服务市场并恢复接单。'
+            : '该专业 Agent 已从该社区服务市场暂时下线，不影响其他社区或历史项目。',
           severity: currentlySuspended ? 'success' : 'warning',
           timestamp: nowTimeStr(),
         },
@@ -939,7 +1045,7 @@ export function useAgentNexusStore() {
           id: `aud_zagent_rm_${Date.now()}`,
           category: 'general',
           title: `已从「${targetZone.name}」移除专业 Agent：${targetAgent.handle}`,
-          detail: '该 Agent 已取消在该协作空间的服务市场发布。',
+          detail: '该 Agent 已取消在该社区的服务市场发布。',
           severity: 'info',
           timestamp: nowTimeStr(),
         },
@@ -956,6 +1062,7 @@ export function useAgentNexusStore() {
       sourceZoneId?: string,
       boundNodeIds?: string[],
       storageVolumeId?: string,
+      options?: { stayOnCurrentChannel?: boolean },
     ) => {
       const cleanedName = name.trim();
       if (!cleanedName) return '';
@@ -1024,7 +1131,10 @@ export function useAgentNexusStore() {
         );
       }
       setActiveSessionId(newId);
-      setActiveChatChannel({ type: 'group', projectId: newId });
+      if (!options?.stayOnCurrentChannel) {
+        setPreferredConversationMode('chat');
+        setActiveChatChannel({ type: 'group', projectId: newId });
+      }
       setAllMessages((prev) => [
         ...prev,
         {
@@ -1065,7 +1175,7 @@ export function useAgentNexusStore() {
     }) => {
       const cleanedTitle = input.title.trim();
       if (!cleanedTitle) return '';
-      const zoneName = zones.find((z) => z.id === input.zoneId)?.name || '协作空间';
+      const zoneName = zones.find((z) => z.id === input.zoneId)?.name || 'Agent 社区';
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_${Date.now().toString().slice(-5)}`;
       const newOppId = `zproj_${Date.now().toString().slice(-5)}`;
@@ -1087,7 +1197,7 @@ export function useAgentNexusStore() {
         zoneId: input.zoneId,
         title: cleanedTitle,
         publisher: account ? `${account.name}（我方发布）` : '我方项目团队',
-        summary: input.summary.trim() || '面向该协作空间专家团队开放项目发包，欢迎直接私聊报价签约。',
+        summary: input.summary.trim() || '面向该社区专家团队开放项目共创，欢迎直接私聊报价签约。',
         budgetUsd: Math.max(1000, Math.round(input.budgetUsd)),
         durationDays: Math.max(1, Math.round(input.durationDays || 7)),
         requiredRoles:
@@ -1158,7 +1268,7 @@ export function useAgentNexusStore() {
     (oppId: string) => {
       const opp = zoneProjects.find((p) => p.id === oppId);
       if (!opp || opp.status === 'claimed') return '';
-      const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || '协作空间';
+      const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || 'Agent 社区';
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_part_${Date.now().toString().slice(-5)}`;
       const myPrivateIds = agents
@@ -1171,7 +1281,7 @@ export function useAgentNexusStore() {
       const newWorkspace: ProjectWorkspace = {
         id: newWorkspaceId,
         name: opp.title,
-        goal: `承接「${zoneName}」协作空间项目：${opp.summary}`,
+        goal: `承接「${zoneName}」社区共创项目：${opp.summary}`,
         role: 'participating',
         sourceZoneId: opp.zoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
@@ -1211,7 +1321,7 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已承接「${zoneName}」协作空间项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻项目群并立项首张工作卡片。`,
+          content: `已承接「${zoneName}」社区共创项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻项目群并立项首张工作卡片。`,
           timestamp: ts,
           linkedTaskIds: [kickoffTask.id],
         },
@@ -1385,6 +1495,27 @@ export function useAgentNexusStore() {
     [account],
   );
 
+  const deleteCommunityPost = useCallback(
+    (postId: string) => {
+      const target = communityPosts.find((p) => p.id === postId);
+      setCommunityPosts((prev) => prev.filter((p) => p.id !== postId));
+      if (target) {
+        setAuditLogs((prev) => [
+          {
+            id: `aud_post_del_${Date.now()}`,
+            category: 'general',
+            title: `主理人已移除社区动态：${target.title.slice(0, 24)}`,
+            detail: '内容已从该私有社区动态流中删除。',
+            severity: 'info',
+            timestamp: nowTimeStr(),
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [communityPosts],
+  );
+
   const toggleLikePost = useCallback((postId: string) => {
     setCommunityPosts((prev) =>
       prev.map((p) => {
@@ -1518,6 +1649,7 @@ export function useAgentNexusStore() {
         },
       ]);
 
+      setPreferredConversationMode('task');
       setActiveSessionId(targetSessionId);
       setActiveChatChannel({
         type: 'task_session',
@@ -1529,6 +1661,156 @@ export function useAgentNexusStore() {
       return newTask;
     },
     [activeWorkspace.id, agents],
+  );
+
+  const launchNewTaskSessionFromPrompt = useCallback(
+    async (input: {
+      sessionId: string;
+      assigneeId: string;
+      workType: WorkCardType;
+      prompt: string;
+      featureModule?: string;
+      syncToGroup?: boolean;
+    }) => {
+      const cleanedPrompt = input.prompt.trim();
+      if (!cleanedPrompt) return;
+
+      const targetSessionId = input.sessionId || activeWorkspace.id;
+      const targetWorkspace =
+        workspaces.find((w) => w.id === targetSessionId) || activeWorkspace;
+      const assignee = agents.find((a) => a.id === input.assigneeId) || agents[0];
+      const ts = nowTimeStr();
+
+      // Derive clean concise task title from the first line of the prompt
+      const firstLine = cleanedPrompt.split(/\r?\n/)[0].trim();
+      const derivedTitle =
+        firstLine.length > 28 ? `${firstLine.slice(0, 28)}…` : firstLine;
+
+      const newTask: WorkflowTask = {
+        id: `tsk_${Date.now().toString().slice(-4)}`,
+        sessionId: targetSessionId,
+        featureModule: input.featureModule?.trim() || '快速任务',
+        workType: input.workType,
+        title: derivedTitle,
+        description: cleanedPrompt,
+        assigneeId: assignee?.id || 'butler',
+        assigneeHandle: assignee?.handle || '@Nexa',
+        status: 'in_progress',
+        priority: '高',
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+      // Ensure the selected expert agent is linked to the project workspace for seamless collaboration
+      if (assignee && !targetWorkspace.hiredAgentIds.includes(assignee.id)) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === targetSessionId
+              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, assignee.id] }
+              : w,
+          ),
+        );
+      }
+
+      const initialUserTurn: TaskSessionMessage = {
+        id: `tsm_u_${Date.now()}`,
+        taskId: newTask.id,
+        sender: 'employer',
+        content: cleanedPrompt,
+        timestamp: ts,
+      };
+
+      setAllTasks((prev) => [newTask, ...prev]);
+      setTaskSessions((prev) => ({
+        ...prev,
+        [newTask.id]: [initialUserTurn],
+      }));
+
+      if (input.syncToGroup !== false) {
+        setAllMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_card_${Date.now()}`,
+            sessionId: targetSessionId,
+            senderType: 'butler',
+            senderId: 'butler',
+            senderName: 'Nexa 助理',
+            senderHandle: '@Nexa',
+            content: `已通过快速启动台新建任务「${newTask.title}」并指派给 ${newTask.assigneeHandle} 开启专属任务 Session，关键里程碑将同步回本项目群。`,
+            timestamp: ts,
+            linkedTaskIds: [newTask.id],
+          },
+        ]);
+      }
+
+      setPreferredConversationMode('task');
+      setLastTaskSessionId(newTask.id);
+      setActiveSessionId(targetSessionId);
+      setActiveChatChannel({
+        type: 'task_session',
+        taskId: newTask.id,
+        projectId: targetSessionId,
+      });
+      setActiveView('chat');
+      setTaskSessionError(null);
+      setTaskSessionBusyId(newTask.id);
+
+      try {
+        const result = await sendTaskSessionMessage({
+          task: newTask,
+          agent: assignee,
+          workspace: targetWorkspace,
+          history: [initialUserTurn],
+          message: cleanedPrompt,
+        });
+
+        const replyTs = nowTimeStr();
+        const shouldSyncMilestone = Boolean(result.readyForReview);
+        const agentTurn: TaskSessionMessage = {
+          id: `tsm_a_${Date.now()}`,
+          taskId: newTask.id,
+          sender: 'agent',
+          content: result.reply,
+          timestamp: replyTs,
+          executionSteps: (result.executionSteps || []).filter(Boolean),
+          artifactPath: result.artifactPath?.trim() || undefined,
+          artifactSnippet: result.artifactSnippet?.trim() || undefined,
+          suggestedActions: (result.suggestedActions || []).filter(Boolean),
+          awaitingConfirmation: Boolean(result.awaitingConfirmation),
+          milestoneSynced: shouldSyncMilestone,
+        };
+
+        setTaskSessions((prev) => ({
+          ...prev,
+          [newTask.id]: [...(prev[newTask.id] || [initialUserTurn]), agentTurn],
+        }));
+
+        if (shouldSyncMilestone) {
+          const finalArtifact =
+            result.artifactPath?.trim() || `artifacts/${newTask.id}_deliverable.md`;
+          setAllTasks((prev) =>
+            prev.map((t) =>
+              t.id === newTask.id
+                ? {
+                    ...t,
+                    status: 'review',
+                    deliverableSummary: result.reply,
+                    deliverableArtifact: finalArtifact,
+                    updatedAt: replyTs,
+                  }
+                : t,
+            ),
+          );
+        }
+      } catch (err) {
+        setTaskSessionError(
+          err instanceof Error ? err.message : '任务 Session 启动失败，请稍后重试。',
+        );
+      } finally {
+        setTaskSessionBusyId(null);
+      }
+    },
+    [activeWorkspace, agents, workspaces],
   );
 
   const hireAgentIntoProject = useCallback(
@@ -2214,7 +2496,7 @@ export function useAgentNexusStore() {
       const target = agents.find((a) => a.id === agentId);
       if (!target || target.ownership !== 'private') return;
       const zoneId = targetZoneId || activeZone.id;
-      const zoneName = zones.find((z) => z.id === zoneId)?.name || '当前协作空间';
+      const zoneName = zones.find((z) => z.id === zoneId)?.name || '当前社区';
       const isInZone = target.listedZoneIds.includes(zoneId);
       const nextZones = isInZone
         ? target.listedZoneIds.filter((id) => id !== zoneId)
@@ -2244,7 +2526,7 @@ export function useAgentNexusStore() {
           detail: !isInZone
             ? `已在「${zoneName}」服务市场曝光接单，平台助理将实时播报雇佣协商与收益结算。`
             : nextZones.length > 0
-              ? `已撤回在「${zoneName}」的曝光，其余已勾选协作空间仍保持接单。`
+              ? `已撤回在「${zoneName}」的曝光，其余已勾选社区仍保持接单。`
               : '已撤回全部对外市场曝光，当前仅保留个人私有自用权限。',
           severity: 'info',
           timestamp: ts,
@@ -2475,6 +2757,13 @@ export function useAgentNexusStore() {
 
   const switchConversationMode = useCallback(
     (nextMode: ConversationInteractionMode) => {
+      setPreferredConversationMode(nextMode);
+
+      // If currently on the New Session Launcher, simply switch the sidebar list mode without leaving the launchpad
+      if (activeChatChannel.type === 'new_session') {
+        return;
+      }
+
       if (nextMode === 'task') {
         if (activeChatChannel.type !== 'task_session') {
           setLastChatChannel(activeChatChannel);
@@ -2530,7 +2819,9 @@ export function useAgentNexusStore() {
           projectId: activeChatChannel.projectId,
         };
         const target =
-          lastChatChannel.type !== 'task_session' ? lastChatChannel : fallbackGroup;
+          lastChatChannel.type !== 'task_session' && lastChatChannel.type !== 'new_session'
+            ? lastChatChannel
+            : fallbackGroup;
         if (target.type === 'group') {
           setActiveSessionId(target.projectId);
         }
@@ -3935,6 +4226,8 @@ export function useAgentNexusStore() {
     joinedZoneIds,
     spaceSharedNodes,
     toggleJoinZone,
+    applyToJoinZone,
+    updateZoneInviteCode,
     createCollabZone,
     deleteCollabZone,
     inviteSpaceMember,
@@ -3965,14 +4258,17 @@ export function useAgentNexusStore() {
     createCommunityPost,
     publishCommunitySkill,
     togglePinPost,
+    deleteCommunityPost,
     toggleLikePost,
     addPostComment,
     followedEntityKeys,
     toggleFollowEntity,
+    openNewSessionLauncher,
     openAssistantChat,
     openTaskSession,
     openAgentTaskSession,
     createAndOpenTaskSession,
+    launchNewTaskSessionFromPrompt,
     openHumanDm,
     sendHumanDmMessage,
     humanDmThreads,
@@ -4053,6 +4349,7 @@ export function useAgentNexusStore() {
     assistantBusy,
     assistantPendingCount,
     spaceApplications,
+    managedSpaceApplications,
     pendingSpaceApplicationCount,
     resolveSpaceApplication,
     settlements,

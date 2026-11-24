@@ -14,11 +14,13 @@ import type {
   SettlementRecord,
   SpaceJoinApplication,
   TaskSessionMessage,
+  WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
 import { GroupChatView } from '../views/GroupChatView';
 import { DirectNegotiationPane } from './DirectNegotiationPane';
 import { HumanDirectChatPane } from './HumanDirectChatPane';
+import { NewSessionLauncherPane } from './NewSessionLauncherPane';
 import { PlatformAssistantPane } from './PlatformAssistantPane';
 import { TaskSessionPane } from './TaskSessionPane';
 
@@ -83,6 +85,16 @@ interface UnifiedChatViewProps {
   onJumpToMarket: () => void;
   onJumpToKanban: (projectId?: string) => void;
   onJumpToTeam: () => void;
+  onJumpToMountPrivate: () => void;
+  onCreateProjectForLauncher: (name: string, goal: string, sourceZoneId?: string) => string;
+  onLaunchNewTaskSession: (input: {
+    sessionId: string;
+    assigneeId: string;
+    workType: WorkCardType;
+    prompt: string;
+    featureModule?: string;
+    syncToGroup?: boolean;
+  }) => Promise<void>;
 }
 
 export function UnifiedChatView({
@@ -138,6 +150,9 @@ export function UnifiedChatView({
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
+  onJumpToMountPrivate,
+  onCreateProjectForLauncher,
+  onLaunchNewTaskSession,
 }: UnifiedChatViewProps) {
   const activeDmThread =
     activeChannel.type === 'dm'
@@ -179,6 +194,20 @@ export function UnifiedChatView({
 
   return (
     <div className="h-full w-full overflow-hidden bg-white">
+      {activeChannel.type === 'new_session' && (
+        <NewSessionLauncherPane
+          workspaces={workspaces}
+          activeWorkspace={activeWorkspace}
+          zones={zones}
+          agents={agents}
+          account={account}
+          onLaunchTaskSession={onLaunchNewTaskSession}
+          onCreateProjectForLauncher={onCreateProjectForLauncher}
+          onJumpToMountPrivate={onJumpToMountPrivate}
+          onJumpToMarket={onJumpToMarket}
+        />
+      )}
+
       {activeChannel.type === 'group' && (
         <GroupChatView
           workspace={activeWorkspace}

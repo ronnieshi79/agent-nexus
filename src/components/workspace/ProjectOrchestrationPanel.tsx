@@ -251,7 +251,7 @@ export function ProjectOrchestrationPanel({
                     className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   >
                     {privateAgents.length > 0 && (
-                      <optgroup label="自建专业 Agent（AGN 空间）">
+                      <optgroup label="自建专业 Agent（Agent 团队）">
                         {privateAgents.map((a) => (
                           <option key={a.id} value={a.id}>
                             {a.handle} · {a.runtimeAgent}

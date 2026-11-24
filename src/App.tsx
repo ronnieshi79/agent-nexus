@@ -41,14 +41,14 @@ const TEAM_SECTION_META: Record<
   TeamSectionTab,
   { group: string; label: string; parentTab?: TeamSectionTab }
 > = {
-  agents: { group: 'Agent 协作', label: 'Agent 成员' },
-  collaborators: { group: 'Agent 协作', label: '合作专家' },
-  friends: { group: 'Agent 协作', label: '协作好友' },
-  collab_my: { group: 'Agent 协作', label: '协作空间' },
-  collab_manage: { group: 'Agent 协作', label: '空间管理', parentTab: 'collab_my' },
-  collab_discover: { group: 'Agent 协作', label: '发现空间', parentTab: 'collab_my' },
-  nodes: { group: 'Agent 基础设施', label: 'Agent 节点' },
-  storage: { group: 'Agent 基础设施', label: 'Agent 存储' },
+  agents: { group: 'Agent 团队', label: 'Agent 成员' },
+  collaborators: { group: 'Agent 团队', label: '合作专家' },
+  friends: { group: 'Agent 团队', label: '我的好友' },
+  nodes: { group: 'Agent 空间', label: 'Agent 节点' },
+  storage: { group: 'Agent 空间', label: 'Agent 存储' },
+  collab_my: { group: 'Agent 空间', label: 'Agent 社区' },
+  collab_manage: { group: 'Agent 空间', label: '主理人管理', parentTab: 'collab_my' },
+  collab_discover: { group: 'Agent 空间', label: '发现社区', parentTab: 'collab_my' },
 };
 
 const COMMUNITY_TAB_META: Record<
@@ -116,18 +116,18 @@ export default function App() {
         {
           label: meta.group,
           onClick: () =>
-            store.openTeamTab(meta.group === 'Agent 基础设施' ? 'nodes' : 'agents'),
+            store.openTeamTab(meta.group === 'Agent 空间' ? 'nodes' : 'agents'),
         },
       ];
       if (meta.parentTab) {
         items.push({
-          label: '协作空间',
+          label: 'Agent 社区',
           onClick: () => store.openTeamTab(meta.parentTab!),
         });
         items.push({
           label:
             teamBreadcrumbCtx.section === 'collab_manage' && teamBreadcrumbCtx.managedZoneName
-              ? `${teamBreadcrumbCtx.managedZoneName} · 空间管理`
+              ? `${teamBreadcrumbCtx.managedZoneName} · 主理人管理`
               : meta.label,
         });
       } else {
@@ -188,8 +188,11 @@ export default function App() {
       ];
     }
 
-    // Chat view unified breadcrumbs: clear distinction between 任务模式 (Single-Agent Session) vs 对话模式 (IM)
+    // Chat view unified breadcrumbs: clear distinction between 新会话 / 任务模式 / 对话模式
     const ch = store.activeChatChannel;
+    if (ch.type === 'new_session') {
+      return [{ label: '新会话' }];
+    }
     if (ch.type === 'task_session') {
       const task = store.allTasks.find((t) => t.id === ch.taskId);
       const taskAgent = task ? store.agents.find((a) => a.id === task.assigneeId) : undefined;
@@ -284,6 +287,7 @@ export default function App() {
           store.createSession(name, goal, sourceZoneId);
           store.setActiveView('chat');
         }}
+        onOpenNewSessionLauncher={store.openNewSessionLauncher}
         onSwitchConversationMode={store.switchConversationMode}
         onOpenLogin={() => store.setAuthModalOpen(true)}
         onLogout={store.logoutAccount}
@@ -332,7 +336,7 @@ export default function App() {
               humanDmThreads={store.humanDmThreads}
               assistantMessages={store.assistantMessages}
               settlements={store.settlements}
-              spaceApplications={store.spaceApplications}
+              spaceApplications={store.managedSpaceApplications}
               auditLogs={store.auditLogs}
               account={store.account}
               isGroupBusy={store.isAiBusy}
@@ -366,6 +370,13 @@ export default function App() {
               onJumpToMarket={() => store.openCommunityService()}
               onJumpToKanban={store.openKanbanForProject}
               onJumpToTeam={() => store.setActiveView('team')}
+              onJumpToMountPrivate={store.jumpToMountPrivateAgent}
+              onCreateProjectForLauncher={(name, goal, sourceZoneId) =>
+                store.createSession(name, goal, sourceZoneId, undefined, undefined, {
+                  stayOnCurrentChannel: true,
+                })
+              }
+              onLaunchNewTaskSession={store.launchNewTaskSessionFromPrompt}
             />
           )}
 
@@ -426,8 +437,15 @@ export default function App() {
               activeZone={store.activeZone}
               communityPosts={store.communityPosts}
               zoneProjects={store.zoneProjects}
+              spaceApplications={store.spaceApplications}
               pendingSpaceApplicationsCount={store.pendingSpaceApplicationCount}
               onOpenAssistant={store.openAssistantChat}
+              onResolveSpaceApplication={store.resolveSpaceApplication}
+              onApplyToJoinZone={store.applyToJoinZone}
+              onUpdateZoneInviteCode={store.updateZoneInviteCode}
+              onTogglePinPost={store.togglePinPost}
+              onDeleteCommunityPost={store.deleteCommunityPost}
+              onCreateCommunityPost={store.createCommunityPost}
               workspace={store.activeWorkspace}
               workspaces={store.workspaces}
               allAgents={store.agents}

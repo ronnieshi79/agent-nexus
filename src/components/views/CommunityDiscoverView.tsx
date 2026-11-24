@@ -315,7 +315,7 @@ export function CommunityDiscoverView({
     setSearchKeyword('');
   }, [activeZone.id, embeddedMode]);
 
-  const isPublicCommunity = activeCommunity.kind === 'public';
+  const isPublicCommunity = activeCommunity.kind === 'official';
   const hasAccess = isPublicCommunity || joinedZoneIds.includes(activeCommunity.id);
   const canManagePin = Boolean(
     activeCommunity.isCurrentUserPrincipal || principalDemoZones[activeCommunity.id],
@@ -350,7 +350,7 @@ export function CommunityDiscoverView({
   const accessibleZoneIdSet = useMemo(() => {
     const set = new Set<string>(joinedZoneIds);
     zones.forEach((z) => {
-      if (z.kind === 'public') set.add(z.id);
+      if (z.kind === 'official' && !z.comingSoon) set.add(z.id);
     });
     return set;
   }, [joinedZoneIds, zones]);
