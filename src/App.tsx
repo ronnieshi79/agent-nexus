@@ -322,6 +322,7 @@ export default function App() {
               zones={store.joinedZones}
               workspaces={store.workspaces}
               activeWorkspace={store.activeWorkspace}
+              projectPipelines={store.projectPipelines}
               agents={store.agents}
               humanExperts={store.humanExperts}
               hiredAgents={store.hiredAgents}

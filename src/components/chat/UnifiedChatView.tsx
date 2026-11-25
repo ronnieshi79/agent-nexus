@@ -10,6 +10,7 @@ import type {
   HumanExpert,
   NegotiationThread,
   PlatformAuditLog,
+  ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
   SpaceJoinApplication,
@@ -29,6 +30,7 @@ interface UnifiedChatViewProps {
   zones: CommunityZone[];
   workspaces: ProjectWorkspace[];
   activeWorkspace: ProjectWorkspace;
+  projectPipelines: Record<string, ProjectStageSlot[]>;
   agents: ExpertAgent[];
   humanExperts: HumanExpert[];
   hiredAgents: ExpertAgent[];
@@ -102,6 +104,7 @@ export function UnifiedChatView({
   zones,
   workspaces,
   activeWorkspace,
+  projectPipelines,
   agents,
   humanExperts,
   hiredAgents,
@@ -198,9 +201,9 @@ export function UnifiedChatView({
         <NewSessionLauncherPane
           workspaces={workspaces}
           activeWorkspace={activeWorkspace}
+          projectPipelines={projectPipelines}
           zones={zones}
           agents={agents}
-          account={account}
           onLaunchTaskSession={onLaunchNewTaskSession}
           onCreateProjectForLauncher={onCreateProjectForLauncher}
           onJumpToMountPrivate={onJumpToMountPrivate}
