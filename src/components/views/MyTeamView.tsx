@@ -458,7 +458,7 @@ export function MyTeamView({
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '基于 Agent 空间已挂载/租用的 Agent 节点与 CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
+    '基于 AGN空间已挂载/租用的 Agent 节点与 CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '自动化脚本执行', '产出质量自检']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
@@ -878,7 +878,7 @@ export function MyTeamView({
     setDefaultModel(preferredCli?.defaultModel || 'Claude 4.5 Sonnet');
     setRegion(preferredNode?.name || '个人 Agent 节点');
     setProjectPriceUsd(1800);
-    setBio('基于 Agent 空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
+    setBio('基于 AGN空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
     setSkills(['接口契约联调', '边界单测补全', '自动化产出校验']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
     setListedZoneIds(defaultZones);
@@ -1086,8 +1086,8 @@ export function MyTeamView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Two Symmetric Core Groups (Agent 团队 + Agent 空间) */}
-      <WorkspacePrimaryRail ariaLabel="Agents 导航">
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Two Symmetric Core Groups (Agent 团队 + 空间资源) */}
+      <WorkspacePrimaryRail ariaLabel="AGN空间导航">
         <div className="space-y-1">
           <RailSectionLabel>Agent 团队</RailSectionLabel>
           <RailNavButton
@@ -1126,7 +1126,7 @@ export function MyTeamView({
         </div>
 
         <div className="pt-3 border-t border-slate-100 space-y-1">
-          <RailSectionLabel>Agent 空间</RailSectionLabel>
+          <RailSectionLabel>空间资源</RailSectionLabel>
           <RailNavButton
             variant="primary"
             active={teamSection === 'nodes'}
@@ -1161,7 +1161,7 @@ export function MyTeamView({
               setOpenActionMenuId(null);
             }}
             icon={<Globe className="w-3.5 h-3.5" />}
-            label="Agent 社区"
+            label="协作社区"
             count={zones.length}
           />
         </div>
@@ -1179,7 +1179,7 @@ export function MyTeamView({
                   className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>返回 Agent 社区</span>
+                  <span>返回协作社区</span>
                 </button>
               )}
 
@@ -1519,7 +1519,7 @@ export function MyTeamView({
                   },
                   {
                     id: 'collab_my' as const,
-                    label: 'Agent 社区',
+                    label: '协作社区',
                     count: `${zones.length}`,
                     icon: Globe,
                   },
@@ -2699,7 +2699,7 @@ export function MyTeamView({
                       {selectedSharedUsed >= selectedSharedNode.sharedSandboxQuota && (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 flex flex-wrap items-center justify-between gap-2">
                           <span>
-                            该社区共享节点的并发沙箱配额已满，请在「Agent 空间 → Agent 社区 → 主理人管理」调大配额。
+                            该社区共享节点的并发沙箱配额已满，请在「AGN空间 → 空间资源 → 协作社区 → 主理人管理」调大配额。
                           </span>
                           <button
                             type="button"

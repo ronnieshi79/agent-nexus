@@ -574,7 +574,7 @@ export function useAgentNexusStore() {
           category: 'general',
           title: currentlyJoined ? `已退出私有社区：${target.name}` : `已加入私有社区：${target.name}`,
           detail: currentlyJoined
-            ? '已从服务市场与社区交流的可切换社区列表中移除，可随时在「Agents → Agent 空间 → Agent 社区」重新加入。'
+            ? '已从服务市场与社区交流的可切换社区列表中移除，可随时在「AGN空间 → 空间资源 → 协作社区」重新加入。'
             : `社区类型：${target.typeLabel}；已同步开放至「AGN 社区」切换器。`,
           severity: currentlyJoined ? 'info' : 'success',
           timestamp: nowTimeStr(),

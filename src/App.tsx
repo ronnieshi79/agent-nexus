@@ -44,11 +44,11 @@ const TEAM_SECTION_META: Record<
   agents: { group: 'Agent 团队', label: 'Agent 成员' },
   collaborators: { group: 'Agent 团队', label: '合作专家' },
   friends: { group: 'Agent 团队', label: '我的好友' },
-  nodes: { group: 'Agent 空间', label: 'Agent 节点' },
-  storage: { group: 'Agent 空间', label: 'Agent 存储' },
-  collab_my: { group: 'Agent 空间', label: 'Agent 社区' },
-  collab_manage: { group: 'Agent 空间', label: '主理人管理', parentTab: 'collab_my' },
-  collab_discover: { group: 'Agent 空间', label: '发现社区', parentTab: 'collab_my' },
+  nodes: { group: '空间资源', label: 'Agent 节点' },
+  storage: { group: '空间资源', label: 'Agent 存储' },
+  collab_my: { group: '空间资源', label: '协作社区' },
+  collab_manage: { group: '空间资源', label: '主理人管理', parentTab: 'collab_my' },
+  collab_discover: { group: '空间资源', label: '发现社区', parentTab: 'collab_my' },
 };
 
 const COMMUNITY_TAB_META: Record<
@@ -130,16 +130,16 @@ export default function App() {
     if (store.activeView === 'team') {
       const meta = TEAM_SECTION_META[teamBreadcrumbCtx.section] || TEAM_SECTION_META.agents;
       const items: BreadcrumbItem[] = [
-        { label: 'Agents', onClick: () => store.openTeamTab('agents') },
+        { label: 'AGN空间', onClick: () => store.openTeamTab('agents') },
         {
           label: meta.group,
           onClick: () =>
-            store.openTeamTab(meta.group === 'Agent 空间' ? 'nodes' : 'agents'),
+            store.openTeamTab(meta.group === '空间资源' ? 'nodes' : 'agents'),
         },
       ];
       if (meta.parentTab) {
         items.push({
-          label: 'Agent 社区',
+          label: '协作社区',
           onClick: () => store.openTeamTab(meta.parentTab!),
         });
         items.push({

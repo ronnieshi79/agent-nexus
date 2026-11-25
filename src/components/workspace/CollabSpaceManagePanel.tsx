@@ -868,7 +868,7 @@ export function CollabSpaceManagePanel({
                     {
                       id: 'share_mine',
                       label: '共享我的 Agent 节点',
-                      desc: '从 Agent 空间一键共享',
+                      desc: '从 AGN空间一键共享',
                     },
                     {
                       id: 'mount_private',

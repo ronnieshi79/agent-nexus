@@ -511,10 +511,9 @@ export function Sidebar({
     },
     {
       id: 'team',
-      label: 'Agents',
+      label: 'AGN空间',
       icon: Bot,
-      badge: '空间',
-      tooltip: `Agents · Agent 团队与 Agent 空间（${hiredCount} 外雇 · ${privateCount} 自建）`,
+      tooltip: `AGN空间 · Agent 团队与空间资源（${hiredCount} 外雇 · ${privateCount} 自建）`,
       isInfra: true,
     },
   ];
