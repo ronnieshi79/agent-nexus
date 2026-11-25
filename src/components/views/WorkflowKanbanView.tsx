@@ -1,23 +1,21 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
-  Activity,
   Archive,
-  ArrowLeft,
   ArrowUpRight,
-  Briefcase,
   Building2,
   CalendarClock,
   CheckCircle2,
   Compass,
   Cpu,
   Database,
-  DollarSign,
   FileCode2,
   FolderKanban,
   GitBranch,
   Globe,
+  LayoutGrid,
   Lock,
   MessageSquareCode,
+  MessageSquarePlus,
   Play,
   Plus,
   RotateCcw,
@@ -31,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  ActiveWorkflowStage,
   AgentLeaseRecord,
   ArtifactCategoryGroup,
   ArtifactKind,
@@ -42,17 +41,18 @@ import type {
   HumanExpert,
   LeasePeriod,
   NegotiationThread,
+  ProjectAgentAssignment,
   ProjectArtifact,
   ProjectLifecycleStatus,
   ProjectRole,
-  ProjectStageSlot,
+  ProjectTaskType,
   ProjectWorkspace,
   SettlementRecord,
   SpaceSharedNode,
   StorageVolume,
   TaskStatus,
+  TaskTypeAccent,
   TeamExpertMembership,
-  WorkCardType,
   WorkflowTask,
   WorkspaceTabId,
 } from '../../types/agentnexus';
@@ -69,13 +69,19 @@ import {
   RailSectionLabel,
   ToolbarDropdown,
   ToolbarSearch,
-  ViewToolbar,
   WORKSPACE_GUTTER_CLASS,
   WORKSPACE_MAX_WIDTH_CLASS,
   WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
 import { WORK_CARD_STAGES, WorkStatusBadge } from '../workcard/WorkCardFlow';
 import { ProjectOrchestrationPanel } from '../workspace/ProjectOrchestrationPanel';
+import {
+  DEFAULT_PROJECT_TASK_TYPES,
+  TASK_TYPE_ACCENT_STYLES,
+  type TaskTemplatePackId,
+  getTemplateCreatorIds,
+  resolveTaskType,
+} from '../../utils/pipelineSync';
 import { ArtifactsView } from './ArtifactsView';
 
 export type WorkKanbanTab = WorkspaceTabId;
@@ -87,7 +93,10 @@ interface WorkflowKanbanViewProps {
   workspaces: ProjectWorkspace[];
   computeNodes: ComputeNode[];
   storageVolumes: StorageVolume[];
-  projectPipelines: Record<string, ProjectStageSlot[]>;
+  projectAgentAssignments: Record<string, ProjectAgentAssignment[]>;
+  projectTaskTypes: Record<string, ProjectTaskType[]>;
+  selectedProjectId?: string;
+  onSelectProjectId?: (projectId: string) => void;
   projectSeed: string | null;
   onClearProjectSeed: () => void;
   tabSeed: WorkKanbanTab | null;
@@ -120,18 +129,40 @@ interface WorkflowKanbanViewProps {
   onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
   onAssignExpertToWorkspace: (expertId: string, workspaceId: string) => void;
   onRemoveExpertFromWorkspace: (expertId: string, workspaceId: string) => void;
-  onUpdateAgentRuntimeConfig: (
-    agentId: string,
-    runtimeAgent: string,
-    defaultModel: string,
-  ) => void;
   onUpdateProjectLifecycle: (workspaceId: string, status: ProjectLifecycleStatus) => void;
-  onUpdateProjectStageSlot: (
+  onAddProjectAgentAssignment: (
     projectId: string,
-    stage: WorkCardType,
-    patch: Partial<Omit<ProjectStageSlot, 'stage'>>,
+    agentId: string,
+    initialStages?: ActiveWorkflowStage[],
   ) => void;
-  onSyncPipelineAgentsToProject: (projectId: string) => void;
+  onRemoveProjectAgentAssignment: (projectId: string, agentId: string) => void;
+  onUpdateProjectAgentAssignment: (
+    projectId: string,
+    agentId: string,
+    patch: Partial<Omit<ProjectAgentAssignment, 'agentId'>>,
+  ) => void;
+  onAddProjectTaskType: (
+    projectId: string,
+    input: {
+      name: string;
+      description: string;
+      templateChecklist?: string;
+      accent: TaskTypeAccent;
+      creatorAgentIds?: string[];
+    },
+  ) => void;
+  onUpdateProjectTaskType: (
+    projectId: string,
+    typeId: string,
+    patch: Partial<Omit<ProjectTaskType, 'id'>>,
+  ) => void;
+  onDeleteProjectTaskType: (projectId: string, typeId: string) => void;
+  onApplyTaskTypePresetPack: (projectId: string, packId: TaskTemplatePackId) => void;
+  onStartTemplateConversation: (
+    projectId: string,
+    taskTypeId: string,
+    options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
+  ) => void;
   artifacts: ProjectArtifact[];
   onCreateArtifact: (input: {
     projectId: string;
@@ -157,19 +188,6 @@ interface WorkflowKanbanViewProps {
   }) => void;
 }
 
-const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
-  planning: '产品策划',
-  development: '功能开发',
-  testing: '功能测试',
-  review: '架构评审',
-};
-
-const WORK_TYPE_COLORS: Record<WorkCardType, string> = {
-  planning: 'text-indigo-700',
-  development: 'text-blue-700',
-  testing: 'text-teal-700',
-  review: 'text-amber-700',
-};
 
 const ROLE_META: Record<ProjectRole, { label: string; cls: string }> = {
   leading: { label: '我主管', cls: 'text-blue-700' },
@@ -177,7 +195,7 @@ const ROLE_META: Record<ProjectRole, { label: string; cls: string }> = {
 };
 
 const LIFECYCLE_META: Record<ProjectLifecycleStatus, { label: string; cls: string; dotCls: string }> = {
-  active: { label: '开发中', cls: 'text-blue-700', dotCls: 'bg-blue-600' },
+  active: { label: '进行中', cls: 'text-blue-700', dotCls: 'bg-blue-600' },
   completed: { label: '已完成', cls: 'text-emerald-700', dotCls: 'bg-emerald-500' },
   archived: { label: '已归档', cls: 'text-slate-500', dotCls: 'bg-slate-400' },
 };
@@ -196,26 +214,26 @@ interface AgentRuntimeSnapshot {
   doneCount: number;
   totalTasks: number;
   activeTask: WorkflowTask | null;
-  privateTokensK: number;
-  privateTokenCostUsd: number;
 }
 
-function estimatePrivateTokensK(agent: ExpertAgent, taskList: WorkflowTask[]): number {
-  if (agent.ownership !== 'private') return 0;
-  const baseK = agent.performance.completedProjects * 34;
-  const taskK = taskList.reduce((sum, t) => {
-    if (t.status === 'done') return sum + 92;
-    if (t.status === 'review') return sum + 78;
-    if (t.status === 'in_progress') return sum + 54;
-    return sum + 14;
-  }, 0);
-  return baseK + taskK;
+interface ProjectActivityItem {
+  id: string;
+  projectId: string;
+  stageLabel: string;
+  stageTextCls: string;
+  title: string;
+  detail: string;
+  timestamp: string;
+  priorityWeight: number;
+  taskId?: string;
 }
 
-function formatTokensK(k: number): string {
-  if (k >= 1000) return `${(k / 1000).toFixed(2)}M`;
-  return `${Math.round(k)}k`;
-}
+const STAGE_DONUT_COLORS: Record<TaskStatus, string> = {
+  pending: '#94a3b8',
+  in_progress: '#2563eb',
+  review: '#d97706',
+  done: '#10b981',
+};
 
 export function WorkflowKanbanView({
   zones,
@@ -224,7 +242,10 @@ export function WorkflowKanbanView({
   workspaces,
   computeNodes,
   storageVolumes,
-  projectPipelines,
+  projectAgentAssignments,
+  projectTaskTypes,
+  selectedProjectId,
+  onSelectProjectId,
   projectSeed,
   onClearProjectSeed,
   tabSeed,
@@ -249,10 +270,15 @@ export function WorkflowKanbanView({
   onLeaseAgent,
   onAssignExpertToWorkspace,
   onRemoveExpertFromWorkspace,
-  onUpdateAgentRuntimeConfig,
   onUpdateProjectLifecycle,
-  onUpdateProjectStageSlot,
-  onSyncPipelineAgentsToProject,
+  onAddProjectAgentAssignment,
+  onRemoveProjectAgentAssignment,
+  onUpdateProjectAgentAssignment,
+  onAddProjectTaskType,
+  onUpdateProjectTaskType,
+  onDeleteProjectTaskType,
+  onApplyTaskTypePresetPack,
+  onStartTemplateConversation,
   artifacts,
   onCreateArtifact,
   onShareArtifactToChat,
@@ -268,10 +294,10 @@ export function WorkflowKanbanView({
   // Shared right-toolbar keyword search
   const [searchKeyword, setSearchKeyword] = useState('');
 
-  // My Projects & Overview state
+  // Project Overview & Single-Project Cockpit state (shared across 项目看板 & 任务编排)
   const [lifecycleFilter, setLifecycleFilter] = useState<'all' | ProjectLifecycleStatus>('all');
   const [roleFilter, setRoleFilter] = useState<'all' | ProjectRole>('all');
-  const [focusedProjectId, setFocusedProjectId] = useState<string | null>(null);
+  const [internalProjectId, setInternalProjectId] = useState<string>(workspaces[0]?.id || '');
   const [showCreateProjectForm, setShowCreateProjectForm] = useState(false);
   const [projName, setProjName] = useState('');
   const [projGoal, setProjGoal] = useState('');
@@ -281,24 +307,37 @@ export function WorkflowKanbanView({
   );
   const [projVolumeId, setProjVolumeId] = useState<string>(storageVolumes[0]?.id || '');
 
-  // Kanban Task Flow state
-  const [kanbanProjectScope, setKanbanProjectScope] = useState<string>('all');
+  // Single-project Kanban filter & AI conversation task dispatch state
   const [kanbanAgentFilter, setKanbanAgentFilter] = useState<string>('all');
-  const [workTypeFilter, setWorkTypeFilter] = useState<'all' | WorkCardType>('all');
+  const [taskTypeFilter, setTaskTypeFilter] = useState<string>('all');
+  const [showProjectTeamPanel, setShowProjectTeamPanel] = useState(false);
+  const [showQuickTaskForm, setShowQuickTaskForm] = useState(false);
+  const [quickTaskTypeId, setQuickTaskTypeId] = useState<string>(
+    DEFAULT_PROJECT_TASK_TYPES[0].id,
+  );
+  const [quickCreatorAgentId, setQuickCreatorAgentId] = useState<string>('');
+  const [quickTaskPrompt, setQuickTaskPrompt] = useState('');
 
-  // Work Orchestration state
-  const [pipelineProjectId, setPipelineProjectId] = useState<string>(workspaces[0]?.id || '');
+  const effectiveProjectId = selectedProjectId || internalProjectId || workspaces[0]?.id || '';
+
+  const selectProject = (projectId: string) => {
+    setInternalProjectId(projectId);
+    onSelectProjectId?.(projectId);
+  };
 
   useEffect(() => {
     if (projectSeed) {
-      setKanbanProjectScope(projectSeed);
-      if (projectSeed !== 'all') {
-        setFocusedProjectId(projectSeed);
-        setPipelineProjectId(projectSeed);
+      const targetId =
+        projectSeed !== 'all' ? projectSeed : workspaces[0]?.id || '';
+      if (targetId) {
+        setInternalProjectId(targetId);
+        onSelectProjectId?.(targetId);
       }
+      setKanbanAgentFilter('all');
+      setTaskTypeFilter('all');
       onClearProjectSeed();
     }
-  }, [projectSeed, onClearProjectSeed]);
+  }, [projectSeed, onClearProjectSeed, onSelectProjectId, workspaces]);
 
   useEffect(() => {
     if (tabSeed) {
@@ -426,16 +465,13 @@ export function WorkflowKanbanView({
         availability = 'busy';
         availabilityLabel = '在线 · 忙碌';
         availabilityDetail =
-          reviewCount > 0 ? `${reviewCount} 项产物待验证` : `${pendingCount} 项任务待批准`;
+          reviewCount > 0 ? `${reviewCount} 项产物待验证` : `${pendingCount} 项任务计划中`;
       } else {
         availability = 'idle';
         availabilityLabel = '在线 · 空闲';
         availabilityDetail =
-          pendingCount === 1 ? '1 项待批准 · 可并行接单' : '档期充裕 · 可随时派单';
+          pendingCount === 1 ? '1 项计划中 · 可并行接单' : '档期充裕 · 可随时派单';
       }
-
-      const privateTokensK = estimatePrivateTokensK(agent, agentTasks);
-      const privateTokenCostUsd = Number(((privateTokensK / 1000) * 12).toFixed(1));
 
       list.push({
         agent,
@@ -449,8 +485,6 @@ export function WorkflowKanbanView({
         doneCount,
         totalTasks: agentTasks.length,
         activeTask,
-        privateTokensK,
-        privateTokenCostUsd,
       });
     });
 
@@ -466,19 +500,8 @@ export function WorkflowKanbanView({
     [agentSnapshots],
   );
 
-  // Space Metrics
+  // Space & Project Summary Metrics
   const onlineNodesCount = computeNodes.filter((n) => n.status === 'online').length;
-  const totalCpuCores = computeNodes.reduce((s, n) => s + n.cpuCores, 0);
-  const totalVolQuotaGb = storageVolumes.reduce((s, v) => s + v.quotaGb, 0);
-  const totalVolUsedGb = storageVolumes.reduce((s, v) => s + v.usedGb, 0);
-  const storagePct =
-    totalVolQuotaGb > 0 ? Math.round((totalVolUsedGb / totalVolQuotaGb) * 100) : 0;
-  const totalInstalledClisCount = computeNodes.reduce(
-    (sum, n) => sum + n.installedClis.length,
-    0,
-  );
-
-  // Project Metrics
   const activeProjCount = workspaces.filter(
     (w) => (w.lifecycleStatus || 'active') === 'active',
   ).length;
@@ -487,20 +510,34 @@ export function WorkflowKanbanView({
   const leadingCount = workspaces.filter((w) => w.role === 'leading').length;
   const participatingCount = workspaces.filter((w) => w.role === 'participating').length;
 
-  const reviewCount = allTasks.filter((t) => t.status === 'review').length;
   const doneCount = allTasks.filter((t) => t.status === 'done').length;
   const progressPct = allTasks.length > 0 ? Math.round((doneCount / allTasks.length) * 100) : 0;
 
   const totalExternalSpentUsd = workspaces.reduce((sum, w) => sum + w.spentUsd, 0);
   const totalBudgetCapUsd = workspaces.reduce((sum, w) => sum + w.budgetCapUsd, 0);
-  const totalPrivateTokensK = agentSnapshots.reduce((sum, s) => sum + s.privateTokensK, 0);
-  const totalPrivateTokenCostUsd = agentSnapshots.reduce(
-    (sum, s) => sum + s.privateTokenCostUsd,
-    0,
-  );
   const busyAgentCount = agentSnapshots.filter((s) => s.availability === 'busy').length;
   const idleAgentCount = agentSnapshots.filter((s) => s.availability === 'idle').length;
-  const pendingNegotiationCount = negotiations.filter((n) => n.status !== 'hired').length;
+
+  // Global 4-stage task distribution (unified across 项目概要 / 项目看板 / 任务编排)
+  const globalStageStats = useMemo(() => {
+    const total = allTasks.length;
+    return WORK_CARD_STAGES.map((stage) => {
+      const stageTasks = allTasks.filter((t) =>
+        stage.status === 'in_progress'
+          ? t.status === 'in_progress' || executingTaskId === t.id
+          : t.status === stage.status && executingTaskId !== t.id,
+      );
+      const count = stageTasks.length;
+      const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+      return {
+        stage,
+        count,
+        pct,
+        color: STAGE_DONUT_COLORS[stage.status],
+        firstProjectId: stageTasks[0]?.sessionId || workspaces[0]?.id,
+      };
+    });
+  }, [allTasks, executingTaskId, workspaces]);
 
   const normalizedQuery = searchKeyword.trim().toLowerCase();
 
@@ -520,9 +557,123 @@ export function WorkflowKanbanView({
   );
 
   const focusedProject = useMemo(
-    () => (focusedProjectId ? workspaceMap.get(focusedProjectId) || null : null),
-    [focusedProjectId, workspaceMap],
+    () => (effectiveProjectId ? workspaceMap.get(effectiveProjectId) : undefined) || workspaces[0] || null,
+    [effectiveProjectId, workspaceMap, workspaces],
   );
+
+  // Project-scoped activity feed grouped by projectId for the Project List
+  const activitiesByProjectId = useMemo(() => {
+    const grouped = new Map<string, ProjectActivityItem[]>();
+    const pushItem = (item: ProjectActivityItem) => {
+      const list = grouped.get(item.projectId);
+      if (list) list.push(item);
+      else grouped.set(item.projectId, [item]);
+    };
+
+    allTasks.forEach((t) => {
+      const proj = workspaceMap.get(t.sessionId);
+      if (!proj) return;
+      const effectiveStatus: TaskStatus =
+        executingTaskId === t.id ? 'in_progress' : t.status;
+      const taskType = resolveTaskType(t, projectTaskTypes[proj.id]);
+      const agent = agentMap.get(t.assigneeId);
+      const actor = agent
+        ? formatAgentDisplayName(agent.handle, agent.runtimeAgent)
+        : displayEntityName(t.assigneeHandle);
+
+      if (effectiveStatus === 'in_progress') {
+        pushItem({
+          id: `act_run_${t.id}`,
+          projectId: proj.id,
+          stageLabel: '任务执行',
+          stageTextCls: 'text-blue-700',
+          title: t.title,
+          detail: `${actor} · ${taskType.name}`,
+          timestamp: t.updatedAt,
+          priorityWeight: 4,
+          taskId: t.id,
+        });
+      } else if (effectiveStatus === 'review') {
+        pushItem({
+          id: `act_rev_${t.id}`,
+          projectId: proj.id,
+          stageLabel: '任务验证',
+          stageTextCls: 'text-amber-700',
+          title: t.title,
+          detail: t.deliverableArtifact
+            ? `${actor} · ${t.deliverableArtifact}`
+            : `${actor} · ${taskType.name}`,
+          timestamp: t.updatedAt,
+          priorityWeight: 3,
+          taskId: t.id,
+        });
+      } else if (effectiveStatus === 'pending') {
+        pushItem({
+          id: `act_pend_${t.id}`,
+          projectId: proj.id,
+          stageLabel: '任务计划',
+          stageTextCls: 'text-slate-600',
+          title: t.title,
+          detail: `${actor} · ${taskType.name}`,
+          timestamp: t.updatedAt,
+          priorityWeight: 2,
+          taskId: t.id,
+        });
+      } else {
+        pushItem({
+          id: `act_done_${t.id}`,
+          projectId: proj.id,
+          stageLabel: '已完成',
+          stageTextCls: 'text-emerald-700',
+          title: t.title,
+          detail: `${actor} · ${taskType.name}`,
+          timestamp: t.updatedAt,
+          priorityWeight: 1,
+          taskId: t.id,
+        });
+      }
+    });
+
+    negotiations.forEach((n) => {
+      const proj = workspaceMap.get(n.targetProjectId);
+      const ag = agentMap.get(n.agentId);
+      if (!proj || !ag || n.status === 'hired') return;
+      pushItem({
+        id: `act_neg_${n.agentId}_${n.targetProjectId}`,
+        projectId: proj.id,
+        stageLabel: '协同协商',
+        stageTextCls: 'text-indigo-700',
+        title: `与 ${formatAgentDisplayName(ag.handle, ag.runtimeAgent)} 协商合作`,
+        detail: n.firstWorkCardTitle || n.scopeNote,
+        timestamp: n.updatedAt,
+        priorityWeight: 3,
+      });
+    });
+
+    workspaces.forEach((w) => {
+      if (w.lifecycleStatus === 'completed' && w.completedAt) {
+        pushItem({
+          id: `act_ws_${w.id}`,
+          projectId: w.id,
+          stageLabel: '项目完结',
+          stageTextCls: 'text-emerald-700',
+          title: '项目里程碑已验收归档',
+          detail: `累计支出 $${w.spentUsd.toLocaleString('en-US')}`,
+          timestamp: w.completedAt,
+          priorityWeight: 1,
+        });
+      }
+    });
+
+    grouped.forEach((list, key) => {
+      grouped.set(
+        key,
+        list.sort((a, b) => b.priorityWeight - a.priorityWeight),
+      );
+    });
+
+    return grouped;
+  }, [agentMap, allTasks, executingTaskId, negotiations, projectTaskTypes, workspaceMap, workspaces]);
 
   const artifactScopeCounts = useMemo(() => {
     const existingTaskIds = new Set(artifacts.map((a) => a.sourceTaskId).filter(Boolean));
@@ -552,7 +703,7 @@ export function WorkflowKanbanView({
       tab: activeTab,
       focusedProjectName: activeTab === 'my_projects' && focusedProject ? focusedProject.name : null,
       artifactCategory: isArtifactsTab ? artifactCategory : 'all',
-      onClearFocus: () => setFocusedProjectId(null),
+      onClearFocus: () => setActiveTab('overview'),
     });
   }, [activeTab, artifactCategory, focusedProject, isArtifactsTab, onBreadcrumbContextChange]);
 
@@ -561,50 +712,99 @@ export function WorkflowKanbanView({
     [allTasks, focusedProject],
   );
 
-  const focusedModules = useMemo(() => {
-    if (!focusedProject) return [];
-    const map = new Map<string, WorkflowTask[]>();
-    focusedProjectTasks.forEach((t) => {
-      const list = map.get(t.featureModule) || [];
-      list.push(t);
-      map.set(t.featureModule, list);
-    });
-    return Array.from(map.entries());
-  }, [focusedProject, focusedProjectTasks]);
+  const focusedProjectTaskTypes = useMemo(
+    () =>
+      focusedProject
+        ? projectTaskTypes[focusedProject.id] || DEFAULT_PROJECT_TASK_TYPES
+        : DEFAULT_PROJECT_TASK_TYPES,
+    [focusedProject, projectTaskTypes],
+  );
 
-  const kanbanTasks = useMemo(() => {
-    return allTasks.filter((t) => {
-      if (kanbanProjectScope !== 'all' && t.sessionId !== kanbanProjectScope) return false;
+  const focusedKanbanTasks = useMemo(() => {
+    return focusedProjectTasks.filter((t) => {
       if (kanbanAgentFilter !== 'all' && t.assigneeId !== kanbanAgentFilter) return false;
-      if (workTypeFilter !== 'all' && t.workType !== workTypeFilter) return false;
+      if (taskTypeFilter !== 'all') {
+        const resolved = resolveTaskType(t, focusedProjectTaskTypes);
+        if (resolved.id !== taskTypeFilter) return false;
+      }
       if (normalizedQuery) {
-        const wsName = workspaceMap.get(t.sessionId)?.name || '';
+        const resolved = resolveTaskType(t, focusedProjectTaskTypes);
         const match =
           t.title.toLowerCase().includes(normalizedQuery) ||
           t.description.toLowerCase().includes(normalizedQuery) ||
           t.featureModule.toLowerCase().includes(normalizedQuery) ||
-          t.assigneeHandle.toLowerCase().includes(normalizedQuery) ||
-          wsName.toLowerCase().includes(normalizedQuery);
+          resolved.name.toLowerCase().includes(normalizedQuery) ||
+          t.assigneeHandle.toLowerCase().includes(normalizedQuery);
         if (!match) return false;
       }
       return true;
     });
   }, [
-    allTasks,
+    focusedProjectTaskTypes,
+    focusedProjectTasks,
     kanbanAgentFilter,
-    kanbanProjectScope,
     normalizedQuery,
-    workTypeFilter,
-    workspaceMap,
+    taskTypeFilter,
   ]);
 
-  const kanbanAssignableAgents = useMemo(() => {
-    const ids = new Set(allTasks.map((t) => t.assigneeId));
+  const focusedAssignableAgents = useMemo(() => {
+    if (!focusedProject) return [];
+    const ids = new Set<string>([
+      ...focusedProject.hiredAgentIds,
+      ...focusedProjectTasks.map((t) => t.assigneeId),
+    ]);
     return agents.filter((a) => ids.has(a.id));
-  }, [agents, allTasks]);
+  }, [agents, focusedProject, focusedProjectTasks]);
 
-  const activePipelineProject =
-    workspaces.find((w) => w.id === pipelineProjectId) || workspaces[0];
+  const activePipelineProject = focusedProject;
+
+  const focusedAgentAssignments = useMemo(
+    () => (focusedProject ? projectAgentAssignments[focusedProject.id] || [] : []),
+    [focusedProject, projectAgentAssignments],
+  );
+
+  // Participating Agent experts & task volume statistics for current project summary
+  const focusedAgentWorkloads = useMemo(() => {
+    if (!focusedProject) return [];
+    return focusedAssignableAgents
+      .map((agent) => {
+        const tasks = focusedProjectTasks.filter((t) => t.assigneeId === agent.id);
+        const pending = tasks.filter((t) => t.status === 'pending' && executingTaskId !== t.id).length;
+        const inProgress = tasks.filter(
+          (t) => t.status === 'in_progress' || executingTaskId === t.id,
+        ).length;
+        const review = tasks.filter((t) => t.status === 'review' && executingTaskId !== t.id).length;
+        const done = tasks.filter((t) => t.status === 'done' && executingTaskId !== t.id).length;
+        const total = tasks.length;
+        const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+        return {
+          agent,
+          snap: snapshotByAgentId.get(agent.id),
+          total,
+          pending,
+          inProgress,
+          review,
+          done,
+          pct,
+        };
+      })
+      .sort((a, b) => b.total - a.total || b.inProgress - a.inProgress);
+  }, [executingTaskId, focusedAssignableAgents, focusedProject, focusedProjectTasks, snapshotByAgentId]);
+
+  const openProjectWorkspace = (
+    projectId: string,
+    typeFilter: string = 'all',
+    agentFilter: string = 'all',
+  ) => {
+    selectProject(projectId);
+    setKanbanAgentFilter(agentFilter);
+    setTaskTypeFilter(typeFilter);
+    setSearchKeyword('');
+    setShowProjectTeamPanel(false);
+    setShowQuickTaskForm(false);
+    setShowCreateProjectForm(false);
+    setActiveTab('my_projects');
+  };
 
   const handleCreateProjectSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -620,8 +820,11 @@ export function WorkflowKanbanView({
     setProjGoal('');
     setShowCreateProjectForm(false);
     if (newId) {
-      setFocusedProjectId(newId);
-      setPipelineProjectId(newId);
+      selectProject(newId);
+      setKanbanAgentFilter('all');
+      setTaskTypeFilter('all');
+      setSearchKeyword('');
+      setActiveTab('my_projects');
     }
   };
 
@@ -649,13 +852,13 @@ export function WorkflowKanbanView({
   };
 
   const searchPlaceholder =
-    activeTab === 'kanban'
-      ? '搜索任务标题、模块、项目或执行 Agent...'
+    activeTab === 'my_projects'
+      ? '搜索当前项目任务、模块或 Agent...'
       : '搜索项目名称、目标或范围...';
 
   const switchTab = (next: WorkKanbanTab) => {
     setActiveTab(next);
-    if (next !== 'my_projects') setFocusedProjectId(null);
+    setShowCreateProjectForm(false);
   };
 
   return (
@@ -674,29 +877,18 @@ export function WorkflowKanbanView({
           <RailNavButton
             variant="primary"
             active={activeTab === 'my_projects'}
-            onClick={() => {
-              setActiveTab('my_projects');
-              setFocusedProjectId(null);
-            }}
-            icon={<FolderKanban className="w-3.5 h-3.5" />}
-            label="我的项目"
-            count={workspaces.length}
-          />
-          <RailNavButton
-            variant="primary"
-            active={activeTab === 'kanban'}
-            onClick={() => switchTab('kanban')}
-            icon={<Briefcase className="w-3.5 h-3.5" />}
+            onClick={() => switchTab('my_projects')}
+            icon={<LayoutGrid className="w-3.5 h-3.5" />}
             label="项目看板"
-            count={allTasks.length}
+            count={focusedProjectTasks.length}
           />
           <RailNavButton
             variant="primary"
             active={activeTab === 'orchestration'}
             onClick={() => switchTab('orchestration')}
             icon={<GitBranch className="w-3.5 h-3.5" />}
-            label="工作编排"
-            count={4}
+            label="任务编排"
+            count={focusedAgentAssignments.length}
           />
         </div>
 
@@ -770,164 +962,6 @@ export function WorkflowKanbanView({
         />
       ) : (
         <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
-        <ViewToolbar
-          left={
-            <>
-              {activeTab === 'my_projects' && focusedProject ? (
-                <button
-                  type="button"
-                  onClick={() => setFocusedProjectId(null)}
-                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
-                >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>返回我的项目</span>
-                </button>
-              ) : activeTab === 'orchestration' && activePipelineProject ? (
-                <ToolbarDropdown
-                  label="编排项目"
-                  value={activePipelineProject.id}
-                  defaultValue=""
-                  onChange={setPipelineProjectId}
-                  options={workspaces.map((w) => ({
-                    id: w.id,
-                    label: w.name,
-                    hint: LIFECYCLE_META[w.lifecycleStatus || 'active'].label,
-                  }))}
-                />
-              ) : (
-                <ToolbarSearch
-                  value={searchKeyword}
-                  onChange={setSearchKeyword}
-                  placeholder={searchPlaceholder}
-                  widthClass="flex-1 min-w-[160px] max-w-[290px]"
-                />
-              )}
-
-              {/* Overview & My Projects secondary filters */}
-              {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
-                <>
-                  <ToolbarDropdown
-                    label="状态"
-                    value={lifecycleFilter}
-                    defaultValue="all"
-                    onChange={setLifecycleFilter}
-                    options={[
-                      { id: 'all', label: '全部状态', hint: `${workspaces.length}` },
-                      { id: 'active', label: '开发中', hint: `${activeProjCount}` },
-                      { id: 'completed', label: '已完成', hint: `${completedProjCount}` },
-                      { id: 'archived', label: '已归档', hint: `${archivedProjCount}` },
-                    ]}
-                  />
-                  <ToolbarDropdown
-                    label="视角"
-                    value={roleFilter}
-                    defaultValue="all"
-                    onChange={setRoleFilter}
-                    options={[
-                      { id: 'all', label: '全部项目', hint: `${workspaces.length}` },
-                      { id: 'leading', label: '我主管', hint: `${leadingCount}` },
-                      { id: 'participating', label: '我参与', hint: `${participatingCount}` },
-                    ]}
-                  />
-                </>
-              )}
-
-              {/* Kanban secondary filters */}
-              {activeTab === 'kanban' && (
-                <>
-                  <ToolbarDropdown
-                    label="项目"
-                    value={kanbanProjectScope}
-                    defaultValue="all"
-                    onChange={setKanbanProjectScope}
-                    options={[
-                      { id: 'all', label: '全部项目', hint: `${allTasks.length}` },
-                      ...workspaces.map((w) => ({
-                        id: w.id,
-                        label: w.name,
-                        hint: `${allTasks.filter((t) => t.sessionId === w.id).length}`,
-                      })),
-                    ]}
-                  />
-                  <ToolbarDropdown
-                    label="执行 Agent"
-                    value={kanbanAgentFilter}
-                    defaultValue="all"
-                    onChange={setKanbanAgentFilter}
-                    options={[
-                      { id: 'all', label: '全部 Agent' },
-                      ...kanbanAssignableAgents.map((a) => ({
-                        id: a.id,
-                        label: formatAgentDisplayName(a.handle, a.runtimeAgent),
-                        hint: `${allTasks.filter((t) => t.assigneeId === a.id).length}`,
-                      })),
-                    ]}
-                  />
-                  <ToolbarDropdown
-                    label="阶段"
-                    value={workTypeFilter}
-                    defaultValue="all"
-                    onChange={setWorkTypeFilter}
-                    options={[
-                      { id: 'all', label: '全部阶段' },
-                      { id: 'planning', label: '产品策划' },
-                      { id: 'development', label: '功能开发' },
-                      { id: 'testing', label: '功能测试' },
-                      { id: 'review', label: '架构评审' },
-                    ]}
-                  />
-                </>
-              )}
-            </>
-          }
-          right={
-            <>
-              {(activeTab === 'overview' || (activeTab === 'my_projects' && !focusedProject)) && (
-                <>
-                  <span className="hidden @[960px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
-                    <span>节点 {onlineNodesCount}/{computeNodes.length}</span>
-                    <span className="text-slate-300" aria-hidden="true">·</span>
-                    <span>开发中 {activeProjCount}</span>
-                    <span className="text-slate-300" aria-hidden="true">·</span>
-                    <span>待验证 {reviewCount}</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab('my_projects');
-                      setFocusedProjectId(null);
-                      setShowCreateProjectForm(true);
-                    }}
-                    className="inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>新建项目</span>
-                  </button>
-                </>
-              )}
-
-              {activeTab === 'kanban' && (
-                <span className="hidden @[860px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums">
-                  <span>完成 {progressPct}%</span>
-                  <span className="text-slate-300" aria-hidden="true">·</span>
-                  <span>待验证 {reviewCount}</span>
-                </span>
-              )}
-
-              {activeTab === 'orchestration' && (
-                <button
-                  type="button"
-                  onClick={onJumpToTeam}
-                  className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer"
-                >
-                  <Users className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>管理 Agents 成员</span>
-                </button>
-              )}
-            </>
-          }
-        />
-
         {/* Main Scrollable Content Canvas */}
         <div
           className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}
@@ -939,9 +973,8 @@ export function WorkflowKanbanView({
             {(
               [
                 { id: 'overview', label: '项目概要' },
-                { id: 'my_projects', label: '我的项目' },
-                { id: 'kanban', label: '项目看板' },
-                { id: 'orchestration', label: '工作编排' },
+                { id: 'my_projects', label: '项目看板' },
+                { id: 'orchestration', label: '任务编排' },
                 { id: 'artifacts_all', label: 'Artifacts' },
               ] as { id: WorkKanbanTab; label: string }[]
             ).map((item) => {
@@ -963,386 +996,858 @@ export function WorkflowKanbanView({
             })}
           </div>
 
-          {/* ================= WORK PROJECTS 1: PROJECT OVERVIEW ================= */}
+          {/* ================= WORK PROJECTS 1: PROJECT OVERVIEW (Block 1: Global Summary | Block 2: Project-Centric List) ================= */}
           {activeTab === 'overview' && (
             <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
-              {/* Top 4 KPI Cards: Agent Nodes & Storage | Project Lifecycle | Cost & Tokens | Agent Fleet */}
-              <div className="grid grid-cols-1 @[520px]:grid-cols-2 @[980px]:grid-cols-4 gap-3.5">
-                <button
-                  type="button"
-                  onClick={onJumpToTeamNodes}
-                  className="text-left bg-white rounded-xl border border-slate-200 hover:border-slate-300 p-4 space-y-2 transition-colors cursor-pointer"
-                >
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-medium">Agent 节点与存储</span>
-                    <Server className="w-4 h-4 text-blue-600" />
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                      {onlineNodesCount}/{computeNodes.length}
-                      <span className="text-xs font-sans font-normal text-slate-400 ml-1">节点</span>
-                    </span>
-                    <span className="text-xs font-mono tabular-nums text-emerald-700 font-semibold">
-                      {totalCpuCores}C · 存储 {storagePct}%
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2">
-                    <span>
-                      {storageVolumes.length} 存储卷 · {totalInstalledClisCount} CLI
-                    </span>
-                    <span className="text-blue-700 font-semibold">Agent 空间设置 →</span>
-                  </div>
-                </button>
+              {/* ================= BLOCK 1: SIMPLIFIED GLOBAL SUMMARY + UNIFIED 4-STAGE DONUT & TABLE ================= */}
+              <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/80">
+                  {/* Left: Clean Unboxed Global Project Summary Metrics */}
+                  <div className="lg:col-span-7 p-4 md:p-5 flex flex-col justify-between gap-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <h2 className="text-sm font-bold text-slate-900">全项目概要</h2>
+                        <span className="text-xs text-slate-400">
+                          项目进度、专家负载与资源总览
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-xs font-semibold shrink-0">
+                        <button
+                          type="button"
+                          onClick={onJumpToTeamNodes}
+                          className="text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap font-mono tabular-nums"
+                        >
+                          <span className="font-sans">Agent 节点</span> {onlineNodesCount}/
+                          {computeNodes.length} →
+                        </button>
+                        <span className="text-slate-200" aria-hidden="true">|</span>
+                        <button
+                          type="button"
+                          onClick={() => switchTab('orchestration')}
+                          className="text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                        >
+                          任务编排 →
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-medium">工作项目生命周期</span>
-                    <TrendingUp className="w-4 h-4 text-indigo-600" />
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                      {workspaces.length}
-                      <span className="text-xs font-sans font-normal text-slate-400 ml-1">项目</span>
-                    </span>
-                    <span className="text-xs font-mono tabular-nums font-semibold text-blue-700">
-                      任务完成 {progressPct}%
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 font-mono tabular-nums">
-                    <span>
-                      开发中 {activeProjCount} · 已完成 {completedProjCount} · 归档{' '}
-                      {archivedProjCount}
-                    </span>
-                  </div>
-                </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-medium text-slate-500">项目总数</div>
+                        <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+                          {workspaces.length}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                          进行中 {activeProjCount} · 完成 {completedProjCount}
+                          {archivedProjCount > 0 ? ` · 归档 ${archivedProjCount}` : ''}
+                        </div>
+                      </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-medium">外部费用与自有 Token</span>
-                    <DollarSign className="w-4 h-4 text-sky-600" />
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                      ${totalExternalSpentUsd.toLocaleString('en-US')}
-                    </span>
-                    <span className="text-[11px] font-mono tabular-nums text-slate-400">
-                      / ${totalBudgetCapUsd.toLocaleString('en-US')} 预算
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2 font-mono tabular-nums">
-                    <span>自有 {formatTokensK(totalPrivateTokensK)} tok</span>
-                    <span className="text-sky-700">≈ ${totalPrivateTokenCostUsd.toFixed(1)}</span>
-                  </div>
-                </div>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-medium text-slate-500">任务完成率</div>
+                        <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+                          {progressPct}%
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                          已完成 {doneCount} / {allTasks.length} 卡
+                        </div>
+                      </div>
 
-                <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-2">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span className="font-medium">协同 Agent 在线与闲忙</span>
-                    <Activity className="w-4 h-4 text-emerald-600" />
-                  </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-                      {agentSnapshots.length}
-                      <span className="text-xs font-sans font-normal text-slate-400 ml-1">位</span>
-                    </span>
-                    <span className="text-xs font-semibold text-emerald-700 whitespace-nowrap">
-                      空闲 {idleAgentCount} · 忙碌 {busyAgentCount}
-                    </span>
-                  </div>
-                  <div className="text-[11px] text-slate-500 flex items-center justify-between gap-2">
-                    <span>
-                      {pendingNegotiationCount > 0
-                        ? `${pendingNegotiationCount} 项协商中`
-                        : '全部工位就绪'}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => switchTab('orchestration')}
-                      className="text-blue-700 font-semibold cursor-pointer"
-                    >
-                      工作编排 →
-                    </button>
-                  </div>
-                </div>
-              </div>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-medium text-slate-500">专家 Agent</div>
+                        <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+                          {agentSnapshots.length}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                          忙碌 {busyAgentCount} · 空闲 {idleAgentCount}
+                        </div>
+                      </div>
 
-              {/* 4-Stage Multi-Agent Workflow Summary Strip */}
-              <section className="bg-white rounded-xl border border-slate-200 p-4">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-xs font-bold text-slate-900">项目任务四态实时分布</h2>
-                    <span className="text-[11px] text-slate-400">
-                      待批准 → 执行中 → 待验证 → 已完成
-                    </span>
+                      <div className="space-y-1">
+                        <div className="text-[11px] font-medium text-slate-500">项目预算</div>
+                        <div className="text-2xl font-bold font-mono tabular-nums text-slate-900">
+                          ${totalExternalSpentUsd.toLocaleString('en-US')}
+                        </div>
+                        <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+                          上限 ${totalBudgetCapUsd.toLocaleString('en-US')}
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKanbanProjectScope('all');
-                      setKanbanAgentFilter('all');
-                      switchTab('kanban');
-                    }}
-                    className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                  >
-                    <span>进入项目看板</span>
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {WORK_CARD_STAGES.map((stage) => {
-                    const stageTasks = allTasks.filter((t) =>
-                      stage.status === 'in_progress'
-                        ? t.status === 'in_progress' || executingTaskId === t.id
-                        : t.status === stage.status && executingTaskId !== t.id,
-                    );
-                    const uniqueAgents = Array.from(
-                      new Set(stageTasks.map((t) => displayEntityName(t.assigneeHandle))),
-                    );
-
-                    return (
+                  {/* Right: Global 4-Stage Donut Chart + Unified Table */}
+                  <div className="lg:col-span-5 p-4 md:p-5 bg-slate-50/40 border-t lg:border-t-0 border-slate-200/80 flex flex-col justify-between gap-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-800">
+                        全局任务分布（四阶段）
+                      </span>
                       <button
-                        key={stage.status}
                         type="button"
                         onClick={() => {
-                          setKanbanProjectScope('all');
-                          switchTab('kanban');
+                          if (focusedProject) openProjectWorkspace(focusedProject.id);
+                          else switchTab('my_projects');
                         }}
-                        className="text-left rounded-lg bg-slate-50/80 hover:bg-slate-100/80 border border-slate-200/80 p-3 transition-colors cursor-pointer space-y-1.5"
+                        className="inline-flex items-center gap-0.5 text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <WorkStatusBadge status={stage.status} />
-                          <span className="text-lg font-bold font-mono tabular-nums text-slate-900">
-                            {stageTasks.length}
-                          </span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate">
-                          {uniqueAgents.length > 0
-                            ? `执行：${uniqueAgents.slice(0, 2).join('、')}${
-                                uniqueAgents.length > 2 ? ` 等${uniqueAgents.length}位` : ''
-                              }`
-                            : stage.hint}
-                        </div>
+                        <span>进入项目看板</span>
+                        <ArrowUpRight className="w-3.5 h-3.5" />
                       </button>
-                    );
-                  })}
+                    </div>
+
+                    <div className="flex items-center gap-5">
+                      {/* Pure SVG Donut Chart */}
+                      {(() => {
+                        const radius = 36;
+                        const circumference = 2 * Math.PI * radius;
+                        const total = allTasks.length;
+                        let cumulative = 0;
+                        return (
+                          <div className="relative w-24 h-24 shrink-0">
+                            <svg
+                              viewBox="0 0 100 100"
+                              className="w-full h-full -rotate-90"
+                              role="img"
+                              aria-label={`全局任务四阶段分布，共 ${total} 项任务`}
+                            >
+                              <circle
+                                cx="50"
+                                cy="50"
+                                r={radius}
+                                fill="none"
+                                stroke="#e2e8f0"
+                                strokeWidth="11"
+                              />
+                              {total > 0 &&
+                                globalStageStats.map((seg) => {
+                                  if (seg.count <= 0) return null;
+                                  const segLen = (seg.count / total) * circumference;
+                                  const dashOffset = -cumulative;
+                                  cumulative += segLen;
+                                  return (
+                                    <circle
+                                      key={seg.stage.status}
+                                      cx="50"
+                                      cy="50"
+                                      r={radius}
+                                      fill="none"
+                                      stroke={seg.color}
+                                      strokeWidth="11"
+                                      strokeDasharray={`${segLen} ${circumference}`}
+                                      strokeDashoffset={dashOffset}
+                                    />
+                                  );
+                                })}
+                            </svg>
+                            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                              <span className="text-lg font-bold font-mono tabular-nums text-slate-900 leading-none">
+                                {total}
+                              </span>
+                              <span className="text-[10px] text-slate-500 mt-1">总任务</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Unified 4-Stage Compact Hairline Table */}
+                      <table className="flex-1 min-w-0 text-left border-collapse text-xs">
+                        <tbody className="divide-y divide-slate-200/70">
+                          {globalStageStats.map((seg) => (
+                            <tr
+                              key={seg.stage.status}
+                              onClick={() => {
+                                if (seg.firstProjectId) {
+                                  openProjectWorkspace(seg.firstProjectId);
+                                } else {
+                                  switchTab('my_projects');
+                                }
+                              }}
+                              title={`点击进入包含「${seg.stage.label}」任务的项目看板`}
+                              className="hover:bg-white cursor-pointer transition-colors"
+                            >
+                              <td className="py-1.5 pr-2">
+                                <span className="inline-flex items-center gap-2 text-slate-700 font-medium whitespace-nowrap">
+                                  <span
+                                    className="w-2 h-2 rounded-sm shrink-0"
+                                    style={{ backgroundColor: seg.color }}
+                                  />
+                                  <span>{seg.stage.label}</span>
+                                </span>
+                              </td>
+                              <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-slate-900">
+                                {seg.count}
+                              </td>
+                              <td className="py-1.5 pl-2 text-right font-mono tabular-nums text-[11px] text-slate-500 w-10">
+                                {seg.pct}%
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               </section>
 
-              {/* Lower Split: Project Overview List + Frequent Agents */}
-              <div className="grid grid-cols-1 @[920px]:grid-cols-12 gap-4">
-                <section className="@[920px]:col-span-7 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
-                  <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-sm font-bold text-slate-900">项目状态、空间载体与进度</h2>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        按生命周期总览各项目进展、绑定的运行节点与预算执行
-                      </p>
+              {/* ================= BLOCK 2: FULL-WIDTH PROJECT-CENTRIC PROJECT LIST ================= */}
+              <section className="space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2.5 px-0.5">
+                  <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+                    <div className="inline-flex items-center gap-2 shrink-0 mr-1">
+                      <h2 className="text-sm font-bold text-slate-900">项目列表</h2>
+                      <span className="text-xs font-mono tabular-nums text-slate-500">
+                        {filteredMyProjects.length} / {workspaces.length}
+                      </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => switchTab('my_projects')}
-                      className="text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
-                    >
-                      我的项目 →
-                    </button>
+
+                    <ToolbarDropdown
+                      label="状态"
+                      value={lifecycleFilter}
+                      defaultValue="all"
+                      onChange={setLifecycleFilter}
+                      options={[
+                        { id: 'all', label: '全部状态', hint: `${workspaces.length}` },
+                        { id: 'active', label: '进行中', hint: `${activeProjCount}` },
+                        { id: 'completed', label: '已完成', hint: `${completedProjCount}` },
+                        { id: 'archived', label: '已归档', hint: `${archivedProjCount}` },
+                      ]}
+                    />
+                    <ToolbarDropdown
+                      label="视角"
+                      value={roleFilter}
+                      defaultValue="all"
+                      onChange={setRoleFilter}
+                      options={[
+                        { id: 'all', label: '全部项目', hint: `${workspaces.length}` },
+                        { id: 'leading', label: '我主管', hint: `${leadingCount}` },
+                        { id: 'participating', label: '我参与', hint: `${participatingCount}` },
+                      ]}
+                    />
+                    <ToolbarSearch
+                      value={searchKeyword}
+                      onChange={setSearchKeyword}
+                      placeholder={searchPlaceholder}
+                      widthClass="flex-1 min-w-[160px] max-w-[260px]"
+                    />
+                    {(lifecycleFilter !== 'all' ||
+                      roleFilter !== 'all' ||
+                      searchKeyword.trim() !== '') && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setLifecycleFilter('all');
+                          setRoleFilter('all');
+                          setSearchKeyword('');
+                        }}
+                        className="inline-flex items-center gap-1 h-8 px-2 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 cursor-pointer whitespace-nowrap"
+                      >
+                        <X className="w-3 h-3" />
+                        <span>重置</span>
+                      </button>
+                    )}
                   </div>
 
-                  <div className="divide-y divide-slate-100 flex-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateProjectForm((v) => !v)}
+                    className={`inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors ${
+                      showCreateProjectForm
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-slate-900 hover:bg-slate-800 text-white'
+                    }`}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>新建项目</span>
+                  </button>
+                </div>
+
+                {showCreateProjectForm && (
+                  <form
+                    onSubmit={handleCreateProjectSubmit}
+                    className="p-4 rounded-xl bg-white border border-slate-200 space-y-3"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900">
+                        新建工作项目（支持绑定个人 Agent 节点或 Agent 社区共享节点）
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateProjectForm(false)}
+                        className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                      <input
+                        type="text"
+                        required
+                        value={projName}
+                        onChange={(e) => setProjName(e.target.value)}
+                        placeholder="项目名称（如：海外独立站支付重构）"
+                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                      />
+                      <input
+                        type="text"
+                        value={projGoal}
+                        onChange={(e) => setProjGoal(e.target.value)}
+                        placeholder="核心交付目标（可选）"
+                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                      />
+                      <select
+                        value={projZoneId}
+                        onChange={(e) => {
+                          const nextZoneId = e.target.value;
+                          setProjZoneId(nextZoneId);
+                          const matchingShared = accessibleSharedNodes.find(
+                            (sn) => sn.zoneId === nextZoneId && sn.status === 'online',
+                          );
+                          if (matchingShared) {
+                            setProjNodeId(matchingShared.id);
+                          }
+                        }}
+                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                      >
+                        <option value="">归属：个人私有项目</option>
+                        {joinedZones.map((z) => (
+                          <option key={z.id} value={z.id}>
+                            归属：{z.name}（{z.typeLabel}）
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      <select
+                        value={projNodeId}
+                        onChange={(e) => setProjNodeId(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                      >
+                        <option value="">暂不指定运行节点</option>
+                        <optgroup label="个人 Agent 节点">
+                          {computeNodes.map((n) => (
+                            <option key={n.id} value={n.id}>
+                              个人节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
+                            </option>
+                          ))}
+                        </optgroup>
+                        {accessibleSharedNodes.length > 0 && (
+                          <optgroup label="Agent 社区 · 共享节点">
+                            {accessibleSharedNodes.map((sn) => {
+                              const z = zoneMap.get(sn.zoneId);
+                              return (
+                                <option key={sn.id} value={sn.id}>
+                                  [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name} (
+                                  {sn.cpuCores}C/{sn.memoryGb}G)
+                                </option>
+                              );
+                            })}
+                          </optgroup>
+                        )}
+                      </select>
+                      <select
+                        value={projVolumeId}
+                        onChange={(e) => setProjVolumeId(e.target.value)}
+                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                      >
+                        <option value="">暂不指定存储卷</option>
+                        {storageVolumes.map((v) => (
+                          <option key={v.id} value={v.id}>
+                            挂载存储卷：{v.name} ({v.quotaGb}GB)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        type="submit"
+                        className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                      >
+                        创建并进入项目看板
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {filteredMyProjects.length === 0 ? (
+                  <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
+                    <p className="text-sm font-medium text-slate-700">当前筛选下暂无项目</p>
+                    <button
+                      type="button"
+                      onClick={onJumpToDiscover}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+                    >
+                      <Compass className="w-3.5 h-3.5" />
+                      <span>前往交流社区承接或发布项目</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
                     {filteredMyProjects.map((proj) => {
                       const projTasks = allTasks.filter((t) => t.sessionId === proj.id);
-                      const pDone = projTasks.filter((t) => t.status === 'done').length;
-                      const pct =
+                      const projPending = projTasks.filter(
+                        (t) => t.status === 'pending' && executingTaskId !== t.id,
+                      ).length;
+                      const projInProgress = projTasks.filter(
+                        (t) => t.status === 'in_progress' || executingTaskId === t.id,
+                      ).length;
+                      const projReview = projTasks.filter(
+                        (t) => t.status === 'review' && executingTaskId !== t.id,
+                      ).length;
+                      const projDone = projTasks.filter(
+                        (t) => t.status === 'done' && executingTaskId !== t.id,
+                      ).length;
+
+                      const status: ProjectLifecycleStatus = proj.lifecycleStatus || 'active';
+                      const life = LIFECYCLE_META[status];
+                      const roleInfo = ROLE_META[proj.role];
+                      const projPct =
                         projTasks.length > 0
-                          ? Math.round((pDone / projTasks.length) * 100)
-                          : proj.lifecycleStatus === 'completed' ||
-                              proj.lifecycleStatus === 'archived'
+                          ? Math.round((projDone / projTasks.length) * 100)
+                          : status === 'completed' || status === 'archived'
                             ? 100
                             : 0;
-                      const life = LIFECYCLE_META[proj.lifecycleStatus || 'active'];
-                      const roleInfo = ROLE_META[proj.role];
-                      const boundNodes = (proj.boundNodeIds || [])
+
+                      const boundNodeLabels = (proj.boundNodeIds || [])
                         .map((id) => getAnyNodeLabel(id))
                         .filter((v): v is string => Boolean(v));
+                      const boundVol = proj.storageVolumeId
+                        ? volumeMap.get(proj.storageVolumeId)
+                        : undefined;
+                      const projUnsettled = settlements
+                        .filter((s) => s.projectId === proj.id && s.status === 'unsettled')
+                        .reduce((sum, s) => sum + s.amountUsd, 0);
+                      const spaceZone = proj.sourceZoneId
+                        ? zoneMap.get(proj.sourceZoneId)
+                        : undefined;
+
+                      // Project Task Category distribution (aligned with 任务编排 -> 任务卡片模板)
+                      const projTaskTypes =
+                        projectTaskTypes[proj.id] || DEFAULT_PROJECT_TASK_TYPES;
+                      const categoryCounts = new Map<string, number>();
+                      projTasks.forEach((t) => {
+                        const resolved = resolveTaskType(t, projTaskTypes);
+                        categoryCounts.set(
+                          resolved.id,
+                          (categoryCounts.get(resolved.id) || 0) + 1,
+                        );
+                      });
+                      const taskCategoryStats = projTaskTypes
+                        .map((tt) => ({
+                          taskType: tt,
+                          count: categoryCounts.get(tt.id) || 0,
+                        }))
+                        .sort((a, b) => b.count - a.count);
+
+                      // Project-scoped task activity feed
+                      const projActivities = (activitiesByProjectId.get(proj.id) || []).slice(0, 3);
+
+                      // Project specialist Agents & their live activity in this project
+                      const projAssignments = projectAgentAssignments[proj.id] || [];
+                      const projAgentIds = new Set<string>([
+                        ...projAssignments.map((a) => a.agentId),
+                        ...proj.hiredAgentIds,
+                        ...projTasks.map((t) => t.assigneeId),
+                      ]);
+                      const projAgentRows = Array.from(projAgentIds)
+                        .map((agentId) => {
+                          const ag = agentMap.get(agentId);
+                          if (!ag) return null;
+                          const tasks = projTasks.filter((t) => t.assigneeId === agentId);
+                          const inProg = tasks.filter(
+                            (t) => t.status === 'in_progress' || executingTaskId === t.id,
+                          ).length;
+                          const rev = tasks.filter(
+                            (t) => t.status === 'review' && executingTaskId !== t.id,
+                          ).length;
+                          const pend = tasks.filter(
+                            (t) => t.status === 'pending' && executingTaskId !== t.id,
+                          ).length;
+                          const done = tasks.filter(
+                            (t) => t.status === 'done' && executingTaskId !== t.id,
+                          ).length;
+                          const snap = snapshotByAgentId.get(agentId);
+                          const isBusyInProj = inProg > 0 || rev > 0;
+                          const stateLabel = !ag.isOnlineForOrders
+                            ? '离线'
+                            : inProg > 0
+                              ? `执行中 ${inProg}`
+                              : rev > 0
+                                ? `待验证 ${rev}`
+                                : pend > 0
+                                  ? `计划中 ${pend}`
+                                  : done > 0
+                                    ? `已完成 ${done}`
+                                    : snap?.availability === 'busy'
+                                      ? '其他项目忙碌'
+                                      : '空闲待命';
+                          const stateCls = !ag.isOnlineForOrders
+                            ? 'text-slate-400'
+                            : inProg > 0
+                              ? 'text-blue-700 font-semibold'
+                              : rev > 0
+                                ? 'text-amber-700 font-semibold'
+                                : pend > 0
+                                  ? 'text-slate-700 font-medium'
+                                  : done > 0
+                                    ? 'text-emerald-700 font-medium'
+                                    : 'text-emerald-700';
+                          const sortScore =
+                            inProg * 20 + rev * 12 + pend * 5 + done * 2 + (ag.isOnlineForOrders ? 1 : 0);
+                          return {
+                            agent: ag,
+                            total: tasks.length,
+                            isBusyInProj,
+                            stateLabel,
+                            stateCls,
+                            sortScore,
+                          };
+                        })
+                        .filter((v): v is NonNullable<typeof v> => Boolean(v))
+                        .sort((a, b) => b.sortScore - a.sortScore);
+
+                      const activeAgentsInProjCount = projAgentRows.filter(
+                        (r) => r.isBusyInProj,
+                      ).length;
 
                       return (
-                        <div
+                        <article
                           key={proj.id}
-                          className="p-4 hover:bg-slate-50/70 transition-colors space-y-2"
+                          className="bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition-colors overflow-hidden"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                <span className="text-xs font-bold text-slate-900 truncate">
-                                  {proj.name}
-                                </span>
-                                {renderSpaceOwnershipBadge(proj.sourceZoneId)}
-                                <span
-                                  className={`inline-flex items-center gap-1 text-[11px] font-semibold ${life.cls}`}
+                          {/* Project Header: Summary, Metadata & Direct Actions */}
+                          <div className="p-4 space-y-2">
+                            <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                  <FolderKanban className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <button
+                                    type="button"
+                                    onClick={() => openProjectWorkspace(proj.id)}
+                                    className="text-sm font-bold text-slate-900 hover:text-blue-700 transition-colors text-left cursor-pointer"
+                                  >
+                                    {proj.name}
+                                  </button>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className={`text-[11px] font-semibold ${life.cls}`}>
+                                    {life.label}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className={`text-[11px] font-semibold ${roleInfo.cls}`}>
+                                    {roleInfo.label}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="text-[11px] text-slate-500">
+                                    {spaceZone ? `${spaceZone.typeLabel} · ${spaceZone.name}` : '个人私有项目'}
+                                  </span>
+                                  {proj.completedAt && (
+                                    <span className="text-[11px] font-mono text-slate-400">
+                                      ({proj.completedAt})
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-slate-600 line-clamp-1">{proj.goal}</p>
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                {status === 'active' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateProjectLifecycle(proj.id, 'completed')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-[11px] font-semibold text-emerald-700 cursor-pointer whitespace-nowrap"
+                                  >
+                                    <CheckCircle2 className="w-3 h-3" />
+                                    <span>完成</span>
+                                  </button>
+                                )}
+                                {status !== 'archived' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateProjectLifecycle(proj.id, 'archived')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 cursor-pointer whitespace-nowrap"
+                                  >
+                                    <Archive className="w-3 h-3" />
+                                    <span>归档</span>
+                                  </button>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => onUpdateProjectLifecycle(proj.id, 'active')}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[11px] font-semibold text-blue-700 cursor-pointer whitespace-nowrap"
+                                  >
+                                    <RotateCcw className="w-3 h-3" />
+                                    <span>激活</span>
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    selectProject(proj.id);
+                                    switchTab('orchestration');
+                                  }}
+                                  className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
                                 >
-                                  <span className={`w-1.5 h-1.5 rounded-full ${life.dotCls}`} />
-                                  <span>{life.label}</span>
-                                </span>
-                                <span className="text-slate-300" aria-hidden="true">·</span>
-                                <span className={`text-[11px] font-semibold ${roleInfo.cls}`}>
-                                  {roleInfo.label}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] text-slate-500 truncate">
-                                载体节点：
-                                {boundNodes.length > 0 ? boundNodes.join('、') : '按工位节点自动调度'}
+                                  任务编排
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openProjectWorkspace(proj.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                                >
+                                  <span>进入看板</span>
+                                  <ArrowUpRight className="w-3 h-3" />
+                                </button>
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setPipelineProjectId(proj.id);
-                                  switchTab('orchestration');
-                                }}
-                                className="px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
-                              >
-                                编排
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setKanbanProjectScope(proj.id);
-                                  switchTab('kanban');
-                                }}
-                                className="px-2 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                              >
-                                看板
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center justify-between gap-3 pt-0.5">
-                            <div className="flex items-center gap-2 flex-1 min-w-[120px]">
-                              <div className="h-1.5 flex-1 rounded-full bg-slate-100 overflow-hidden">
-                                <div
-                                  className={`h-full rounded-full ${
-                                    proj.lifecycleStatus === 'completed'
-                                      ? 'bg-emerald-500'
-                                      : proj.lifecycleStatus === 'archived'
-                                        ? 'bg-slate-400'
-                                        : 'bg-blue-600'
-                                  }`}
-                                  style={{ width: `${pct}%` }}
-                                />
+                            {/* Compact Unboxed Project Metrics Line */}
+                            <div className="pt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                              <div className="inline-flex items-center gap-2">
+                                <span className="text-slate-400">完成度</span>
+                                <div className="w-20 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all ${
+                                      status === 'completed'
+                                        ? 'bg-emerald-500'
+                                        : status === 'archived'
+                                          ? 'bg-slate-400'
+                                          : 'bg-blue-600'
+                                    }`}
+                                    style={{ width: `${projPct}%` }}
+                                  />
+                                </div>
+                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  {projDone}/{projTasks.length} ({projPct}%)
+                                </span>
                               </div>
-                              <span className="text-[11px] font-mono tabular-nums font-semibold text-slate-700">
-                                {pct}%
+
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+
+                              <span className="font-mono tabular-nums text-slate-600">
+                                预算 ${proj.spentUsd.toLocaleString('en-US')} / $
+                                {proj.budgetCapUsd.toLocaleString('en-US')}
+                                {projUnsettled > 0 && (
+                                  <span className="text-amber-700 ml-1">
+                                    (待结 ${Math.round(projUnsettled).toLocaleString('en-US')})
+                                  </span>
+                                )}
                               </span>
+
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+
+                              <span className="truncate">
+                                算力：
+                                {boundNodeLabels.length > 0
+                                  ? boundNodeLabels.join('、')
+                                  : '自动调度节点'}
+                              </span>
+
+                              {boundVol && (
+                                <>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="font-mono tabular-nums">
+                                    存储：{boundVol.name} ({boundVol.usedGb}/{boundVol.quotaGb}GB)
+                                  </span>
+                                </>
+                              )}
                             </div>
-                            <span className="text-[11px] font-mono tabular-nums text-slate-600">
-                              ${proj.spentUsd.toLocaleString('en-US')} / $
-                              {proj.budgetCapUsd.toLocaleString('en-US')}
-                            </span>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
 
-                <section className="@[920px]:col-span-5 bg-white rounded-xl border border-slate-200 overflow-hidden flex flex-col">
-                  <div className="px-4 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
-                    <div>
-                      <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                        <Cpu className="w-4 h-4 text-indigo-600" />
-                        <span>活跃专业 Agent 与宿主机</span>
-                      </h2>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        实时追踪 Agent 闲忙状态与物理/云载体节点
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={onJumpToTeamNodes}
-                      className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-                    >
-                      节点配置 →
-                    </button>
-                  </div>
-
-                  <div className="divide-y divide-slate-100 flex-1">
-                    {agentSnapshots.slice(0, 6).map((snap) => {
-                      const hostNodeLabel = snap.agent.hostNodeId
-                        ? getAnyNodeLabel(snap.agent.hostNodeId)
-                        : null;
-                      return (
-                        <div
-                          key={snap.agent.id}
-                          className="px-4 py-3 hover:bg-slate-50/70 transition-colors flex items-center justify-between gap-3"
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <EntityAvatar
-                              kind="agent"
-                              code={snap.agent.avatarCode}
-                              accent={snap.agent.avatarAccent}
-                              size="sm"
-                            />
-                            <div className="min-w-0">
-                              <AgentIdentityName
-                                name={snap.agent.handle}
-                                runtime={snap.agent.runtimeAgent}
-                                model={snap.agent.defaultModel}
-                                showModel
-                                className="text-xs font-bold text-slate-900"
-                              />
-                              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-slate-500 truncate">
-                                {renderAvailabilityIndicator(snap)}
-                                <span className="text-slate-300" aria-hidden="true">·</span>
-                                <span className="truncate">
-                                  {hostNodeLabel
-                                    ? hostNodeLabel
-                                    : snap.agent.ownership === 'marketplace'
-                                      ? `云端专家 (${snap.agent.region})`
-                                      : '待绑定节点'}
+                          {/* 3-Column Project-Centric Detail Strip: Task Categories | Task Activity | Active Specialist Agents */}
+                          <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/70 border-t border-slate-100 bg-slate-50/40">
+                            {/* Column 1: Project Task Categories & 4-Stage Counts */}
+                            <div className="lg:col-span-4 p-3.5 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-semibold text-slate-700">项目任务分类</span>
+                                <span className="font-mono tabular-nums text-slate-500">
+                                  计划 {projPending} ·{' '}
+                                  <span className={projInProgress > 0 ? 'text-blue-700 font-semibold' : ''}>
+                                    执行 {projInProgress}
+                                  </span>{' '}
+                                  ·{' '}
+                                  <span className={projReview > 0 ? 'text-amber-700 font-semibold' : ''}>
+                                    验证 {projReview}
+                                  </span>{' '}
+                                  ·{' '}
+                                  <span className={projDone > 0 ? 'text-emerald-700 font-semibold' : ''}>
+                                    完成 {projDone}
+                                  </span>
                                 </span>
                               </div>
-                            </div>
-                          </div>
 
-                          <div className="text-right shrink-0">
-                            <div className="text-[11px] font-mono tabular-nums font-semibold text-slate-800">
-                              {snap.totalTasks} 任务
+                              <div className="divide-y divide-slate-200/60">
+                                {taskCategoryStats.slice(0, 4).map(({ taskType, count }) => {
+                                  const accentStyle = TASK_TYPE_ACCENT_STYLES[taskType.accent];
+                                  return (
+                                    <button
+                                      key={taskType.id}
+                                      type="button"
+                                      onClick={() => openProjectWorkspace(proj.id, taskType.id)}
+                                      title={`点击进入看板并筛选「${taskType.name}」任务`}
+                                      className="w-full flex items-center justify-between gap-2 py-1.5 text-left hover:bg-white rounded px-1.5 -mx-1.5 transition-colors cursor-pointer"
+                                    >
+                                      <span className="inline-flex items-center gap-2 min-w-0 text-xs">
+                                        <span
+                                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${accentStyle.dotCls}`}
+                                        />
+                                        <span className="font-medium text-slate-800 truncate">
+                                          {taskType.name}
+                                        </span>
+                                      </span>
+                                      <span
+                                        className={`text-[11px] font-mono tabular-nums shrink-0 ${
+                                          count > 0
+                                            ? 'font-semibold text-slate-900'
+                                            : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {count} 卡
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
-                            {snap.activeTask ? (
-                              <button
-                                type="button"
-                                onClick={() => onOpenTaskSession(snap.activeTask!.id)}
-                                className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-                              >
-                                Session →
-                              </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-400">待派单</span>
-                            )}
+
+                            {/* Column 2: Project Task Activity */}
+                            <div className="lg:col-span-4 p-3.5 border-t lg:border-t-0 border-slate-200/70 space-y-2">
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-semibold text-slate-700">项目任务动态</span>
+                                <span className="font-mono tabular-nums text-slate-400">
+                                  {(activitiesByProjectId.get(proj.id) || []).length} 条
+                                </span>
+                              </div>
+
+                              {projActivities.length === 0 ? (
+                                <div className="py-4 text-xs text-slate-400">
+                                  暂无任务动态，进入看板发起对话规划任务
+                                </div>
+                              ) : (
+                                <div className="divide-y divide-slate-200/60">
+                                  {projActivities.map((act) => (
+                                    <button
+                                      key={act.id}
+                                      type="button"
+                                      onClick={() =>
+                                        act.taskId
+                                          ? onOpenTaskSession(act.taskId)
+                                          : openProjectWorkspace(proj.id)
+                                      }
+                                      className="w-full text-left py-1.5 hover:bg-white rounded px-1.5 -mx-1.5 transition-colors cursor-pointer space-y-0.5"
+                                    >
+                                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          <span
+                                            className={`font-semibold whitespace-nowrap shrink-0 ${act.stageTextCls}`}
+                                          >
+                                            {act.stageLabel}
+                                          </span>
+                                          <span className="text-slate-300" aria-hidden="true">·</span>
+                                          <span className="font-medium text-slate-900 truncate">
+                                            {act.title}
+                                          </span>
+                                        </div>
+                                        <span className="text-[10.5px] font-mono tabular-nums text-slate-400 shrink-0">
+                                          {act.timestamp}
+                                        </span>
+                                      </div>
+                                      <div className="text-[11px] text-slate-500 truncate">
+                                        {act.detail}
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Column 3: Project Specialist Agents Activity */}
+                            <div className="lg:col-span-4 p-3.5 border-t lg:border-t-0 border-slate-200/70 space-y-2">
+                              <div className="flex items-center justify-between gap-2 text-[11px]">
+                                <span className="font-semibold text-slate-700">
+                                  专家 Agent 活跃情况
+                                </span>
+                                <span className="font-mono tabular-nums text-slate-500">
+                                  活跃 {activeAgentsInProjCount} / 共 {projAgentRows.length} 位
+                                </span>
+                              </div>
+
+                              {projAgentRows.length === 0 ? (
+                                <div className="py-4 text-xs text-slate-400">
+                                  暂未配置专家 Agent，可前往任务编排添加
+                                </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  <div className="divide-y divide-slate-200/60">
+                                    {projAgentRows.slice(0, 4).map((row) => (
+                                      <button
+                                        key={row.agent.id}
+                                        type="button"
+                                        onClick={() =>
+                                          openProjectWorkspace(proj.id, 'all', row.agent.id)
+                                        }
+                                        title={`点击进入看板查看 ${formatAgentDisplayName(
+                                          row.agent.handle,
+                                          row.agent.runtimeAgent,
+                                        )} 的任务`}
+                                        className="w-full flex items-center justify-between gap-2 py-1.5 text-left hover:bg-white rounded px-1.5 -mx-1.5 transition-colors cursor-pointer"
+                                      >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                          <EntityAvatar
+                                            kind="agent"
+                                            code={row.agent.avatarCode}
+                                            accent={row.agent.avatarAccent}
+                                            size="xs"
+                                            showCornerMark={false}
+                                          />
+                                          <AgentIdentityName
+                                            name={row.agent.handle}
+                                            runtime={row.agent.runtimeAgent}
+                                            model={row.agent.defaultModel}
+                                            className="text-xs font-semibold text-slate-800"
+                                          />
+                                        </div>
+                                        <span
+                                          className={`text-[11px] font-mono tabular-nums whitespace-nowrap shrink-0 ${row.stateCls}`}
+                                        >
+                                          {row.stateLabel}
+                                        </span>
+                                      </button>
+                                    ))}
+                                  </div>
+                                  {projAgentRows.length > 4 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        selectProject(proj.id);
+                                        switchTab('orchestration');
+                                      }}
+                                      className="text-[11px] font-medium text-blue-700 hover:text-blue-900 pt-0.5 cursor-pointer"
+                                    >
+                                      另有 +{projAgentRows.length - 4} 位编排专家 · 查看全部 →
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
+                        </article>
                       );
                     })}
                   </div>
-                </section>
-              </div>
+                )}
+              </section>
             </div>
           )}
 
-          {/* ================= WORK PROJECTS 2: MY PROJECTS (Lifecycle + Space Binding) ================= */}
+          {/* ================= WORK PROJECTS 2: MY PROJECTS (Multi-Project Tab Cockpit: Compact Brief + Always-Visible Kanban) ================= */}
           {activeTab === 'my_projects' && (
             <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
-              {showCreateProjectForm && !focusedProject && (
+              {showCreateProjectForm && (
                 <form
                   onSubmit={handleCreateProjectSubmit}
                   className="p-4 rounded-xl bg-white border border-slate-200 space-y-3"
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-900">
-                      新建工作项目（支持绑定个人 Agent 节点或 Agent 社区共享节点）
+                      新建工作项目（创建后自动新增顶部项目标签页并进入看板）
                     </span>
                     <button
                       type="button"
@@ -1436,403 +1941,549 @@ export function WorkflowKanbanView({
                       type="submit"
                       className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                     >
-                      创建并进入项目
+                      创建并切换至该项目
                     </button>
                   </div>
                 </form>
               )}
 
               {!focusedProject ? (
-                filteredMyProjects.length === 0 ? (
-                  <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-                    <p className="text-sm font-medium text-slate-700">当前筛选下暂无项目</p>
+                <div className="py-16 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
+                  <p className="text-sm font-medium text-slate-700">当前暂无工作项目</p>
+                  <div className="flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowCreateProjectForm(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>新建第一个项目</span>
+                    </button>
                     <button
                       type="button"
                       onClick={onJumpToDiscover}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold cursor-pointer"
                     >
                       <Compass className="w-3.5 h-3.5" />
-                      <span>前往交流社区承接或发布项目</span>
+                      <span>前往社区承接项目</span>
                     </button>
                   </div>
-                ) : (
-                  filteredMyProjects.map((proj) => {
-                    const projTasks = allTasks.filter((t) => t.sessionId === proj.id);
-                    const projDone = projTasks.filter((t) => t.status === 'done').length;
-                    const projReview = projTasks.filter((t) => t.status === 'review').length;
-                    const status: ProjectLifecycleStatus = proj.lifecycleStatus || 'active';
-                    const life = LIFECYCLE_META[status];
-                    const projPct =
-                      projTasks.length > 0
-                        ? Math.round((projDone / projTasks.length) * 100)
-                        : status === 'completed' || status === 'archived'
-                          ? 100
-                          : 0;
-                    const projMembers = agents.filter((a) => proj.hiredAgentIds.includes(a.id));
-                    const roleInfo = ROLE_META[proj.role];
-                    const boundNodeLabels = (proj.boundNodeIds || [])
-                      .map((id) => getAnyNodeLabel(id))
-                      .filter((v): v is string => Boolean(v));
-                    const boundVol = proj.storageVolumeId
-                      ? volumeMap.get(proj.storageVolumeId)
-                      : undefined;
-                    const projUnsettled = settlements
-                      .filter((s) => s.projectId === proj.id && s.status === 'unsettled')
-                      .reduce((sum, s) => sum + s.amountUsd, 0);
+                </div>
+              ) : (
+                (() => {
+                  const status: ProjectLifecycleStatus = focusedProject.lifecycleStatus || 'active';
+                  const life = LIFECYCLE_META[status];
+                  const roleInfo = ROLE_META[focusedProject.role];
+                  const projDone = focusedProjectTasks.filter((t) => t.status === 'done').length;
+                  const projPct =
+                    focusedProjectTasks.length > 0
+                      ? Math.round((projDone / focusedProjectTasks.length) * 100)
+                      : status === 'completed' || status === 'archived'
+                        ? 100
+                        : 0;
+                  const projMembers = agents.filter((a) =>
+                    focusedProject.hiredAgentIds.includes(a.id),
+                  );
+                  const boundNodeLabels = (focusedProject.boundNodeIds || [])
+                    .map((id) => getAnyNodeLabel(id))
+                    .filter((v): v is string => Boolean(v));
+                  const boundVol = focusedProject.storageVolumeId
+                    ? volumeMap.get(focusedProject.storageVolumeId)
+                    : undefined;
+                  const projUnsettled = settlements
+                    .filter((s) => s.projectId === focusedProject.id && s.status === 'unsettled')
+                    .reduce((sum, s) => sum + s.amountUsd, 0);
 
-                    return (
-                      <section
-                        key={proj.id}
-                        className="bg-white rounded-xl border border-slate-200 p-5 space-y-4"
-                      >
-                        <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                          <div className="min-w-0">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                              <FolderKanban className="w-4 h-4 text-blue-600 shrink-0" />
-                              <h2 className="text-base font-bold text-slate-900">{proj.name}</h2>
-                              {renderSpaceOwnershipBadge(proj.sourceZoneId)}
-                              <span
-                                className={`inline-flex items-center gap-1 text-xs font-semibold ${life.cls}`}
-                              >
-                                <span className={`w-1.5 h-1.5 rounded-full ${life.dotCls}`} />
-                                <span>{life.label}</span>
-                              </span>
-                              <span className="text-slate-300" aria-hidden="true">·</span>
-                              <span className={`text-xs font-semibold ${roleInfo.cls}`}>
-                                {roleInfo.label}
-                              </span>
-                              {proj.completedAt && (
-                                <span className="text-[11px] font-mono text-slate-400">
-                                  ({proj.completedAt})
+                  const assignedExpertIds = focusedProject.hiredExpertIds || [];
+                  const assignedExperts = assignedExpertIds
+                    .map((id) => humanExpertMap.get(id))
+                    .filter((h): h is HumanExpert => Boolean(h));
+                  const availableExperts = humanExperts.filter(
+                    (h) => !h.isCurrentUser && !assignedExpertIds.includes(h.id),
+                  );
+                  const effectiveAssignId = assignExpertId || availableExperts[0]?.id || '';
+                  const effectiveQuickTypeId =
+                    focusedProjectTaskTypes.find((t) => t.id === quickTaskTypeId)?.id ||
+                    focusedProjectTaskTypes[0]?.id ||
+                    DEFAULT_PROJECT_TASK_TYPES[0].id;
+                  const selectedQuickType = focusedProjectTaskTypes.find(
+                    (t) => t.id === effectiveQuickTypeId,
+                  );
+                  const quickCreatorIds = selectedQuickType
+                    ? getTemplateCreatorIds(selectedQuickType)
+                    : [];
+                  const quickEligibleCreators: ExpertAgent[] = (
+                    quickCreatorIds.length > 0
+                      ? quickCreatorIds
+                          .map((id) => agentMap.get(id))
+                          .filter((a): a is ExpertAgent => Boolean(a))
+                      : focusedAgentAssignments
+                          .filter((a) => a.stages.includes('planning'))
+                          .map((a) => agentMap.get(a.agentId))
+                          .filter((a): a is ExpertAgent => Boolean(a))
+                  );
+                  const quickFallbackCreators =
+                    quickEligibleCreators.length > 0
+                      ? quickEligibleCreators
+                      : focusedAssignableAgents;
+                  const effectiveQuickCreatorId =
+                    quickCreatorAgentId &&
+                    quickFallbackCreators.some((a) => a.id === quickCreatorAgentId)
+                      ? quickCreatorAgentId
+                      : quickFallbackCreators[0]?.id || '';
+                  const quickDispatchAgent = effectiveQuickCreatorId
+                    ? agentMap.get(effectiveQuickCreatorId)
+                    : undefined;
+
+                  return (
+                    <div className="space-y-4">
+                      {/* Part 1: Flat Single-Elevation Split Project Summary (No Nested Cards) */}
+                      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/80">
+                          {/* Left Zone: Minimal Project Brief & Core Metrics */}
+                          <div className="lg:col-span-6 p-4 flex flex-col justify-between gap-3">
+                            <div className="space-y-1.5">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+                                  <FolderKanban className="w-4 h-4 text-blue-600 shrink-0" />
+                                  <h2 className="text-sm font-bold text-slate-900 truncate">
+                                    {focusedProject.name}
+                                  </h2>
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold ${life.cls}`}
+                                  >
+                                    <span className={`w-1.5 h-1.5 rounded-full ${life.dotCls}`} />
+                                    <span>{life.label}</span>
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className={`text-[11px] font-semibold ${roleInfo.cls}`}>
+                                    {roleInfo.label}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                  {status === 'active' && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateProjectLifecycle(focusedProject.id, 'completed')
+                                      }
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-[11px] font-semibold text-emerald-700 cursor-pointer whitespace-nowrap"
+                                    >
+                                      <CheckCircle2 className="w-3 h-3" />
+                                      <span>完成</span>
+                                    </button>
+                                  )}
+                                  {status !== 'archived' ? (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateProjectLifecycle(focusedProject.id, 'archived')
+                                      }
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 cursor-pointer whitespace-nowrap"
+                                    >
+                                      <Archive className="w-3 h-3" />
+                                      <span>归档</span>
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        onUpdateProjectLifecycle(focusedProject.id, 'active')
+                                      }
+                                      className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[11px] font-semibold text-blue-700 cursor-pointer whitespace-nowrap"
+                                    >
+                                      <RotateCcw className="w-3 h-3" />
+                                      <span>激活</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowProjectTeamPanel((v) => !v)}
+                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                                      showProjectTeamPanel
+                                        ? 'border-slate-900 bg-slate-900 text-white'
+                                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                                    }`}
+                                  >
+                                    <Users className="w-3 h-3" />
+                                    <span>{showProjectTeamPanel ? '收起阵容' : '管理阵容'}</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              <p className="text-xs text-slate-600 leading-relaxed line-clamp-2">
+                                {focusedProject.goal}
+                              </p>
+                            </div>
+
+                            {/* Clean Unboxed Metadata Footer */}
+                            <div className="pt-2.5 border-t border-slate-100 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-600">
+                              <div className="inline-flex items-center gap-2">
+                                <span className="text-slate-400">完成度</span>
+                                <div className="w-16 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                                  <div
+                                    className={`h-full transition-all ${
+                                      status === 'completed'
+                                        ? 'bg-emerald-500'
+                                        : status === 'archived'
+                                          ? 'bg-slate-400'
+                                          : 'bg-blue-600'
+                                    }`}
+                                    style={{ width: `${projPct}%` }}
+                                  />
+                                </div>
+                                <span className="font-mono tabular-nums font-semibold text-slate-800">
+                                  {projDone}/{focusedProjectTasks.length} ({projPct}%)
                                 </span>
+                              </div>
+
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+
+                              <span className="font-mono tabular-nums">
+                                ${focusedProject.spentUsd.toLocaleString('en-US')} / $
+                                {focusedProject.budgetCapUsd.toLocaleString('en-US')}
+                                {projUnsettled > 0 && (
+                                  <span className="text-amber-700 ml-1">
+                                    (待结 ${Math.round(projUnsettled).toLocaleString('en-US')})
+                                  </span>
+                                )}
+                              </span>
+
+                              {assignedExperts.length > 0 && (
+                                <>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="text-slate-500 truncate">
+                                    合作专家：{assignedExperts.map((e) => e.name).join('、')}
+                                  </span>
+                                </>
                               )}
                             </div>
-                            <p className="text-xs text-slate-600 mt-1">{proj.goal}</p>
-                            {/* Space Node & Volume Binding Line */}
-                            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-500">
+                          </div>
+
+                          {/* Right Zone: Compact Vertical Agent Expert Workload Table (Click Row to Filter) */}
+                          <div className="lg:col-span-6 border-t lg:border-t-0 border-slate-200/80 bg-slate-50/40 flex flex-col">
+                            <div className="px-3.5 py-2 border-b border-slate-200/70 flex items-center justify-between gap-2 text-[11px]">
+                              <span className="font-semibold text-slate-700">
+                                参与 Agent 专家统计（{focusedAgentWorkloads.length} 位）
+                              </span>
+                              <span className="text-slate-400">
+                                {kanbanAgentFilter !== 'all'
+                                  ? '已按选中 Agent 筛选'
+                                  : '点击行可筛选下方看板'}
+                              </span>
+                            </div>
+
+                            {focusedAgentWorkloads.length === 0 ? (
+                              <div className="px-4 py-6 text-center text-xs text-slate-400">
+                                暂未分配参与 Agent，可通过「管理阵容」或「任务编排」配置专业 Agent。
+                              </div>
+                            ) : (
+                              <div className="overflow-x-auto max-h-[142px] overflow-y-auto clean-scroll">
+                                <table className="w-full text-left border-collapse text-[11px]">
+                                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/70 text-[10.5px] font-semibold text-slate-500">
+                                    <tr>
+                                      <th className="py-1.5 pl-3.5 pr-2 font-semibold">Agent 专家</th>
+                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">总数</th>
+                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">计划</th>
+                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">执行</th>
+                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">验证</th>
+                                      <th className="py-1.5 pl-2 pr-3.5 text-right font-semibold whitespace-nowrap">完成</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-slate-200/60">
+                                    {focusedAgentWorkloads.map((item) => {
+                                      const isSelected = kanbanAgentFilter === item.agent.id;
+                                      return (
+                                        <tr
+                                          key={item.agent.id}
+                                          onClick={() =>
+                                            setKanbanAgentFilter((cur) =>
+                                              cur === item.agent.id ? 'all' : item.agent.id,
+                                            )
+                                          }
+                                          title="点击按该 Agent 筛选下方看板"
+                                          className={`cursor-pointer transition-colors ${
+                                            isSelected
+                                              ? 'bg-blue-50/90 text-blue-900'
+                                              : 'hover:bg-white'
+                                          }`}
+                                        >
+                                          <td className="py-1.5 pl-3.5 pr-2">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <EntityAvatar
+                                                kind="agent"
+                                                code={item.agent.avatarCode}
+                                                accent={item.agent.avatarAccent}
+                                                size="xs"
+                                                showCornerMark={false}
+                                              />
+                                              <span className="font-semibold text-slate-900 truncate max-w-[140px]">
+                                                {formatAgentDisplayName(
+                                                  item.agent.handle,
+                                                  item.agent.runtimeAgent,
+                                                )}
+                                              </span>
+                                            </div>
+                                          </td>
+                                          <td className="py-1.5 px-2 text-right font-mono tabular-nums font-bold text-slate-900">
+                                            {item.total}
+                                          </td>
+                                          <td className="py-1.5 px-2 text-right font-mono tabular-nums text-slate-500">
+                                            {item.pending}
+                                          </td>
+                                          <td
+                                            className={`py-1.5 px-2 text-right font-mono tabular-nums ${
+                                              item.inProgress > 0
+                                                ? 'text-blue-700 font-semibold'
+                                                : 'text-slate-400'
+                                            }`}
+                                          >
+                                            {item.inProgress}
+                                          </td>
+                                          <td
+                                            className={`py-1.5 px-2 text-right font-mono tabular-nums ${
+                                              item.review > 0
+                                                ? 'text-amber-700 font-semibold'
+                                                : 'text-slate-400'
+                                            }`}
+                                          >
+                                            {item.review}
+                                          </td>
+                                          <td
+                                            className={`py-1.5 pl-2 pr-3.5 text-right font-mono tabular-nums ${
+                                              item.done > 0
+                                                ? 'text-emerald-700 font-semibold'
+                                                : 'text-slate-400'
+                                            }`}
+                                          >
+                                            {item.done}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Collapsible Project Team, Compute Nodes & Lease Drawer */}
+                        {showProjectTeamPanel && (
+                          <div className="border-t border-slate-200 bg-slate-50/50 p-4 space-y-3">
+                            {/* Runtime Resource Line tucked inside drawer */}
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 pb-2.5 border-b border-slate-200/70">
+                              {renderSpaceOwnershipBadge(focusedProject.sourceZoneId)}
                               <span className="inline-flex items-center gap-1">
-                                <Server className="w-3.5 h-3.5 text-slate-400" />
+                                <Server className="w-3 h-3 text-slate-400 shrink-0" />
                                 <span>
-                                  算力载体：
+                                  算力节点：
                                   {boundNodeLabels.length > 0
                                     ? boundNodeLabels.join('、')
-                                    : '未绑定节点'}
+                                    : '自动调度节点'}
                                 </span>
                               </span>
                               {boundVol && (
-                                <span className="inline-flex items-center gap-1 font-mono">
-                                  <Database className="w-3.5 h-3.5 text-slate-400" />
+                                <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                                  <Database className="w-3 h-3 text-slate-400 shrink-0" />
                                   <span>
                                     {boundVol.name} ({boundVol.usedGb}/{boundVol.quotaGb}GB)
                                   </span>
                                 </span>
                               )}
                             </div>
-                          </div>
 
-                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                            {status === 'active' && (
-                              <button
-                                type="button"
-                                onClick={() => onUpdateProjectLifecycle(proj.id, 'completed')}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-xs font-semibold text-emerald-700 cursor-pointer whitespace-nowrap"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>标记完成</span>
-                              </button>
-                            )}
-                            {status !== 'archived' ? (
-                              <button
-                                type="button"
-                                onClick={() => onUpdateProjectLifecycle(proj.id, 'archived')}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-600 cursor-pointer whitespace-nowrap"
-                              >
-                                <Archive className="w-3.5 h-3.5" />
-                                <span>归档</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => onUpdateProjectLifecycle(proj.id, 'active')}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-xs font-semibold text-blue-700 cursor-pointer whitespace-nowrap"
-                              >
-                                <RotateCcw className="w-3.5 h-3.5" />
-                                <span>重新激活</span>
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => setFocusedProjectId(proj.id)}
-                              className="px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-                            >
-                              项目详情
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPipelineProjectId(proj.id);
-                                switchTab('orchestration');
-                              }}
-                              className="px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-indigo-700 cursor-pointer whitespace-nowrap"
-                            >
-                              工作编排
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setKanbanProjectScope(proj.id);
-                                switchTab('kanban');
-                              }}
-                              className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                            >
-                              项目看板
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t border-slate-100">
-                          <div>
-                            <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-                              <span>交付完成度</span>
-                              <span className="font-mono tabular-nums font-semibold text-slate-800">
-                                {projDone}/{projTasks.length} ({projPct}%)
-                              </span>
-                            </div>
-                            <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                              <div
-                                className={`h-full transition-all ${
-                                  status === 'completed'
-                                    ? 'bg-emerald-500'
-                                    : status === 'archived'
-                                      ? 'bg-slate-400'
-                                      : 'bg-blue-600'
-                                }`}
-                                style={{ width: `${projPct}%` }}
-                              />
-                            </div>
-                            <div className="mt-1.5 text-[11px] text-slate-500">
-                              {projReview > 0
-                                ? `${projReview} 张任务卡待验证`
-                                : status === 'completed'
-                                  ? '里程碑已全部验收归档'
-                                  : status === 'archived'
-                                    ? '只读归档状态'
-                                    : '多 Agent 流转顺畅'}
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="text-xs text-slate-500 mb-1.5">阶段工位编排</div>
-                            <div className="space-y-1">
-                              {(projectPipelines[proj.id] || []).slice(0, 4).map((slot) => {
-                                const ag = agentMap.get(slot.agentId);
-                                return (
-                                  <div
-                                    key={slot.stage}
-                                    className="flex items-center justify-between gap-2 text-xs"
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                                    <Users className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>合作专家 ({assignedExperts.length})</span>
+                                  </h3>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      focusedProject.sourceZoneId
+                                        ? onJumpToZoneMarket(focusedProject.sourceZoneId)
+                                        : onJumpToMarket()
+                                    }
+                                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                                   >
-                                    <span className="text-slate-600 truncate">
-                                      {WORK_TYPE_LABELS[slot.stage]} · {slot.roleTitle}
-                                    </span>
-                                    <span className="text-slate-900 font-semibold shrink-0">
-                                      {ag ? displayEntityName(ag.handle) : '未指定'}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          <div>
-                            <div className="flex items-center justify-between text-xs text-slate-500 mb-1.5">
-                              <span>
-                                项目阵容（{(proj.hiredExpertIds || []).length} 专家 ·{' '}
-                                {projMembers.length} Agent）
-                              </span>
-                              <span className="font-mono tabular-nums text-slate-700">
-                                ${proj.spentUsd.toLocaleString('en-US')} / $
-                                {proj.budgetCapUsd.toLocaleString('en-US')}
-                              </span>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-700">
-                              {projMembers.map((m) => {
-                                const snap = snapshotByAgentId.get(m.id);
-                                const lease = agentLeases[m.id];
-                                const dotCls =
-                                  snap?.availability === 'busy'
-                                    ? 'bg-blue-600'
-                                    : snap?.availability === 'idle'
-                                      ? 'bg-emerald-500'
-                                      : 'bg-slate-400';
-                                return (
-                                  <span key={m.id} className="inline-flex items-center gap-1">
-                                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${dotCls}`} />
-                                    <AgentIdentityName
-                                      name={m.handle}
-                                      runtime={m.runtimeAgent}
-                                      model={m.defaultModel}
-                                    />
-                                    {lease && (
-                                      <span className="text-[10px] font-mono text-indigo-600 font-semibold">
-                                        ({LEASE_PERIOD_META[lease.period].shortLabel})
-                                      </span>
-                                    )}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                            {projUnsettled > 0 && (
-                              <div className="mt-1.5 text-[11px] text-amber-700 font-mono tabular-nums">
-                                待结外部费用 ${Math.round(projUnsettled).toLocaleString('en-US')}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </section>
-                    );
-                  })
-                )
-              ) : (
-                /* Single-Project Focused Detail Cockpit */
-                <div className="space-y-4">
-                  <section className="bg-white rounded-xl border border-slate-200 p-5">
-                    <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <FolderKanban className="w-4 h-4 text-blue-600" />
-                          <h2 className="text-base font-bold text-slate-900">
-                            {focusedProject.name}
-                          </h2>
-                          {renderSpaceOwnershipBadge(focusedProject.sourceZoneId)}
-                          <span
-                            className={`text-xs font-semibold ${
-                              LIFECYCLE_META[focusedProject.lifecycleStatus || 'active'].cls
-                            }`}
-                          >
-                            {LIFECYCLE_META[focusedProject.lifecycleStatus || 'active'].label}
-                          </span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className={`text-xs font-semibold ${ROLE_META[focusedProject.role].cls}`}>
-                            {ROLE_META[focusedProject.role].label}
-                          </span>
-                        </div>
-                        <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                          {focusedProject.goal}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPipelineProjectId(focusedProject.id);
-                            switchTab('orchestration');
-                          }}
-                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-indigo-700 cursor-pointer whitespace-nowrap"
-                        >
-                          配置工作编排
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setKanbanProjectScope(focusedProject.id);
-                            switchTab('kanban');
-                          }}
-                          className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          切至项目看板
-                        </button>
-                      </div>
-                    </div>
-                  </section>
-
-                  <div className="grid grid-cols-1 @[920px]:grid-cols-12 gap-4">
-                    <section className="@[920px]:col-span-8 bg-white rounded-xl border border-slate-200 overflow-hidden">
-                      <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-2">
-                        <h3 className="text-sm font-bold text-slate-900">
-                          协作任务节点 ({focusedProjectTasks.length})
-                        </h3>
-                      </div>
-
-                      {focusedModules.length === 0 ? (
-                        <div className="p-8 text-center text-xs text-slate-500">
-                          该项目暂无任务卡片，在项目群对话框中直接描述需求或 @ Agent 即可自动生成。
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-slate-200">
-                          {focusedModules.map(([modName, modTasks]) => {
-                            const modDone = modTasks.filter((t) => t.status === 'done').length;
-                            return (
-                              <div key={modName} className="p-4 space-y-2.5">
-                                <div className="flex items-center justify-between text-xs">
-                                  <span className="font-bold text-slate-900">{modName}</span>
-                                  <span className="font-mono tabular-nums text-slate-500">
-                                    已完成 {modDone}/{modTasks.length}
-                                  </span>
+                                    去市场招募 →
+                                  </button>
                                 </div>
-                                <div className="space-y-2">
-                                  {modTasks.map((task) => {
-                                    const isExec = executingTaskId === task.id;
-                                    const ag = agentMap.get(task.assigneeId);
-                                    return (
-                                      <div
-                                        key={task.id}
-                                        className="rounded-lg bg-slate-50 border border-slate-200/80 px-3.5 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
-                                      >
-                                        <div className="min-w-0 space-y-1">
-                                          <div className="flex flex-wrap items-center gap-2 text-[11px]">
-                                            <WorkStatusBadge status={task.status} executing={isExec} />
-                                            <span className="inline-flex items-center gap-1.5 text-slate-700 font-medium">
-                                              <EntityAvatar
-                                                kind="agent"
-                                                code={ag?.avatarCode || 'AI'}
-                                                accent={ag?.avatarAccent || '#334155'}
-                                                size="xs"
-                                                showCornerMark={false}
-                                              />
-                                              <AgentIdentityName
-                                                name={task.assigneeHandle}
-                                                runtime={ag?.runtimeAgent}
-                                                model={ag?.defaultModel}
-                                              />
-                                            </span>
-                                            <span className={`font-semibold ${WORK_TYPE_COLORS[task.workType]}`}>
-                                              · {WORK_TYPE_LABELS[task.workType]}
-                                            </span>
+                                {assignedExperts.length === 0 ? (
+                                  <p className="text-xs text-slate-400">
+                                    暂未派驻合作专家，可从下方直接指派。
+                                  </p>
+                                ) : (
+                                  <div className="divide-y divide-slate-200/70 border border-slate-200/80 rounded-lg bg-white">
+                                    {assignedExperts.map((exp) => {
+                                      const member = teamExpertMap.get(exp.id);
+                                      return (
+                                        <div
+                                          key={exp.id}
+                                          className="flex items-center justify-between gap-2 text-xs px-2.5 py-2"
+                                        >
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <EntityAvatar
+                                              kind="human"
+                                              code={exp.avatarInitials}
+                                              accent={exp.avatarAccent}
+                                              size="xs"
+                                            />
+                                            <div className="min-w-0">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="font-bold text-slate-900">
+                                                  {exp.name}
+                                                </span>
+                                                <span className="text-[10px] font-mono font-bold text-violet-700">
+                                                  {exp.ratingTier || 'A+'}级
+                                                </span>
+                                                {member && (
+                                                  <span className="text-[10px] text-emerald-700 font-medium">
+                                                    {member.relation === 'mutual_friend'
+                                                      ? '互关好友'
+                                                      : '项目合作'}
+                                                  </span>
+                                                )}
+                                              </div>
+                                              <div className="text-[11px] text-slate-500 truncate">
+                                                {exp.outsourcingDomain || exp.specialties[0] || ''}
+                                              </div>
+                                            </div>
                                           </div>
-                                          <div className="text-xs font-semibold text-slate-900">
-                                            {task.title}
-                                          </div>
-                                        </div>
-
-                                        <div className="flex items-center gap-1.5 shrink-0">
                                           <button
                                             type="button"
-                                            onClick={() => onOpenTaskSession(task.id)}
-                                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                                            onClick={() =>
+                                              onRemoveExpertFromWorkspace(exp.id, focusedProject.id)
+                                            }
+                                            title="移出该项目"
+                                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
                                           >
-                                            <MessageSquareCode className="w-3 h-3 text-indigo-600" />
-                                            <span>Agent 任务</span>
+                                            <UserMinus className="w-3.5 h-3.5" />
                                           </button>
-                                          {task.status === 'pending' && (
-                                            <button
-                                              type="button"
-                                              disabled={Boolean(executingTaskId)}
-                                              onClick={() => onRunTask(task.id)}
-                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
-                                            >
-                                              <Play className="w-3 h-3" />
-                                              <span>{isExec ? '执行中' : '批准执行'}</span>
-                                            </button>
-                                          )}
-                                          {task.status === 'review' && (
-                                            <button
-                                              type="button"
-                                              onClick={() => onUpdateStatus(task.id, 'done')}
-                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                                            >
-                                              <CheckCircle2 className="w-3 h-3" />
-                                              <span>验证通过</span>
-                                            </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                                {availableExperts.length > 0 && (
+                                  <div className="pt-1 flex items-center gap-1.5">
+                                    <select
+                                      value={effectiveAssignId}
+                                      onChange={(e) => setAssignExpertId(e.target.value)}
+                                      aria-label="选择要派驻该项目的专家"
+                                      className="flex-1 min-w-0 h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 focus:outline-none"
+                                    >
+                                      {availableExperts.map((exp) => (
+                                        <option key={exp.id} value={exp.id}>
+                                          {exp.name} · {exp.outsourcingDomain || exp.specialties[0] || ''}
+                                        </option>
+                                      ))}
+                                    </select>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (effectiveAssignId) {
+                                          onAssignExpertToWorkspace(
+                                            effectiveAssignId,
+                                            focusedProject.id,
+                                          );
+                                          setAssignExpertId('');
+                                        }
+                                      }}
+                                      className="h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                                    >
+                                      + 派驻
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
+                                    <Cpu className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>专业 Agent ({projMembers.length})</span>
+                                  </h3>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      focusedProject.sourceZoneId
+                                        ? onJumpToZoneMarket(focusedProject.sourceZoneId)
+                                        : onJumpToMarket()
+                                    }
+                                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                                  >
+                                    + 租赁 Agent
+                                  </button>
+                                </div>
+                                <div className="divide-y divide-slate-200/70 border border-slate-200/80 rounded-lg bg-white max-h-44 overflow-y-auto clean-scroll">
+                                  {projMembers.map((ag) => {
+                                    const snap = snapshotByAgentId.get(ag.id);
+                                    const lease = agentLeases[ag.id];
+                                    const pricing = getAgentLeasePricing({
+                                      runtimeAgent: ag.runtimeAgent,
+                                      defaultModel: ag.defaultModel,
+                                      capabilityTier: ag.performance.capabilityTier,
+                                      ownership: ag.ownership,
+                                      projectPriceUsd: ag.projectPriceUsd,
+                                      monthlyLeaseUsd: ag.monthlyLeaseUsd,
+                                    });
+                                    return (
+                                      <div key={ag.id} className="p-2.5 space-y-1.5 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <EntityAvatar
+                                              kind="agent"
+                                              code={ag.avatarCode}
+                                              accent={ag.avatarAccent}
+                                              size="xs"
+                                            />
+                                            <AgentIdentityName
+                                              name={ag.handle}
+                                              runtime={ag.runtimeAgent}
+                                              model={ag.defaultModel}
+                                              className="font-semibold text-slate-900"
+                                            />
+                                          </div>
+                                          <span className="text-[10.5px] font-mono text-slate-500 shrink-0">
+                                            {ag.ownership === 'private'
+                                              ? '自有免租'
+                                              : lease
+                                                ? lease.expiresLabel
+                                                : `$${pricing.monthlyUsd}/月`}
+                                          </span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2">
+                                          {snap && renderAvailabilityIndicator(snap)}
+                                          {ag.ownership === 'marketplace' && (
+                                            <div className="inline-flex items-center gap-1">
+                                              <CalendarClock className="w-3 h-3 text-indigo-500" />
+                                              {(['week', 'month', 'quarter'] as LeasePeriod[]).map(
+                                                (p) => {
+                                                  const isCur = lease?.period === p;
+                                                  return (
+                                                    <button
+                                                      key={p}
+                                                      type="button"
+                                                      onClick={() =>
+                                                        onLeaseAgent(ag.id, p, focusedProject.id)
+                                                      }
+                                                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
+                                                        isCur
+                                                          ? 'bg-indigo-600 text-white'
+                                                          : 'bg-slate-50 border border-slate-200 text-slate-600 hover:border-slate-400'
+                                                      }`}
+                                                    >
+                                                      {LEASE_PERIOD_META[p].label}
+                                                    </button>
+                                                  );
+                                                },
+                                              )}
+                                            </div>
                                           )}
                                         </div>
                                       </div>
@@ -1840,453 +2491,465 @@ export function WorkflowKanbanView({
                                   })}
                                 </div>
                               </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </section>
+                            </div>
+                          </div>
+                        )}
+                      </section>
 
-                    <div className="@[920px]:col-span-4 space-y-4">
-                      {/* Cooperative Human Experts Panel */}
-                      {(() => {
-                        const assignedExpertIds = focusedProject.hiredExpertIds || [];
-                        const assignedExperts = assignedExpertIds
-                          .map((id) => humanExpertMap.get(id))
-                          .filter((h): h is HumanExpert => Boolean(h));
-                        const availableExperts = humanExperts.filter(
-                          (h) => !h.isCurrentUser && !assignedExpertIds.includes(h.id),
-                        );
-                        const effectiveAssignId = assignExpertId || availableExperts[0]?.id || '';
-
-                        return (
-                          <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
-                                <Users className="w-3.5 h-3.5 text-emerald-600" />
-                                <span>项目合作专家 ({assignedExperts.length})</span>
-                              </h3>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  focusedProject.sourceZoneId
-                                    ? onJumpToZoneMarket(focusedProject.sourceZoneId)
-                                    : onJumpToMarket()
-                                }
-                                className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                              >
-                                人类专家 →
-                              </button>
+                      {/* Part 2: Always-Visible Unified 4-Column Kanban Board */}
+                      <section className="space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 px-0.5">
+                          <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1">
+                            <div className="inline-flex items-center gap-2 shrink-0 mr-1">
+                              <LayoutGrid className="w-4 h-4 text-slate-700" />
+                              <h3 className="text-sm font-bold text-slate-900">项目看板</h3>
+                              <span className="text-xs font-mono tabular-nums text-slate-500">
+                                {focusedKanbanTasks.length} 项任务
+                              </span>
                             </div>
 
-                            {assignedExperts.length === 0 ? (
-                              <p className="text-xs text-slate-400">
-                                暂未派驻合作专家，可从下方直接指派团队或社区专家。
-                              </p>
-                            ) : (
-                              <div className="space-y-2.5">
-                                {assignedExperts.map((exp) => {
-                                  const member = teamExpertMap.get(exp.id);
-                                  return (
-                                    <div
-                                      key={exp.id}
-                                      className="flex items-start justify-between gap-2 text-xs rounded-lg bg-slate-50/80 border border-slate-100 p-2.5"
-                                    >
-                                      <div className="flex items-center gap-2.5 min-w-0">
-                                        <EntityAvatar
-                                          kind="human"
-                                          code={exp.avatarInitials}
-                                          accent={exp.avatarAccent}
-                                          size="sm"
-                                        />
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1.5">
-                                            <span className="font-bold text-slate-900">
-                                              {exp.name}
-                                            </span>
-                                            <span className="text-[10px] font-mono font-bold text-violet-700">
-                                              {exp.ratingTier || 'A+'}级
-                                            </span>
-                                            {member && (
-                                              <span className="text-[10px] text-emerald-700 font-medium">
-                                                {member.relation === 'mutual_friend'
-                                                  ? '互关好友'
-                                                  : '项目合作'}
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div className="text-[11px] text-slate-600 truncate mt-0.5">
-                                            {exp.outsourcingDomain || exp.specialties[0] || ''}
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          onRemoveExpertFromWorkspace(exp.id, focusedProject.id)
-                                        }
-                                        title="移出该项目"
-                                        className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
-                                      >
-                                        <UserMinus className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                            <ToolbarDropdown
+                              label="Agent"
+                              value={kanbanAgentFilter}
+                              defaultValue="all"
+                              onChange={setKanbanAgentFilter}
+                              options={[
+                                { id: 'all', label: '全部 Agent' },
+                                ...focusedAssignableAgents.map((a) => ({
+                                  id: a.id,
+                                  label: formatAgentDisplayName(a.handle, a.runtimeAgent),
+                                  hint: `${focusedProjectTasks.filter((t) => t.assigneeId === a.id).length}`,
+                                })),
+                              ]}
+                            />
+                            <ToolbarDropdown
+                              label="类型"
+                              value={taskTypeFilter}
+                              defaultValue="all"
+                              onChange={setTaskTypeFilter}
+                              options={[
+                                { id: 'all', label: '全部类型' },
+                                ...focusedProjectTaskTypes.map((tt) => ({
+                                  id: tt.id,
+                                  label: tt.name,
+                                  hint: `${
+                                    focusedProjectTasks.filter(
+                                      (t) =>
+                                        resolveTaskType(t, focusedProjectTaskTypes).id === tt.id,
+                                    ).length
+                                  }`,
+                                })),
+                              ]}
+                            />
+                            <ToolbarSearch
+                              value={searchKeyword}
+                              onChange={setSearchKeyword}
+                              placeholder={searchPlaceholder}
+                              widthClass="flex-1 min-w-[160px] max-w-[260px]"
+                            />
+                            {(kanbanAgentFilter !== 'all' ||
+                              taskTypeFilter !== 'all' ||
+                              searchKeyword.trim() !== '') && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setKanbanAgentFilter('all');
+                                  setTaskTypeFilter('all');
+                                  setSearchKeyword('');
+                                }}
+                                className="inline-flex items-center gap-1 h-8 px-2 rounded-lg text-[11px] font-semibold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 cursor-pointer whitespace-nowrap"
+                              >
+                                <X className="w-3 h-3" />
+                                <span>重置</span>
+                              </button>
                             )}
+                          </div>
 
-                            {availableExperts.length > 0 && (
-                              <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5">
-                                <select
-                                  value={effectiveAssignId}
-                                  onChange={(e) => setAssignExpertId(e.target.value)}
-                                  aria-label="选择要派驻该项目的专家"
-                                  className="flex-1 min-w-0 h-7 rounded-md border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-800 focus:bg-white focus:outline-none"
-                                >
-                                  {availableExperts.map((exp) => (
-                                    <option key={exp.id} value={exp.id}>
-                                      {exp.name} · {exp.outsourcingDomain || exp.specialties[0] || ''}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (effectiveAssignId) {
-                                      onAssignExpertToWorkspace(
-                                        effectiveAssignId,
-                                        focusedProject.id,
-                                      );
-                                      setAssignExpertId('');
-                                    }
-                                  }}
-                                  className="h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
-                                >
-                                  + 派驻
-                                </button>
-                              </div>
-                            )}
-                          </section>
-                        );
-                      })()}
-
-                      {/* Project Executing & Leased Agents Panel */}
-                      <section className="bg-white rounded-xl border border-slate-200 p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
-                            <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                            <span>项目专业 Agent ({focusedProject.hiredAgentIds.length})</span>
-                          </h3>
                           <button
                             type="button"
-                            onClick={() =>
-                              focusedProject.sourceZoneId
-                                ? onJumpToZoneMarket(focusedProject.sourceZoneId)
-                                : onJumpToMarket()
-                            }
-                            className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                            onClick={() => setShowQuickTaskForm((v) => !v)}
+                            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors ${
+                              showQuickTaskForm
+                                ? 'bg-blue-600 text-white'
+                                : 'border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700'
+                            }`}
                           >
-                            + 租赁 Agent
+                            <MessageSquarePlus className="w-3.5 h-3.5" />
+                            <span>派发任务</span>
                           </button>
                         </div>
-                        <div className="space-y-2.5">
-                          {focusedProject.hiredAgentIds.map((agentId) => {
-                            const snap = snapshotByAgentId.get(agentId);
-                            const ag = agentMap.get(agentId);
-                            if (!ag) return null;
-                            const lease = agentLeases[ag.id];
-                            const pricing = getAgentLeasePricing({
-                              runtimeAgent: ag.runtimeAgent,
-                              defaultModel: ag.defaultModel,
-                              capabilityTier: ag.performance.capabilityTier,
-                              ownership: ag.ownership,
-                              projectPriceUsd: ag.projectPriceUsd,
-                              monthlyLeaseUsd: ag.monthlyLeaseUsd,
-                            });
+
+                        {/* AI Conversation-Driven Task Planning Bar (No Traditional Manual Form) */}
+                        {showQuickTaskForm && (
+                          <form
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              onStartTemplateConversation(
+                                focusedProject.id,
+                                effectiveQuickTypeId,
+                                {
+                                  prompt: quickTaskPrompt.trim() || undefined,
+                                  creatorAgentId: effectiveQuickCreatorId || undefined,
+                                  autoSend: Boolean(quickTaskPrompt.trim()),
+                                },
+                              );
+                              setQuickTaskPrompt('');
+                              setShowQuickTaskForm(false);
+                            }}
+                            className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-2"
+                          >
+                            <div className="flex flex-wrap items-center gap-2">
+                              <select
+                                value={effectiveQuickTypeId}
+                                onChange={(e) => {
+                                  setQuickTaskTypeId(e.target.value);
+                                  setQuickCreatorAgentId('');
+                                }}
+                                aria-label="选择任务卡片模板"
+                                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-800 focus:outline-none"
+                              >
+                                {focusedProjectTaskTypes.map((tt) => (
+                                  <option key={tt.id} value={tt.id}>
+                                    模板：{tt.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={effectiveQuickCreatorId}
+                                onChange={(e) => setQuickCreatorAgentId(e.target.value)}
+                                aria-label="选择对话创作专家 Agent"
+                                className="h-8 max-w-[200px] rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-800 focus:outline-none"
+                              >
+                                {quickFallbackCreators.map((ag) => (
+                                  <option key={ag.id} value={ag.id}>
+                                    对话专家：{formatAgentDisplayName(ag.handle, ag.runtimeAgent)}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                value={quickTaskPrompt}
+                                onChange={(e) => setQuickTaskPrompt(e.target.value)}
+                                placeholder={`向 ${
+                                  quickDispatchAgent
+                                    ? formatAgentDisplayName(
+                                        quickDispatchAgent.handle,
+                                        quickDispatchAgent.runtimeAgent,
+                                      )
+                                    : '指定专家 Agent'
+                                } 描述需求目标，发起对话由 AI 生成任务计划卡...`}
+                                className="flex-1 min-w-[220px] h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                              />
+                              <button
+                                type="submit"
+                                className="inline-flex items-center gap-1 h-8 px-3 rounded-md bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                              >
+                                <MessageSquarePlus className="w-3.5 h-3.5" />
+                                <span>发起对话生成任务卡</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowQuickTaskForm(false)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+                              {selectedQuickType?.templateChecklist ? (
+                                <span className="truncate">
+                                  <span className="font-semibold text-slate-700">交付骨架：</span>
+                                  {selectedQuickType.templateChecklist}
+                                </span>
+                              ) : (
+                                <span>
+                                  选择卡片模板并描述目标，将与指定专家发起 AI 对话梳理计划并自动生成任务卡
+                                </span>
+                              )}
+                              <span className="text-[10.5px] text-blue-700 font-medium shrink-0">
+                                AI 对话梳理后自动生成至「任务计划」列
+                              </span>
+                            </div>
+                          </form>
+                        )}
+
+                        <div className="grid grid-cols-1 @[620px]:grid-cols-2 @[1040px]:grid-cols-4 gap-4">
+                          {WORK_CARD_STAGES.map((col) => {
+                            const colTasks = focusedKanbanTasks.filter((t) =>
+                              col.status === 'in_progress'
+                                ? t.status === 'in_progress' || executingTaskId === t.id
+                                : t.status === col.status && executingTaskId !== t.id,
+                            );
                             return (
                               <div
-                                key={ag.id}
-                                className="rounded-lg bg-slate-50/70 border border-slate-100 p-2.5 space-y-2 text-xs"
+                                key={col.status}
+                                className="bg-slate-100/80 border border-slate-200/80 rounded-xl p-3 flex flex-col"
                               >
-                                <div className="flex items-center gap-2 min-w-0">
-                                  <EntityAvatar
-                                    kind="agent"
-                                    code={ag.avatarCode}
-                                    accent={ag.avatarAccent}
-                                    size="sm"
-                                  />
+                                <div className="px-1.5 pb-2.5 mb-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
                                   <div className="min-w-0">
-                                    <AgentIdentityName
-                                      name={ag.handle}
-                                      runtime={ag.runtimeAgent}
-                                      model={ag.defaultModel}
-                                      showModel
-                                      className="font-semibold text-slate-900"
-                                    />
-                                    <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5">
-                                      {snap && renderAvailabilityIndicator(snap)}
-                                      <span className="text-slate-300" aria-hidden="true">·</span>
-                                      <span className="font-mono tabular-nums">
-                                        {ag.ownership === 'private'
-                                          ? '自有免租'
-                                          : lease
-                                            ? lease.expiresLabel
-                                            : `$${pricing.monthlyUsd}/月`}
-                                      </span>
+                                    <div className="flex items-center gap-2">
+                                      <span
+                                        className={`w-2 h-2 rounded-full shrink-0 ${col.activeSegmentCls}`}
+                                      />
+                                      <h4 className={`text-sm font-bold ${col.textCls}`}>
+                                        {col.label}
+                                      </h4>
                                     </div>
+                                    <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                      {col.hint}
+                                    </p>
                                   </div>
+                                  <span className="text-xs font-mono tabular-nums font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-md shrink-0">
+                                    {colTasks.length}
+                                  </span>
                                 </div>
 
-                                {ag.ownership === 'marketplace' && (
-                                  <div className="pt-1.5 border-t border-slate-200/70 flex items-center justify-between gap-2">
-                                    <span className="inline-flex items-center gap-1 text-[10px] text-slate-500">
-                                      <CalendarClock className="w-3 h-3 text-indigo-500" />
-                                      <span>续租周期</span>
-                                    </span>
-                                    <div className="inline-flex items-center gap-1">
-                                      {(['week', 'month', 'quarter'] as LeasePeriod[]).map((p) => {
-                                        const isCur = lease?.period === p;
-                                        return (
-                                          <button
-                                            key={p}
-                                            type="button"
-                                            onClick={() =>
-                                              onLeaseAgent(ag.id, p, focusedProject.id)
-                                            }
-                                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
-                                              isCur
-                                                ? 'bg-indigo-600 text-white'
-                                                : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400'
-                                            }`}
-                                          >
-                                            {LEASE_PERIOD_META[p].label}
-                                          </button>
-                                        );
-                                      })}
+                                <div className="space-y-3 flex-1">
+                                  {colTasks.length === 0 ? (
+                                    <div className="h-28 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400">
+                                      暂无{col.label}任务
                                     </div>
-                                  </div>
-                                )}
+                                  ) : (
+                                    colTasks.map((task) => {
+                                      const agent = agentMap.get(task.assigneeId);
+                                      const snap = snapshotByAgentId.get(task.assigneeId);
+                                      const isExecuting = executingTaskId === task.id;
+                                      const taskType = resolveTaskType(
+                                        task,
+                                        focusedProjectTaskTypes,
+                                      );
+                                      const typeStyle = TASK_TYPE_ACCENT_STYLES[taskType.accent];
+
+                                      return (
+                                        <article
+                                          key={task.id}
+                                          className="bg-white rounded-lg p-3.5 border border-slate-200 hover:border-slate-300 transition-colors flex flex-col gap-2.5"
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setTaskTypeFilter((cur) =>
+                                                  cur === taskType.id ? 'all' : taskType.id,
+                                                )
+                                              }
+                                              title={`任务类型：${taskType.name}（点击筛选同类型卡片）`}
+                                              className="inline-flex items-center gap-1.5 text-[11px] font-semibold hover:underline cursor-pointer min-w-0 truncate"
+                                            >
+                                              <span
+                                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${typeStyle.dotCls}`}
+                                              />
+                                              <span className={typeStyle.textCls}>
+                                                {taskType.name}
+                                              </span>
+                                              {task.featureModule &&
+                                                task.featureModule !== taskType.name && (
+                                                  <>
+                                                    <span
+                                                      className="text-slate-300"
+                                                      aria-hidden="true"
+                                                    >
+                                                      ·
+                                                    </span>
+                                                    <span className="text-slate-400 font-normal truncate">
+                                                      {task.featureModule}
+                                                    </span>
+                                                  </>
+                                                )}
+                                            </button>
+                                            <WorkStatusBadge
+                                              status={task.status}
+                                              executing={isExecuting}
+                                            />
+                                          </div>
+
+                                          <div>
+                                            <h5 className="text-sm font-semibold text-slate-900 leading-snug">
+                                              {task.title}
+                                            </h5>
+                                            <p className="text-xs text-slate-600 mt-1 leading-relaxed line-clamp-2">
+                                              {task.description}
+                                            </p>
+                                          </div>
+
+                                          {task.dependsOnTaskId && (
+                                            <div className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-mono">
+                                              <GitBranch className="w-3 h-3 text-slate-400" />
+                                              <span>依赖 {task.dependsOnTaskId}</span>
+                                            </div>
+                                          )}
+
+                                          {task.deliverableArtifact && (
+                                            <div className="rounded-md bg-slate-50 border border-slate-200/80 px-2.5 py-2 space-y-1">
+                                              {task.deliverableSummary && (
+                                                <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
+                                                  {task.deliverableSummary}
+                                                </p>
+                                              )}
+                                              <div className="flex items-center gap-1 font-mono text-[11px] text-blue-700 truncate">
+                                                <FileCode2 className="w-3 h-3 shrink-0" />
+                                                <span className="truncate">
+                                                  {task.deliverableArtifact}
+                                                </span>
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
+                                            <div className="flex items-center gap-1.5 min-w-0">
+                                              <EntityAvatar
+                                                kind="agent"
+                                                code={agent?.avatarCode || 'AI'}
+                                                accent={agent?.avatarAccent || '#334155'}
+                                                size="xs"
+                                                showCornerMark={false}
+                                              />
+                                              <AgentIdentityName
+                                                name={task.assigneeHandle}
+                                                runtime={agent?.runtimeAgent}
+                                                model={agent?.defaultModel}
+                                                showModel
+                                                className="font-semibold text-slate-900"
+                                              />
+                                            </div>
+                                            {snap && (
+                                              <span
+                                                title={`${snap.availabilityLabel} · ${snap.availabilityDetail}`}
+                                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                                  snap.availability === 'busy'
+                                                    ? 'bg-blue-600'
+                                                    : snap.availability === 'idle'
+                                                      ? 'bg-emerald-500'
+                                                      : 'bg-slate-400'
+                                                }`}
+                                              />
+                                            )}
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5 flex-wrap">
+                                            <button
+                                              type="button"
+                                              onClick={() => onOpenTaskSession(task.id)}
+                                              className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-800 whitespace-nowrap cursor-pointer shrink-0"
+                                            >
+                                              <MessageSquareCode className="w-3.5 h-3.5 text-indigo-600" />
+                                              <span>任务会话</span>
+                                            </button>
+
+                                            {!isExecuting && (
+                                              <select
+                                                value={task.status}
+                                                onChange={(e) =>
+                                                  onUpdateStatus(
+                                                    task.id,
+                                                    e.target.value as TaskStatus,
+                                                  )
+                                                }
+                                                aria-label={`切换任务「${task.title}」阶段`}
+                                                title="变更阶段将 1:1 实时同步至「任务编排」并交接对应阶段专业 Agent"
+                                                className="h-7 rounded-md border border-slate-200 bg-white hover:bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer shrink-0"
+                                              >
+                                                <option value="pending">任务计划</option>
+                                                <option value="in_progress">任务执行</option>
+                                                <option value="review">任务验证</option>
+                                                <option value="done">已完成</option>
+                                              </select>
+                                            )}
+
+                                            {task.status === 'pending' && !isExecuting && (
+                                              <button
+                                                type="button"
+                                                disabled={Boolean(executingTaskId)}
+                                                onClick={() => onRunTask(task.id)}
+                                                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
+                                              >
+                                                <Play className="w-3 h-3" />
+                                                <span>开始执行</span>
+                                              </button>
+                                            )}
+
+                                            {(task.status === 'in_progress' || isExecuting) &&
+                                              (isExecuting ? (
+                                                <div className="flex-1 text-center py-1.5 px-2 text-[11px] font-semibold text-blue-700 bg-blue-50 rounded-md truncate">
+                                                  执行中...
+                                                </div>
+                                              ) : (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onUpdateStatus(task.id, 'review')}
+                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white whitespace-nowrap cursor-pointer"
+                                                >
+                                                  <span>提交验证</span>
+                                                </button>
+                                              ))}
+
+                                            {task.status === 'review' && !isExecuting && (
+                                              <>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onUpdateStatus(task.id, 'done')}
+                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
+                                                >
+                                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                                  <span>验收完成</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => onUpdateStatus(task.id, 'pending')}
+                                                  title="退回任务计划"
+                                                  className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer shrink-0"
+                                                >
+                                                  <RotateCcw className="w-3.5 h-3.5" />
+                                                </button>
+                                              </>
+                                            )}
+
+                                            {task.status === 'done' && (
+                                              <div className="flex-1 flex items-center justify-end gap-1 text-[11px] text-emerald-700 font-semibold whitespace-nowrap">
+                                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                                <span>已完成</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </article>
+                                      );
+                                    })
+                                  )}
+                                </div>
                               </div>
                             );
                           })}
                         </div>
                       </section>
                     </div>
-                  </div>
-                </div>
+                  );
+                })()
               )}
             </div>
           )}
 
-          {/* ================= WORK PROJECTS 3: PROJECT KANBAN BOARD ================= */}
-          {activeTab === 'kanban' && (
-            <div
-              className={`${WORKSPACE_MAX_WIDTH_CLASS} grid grid-cols-1 @[620px]:grid-cols-2 @[1040px]:grid-cols-4 gap-4 min-h-full`}
-            >
-              {WORK_CARD_STAGES.map((col) => {
-                const colTasks = kanbanTasks.filter((t) =>
-                  col.status === 'in_progress'
-                    ? t.status === 'in_progress' || executingTaskId === t.id
-                    : t.status === col.status && executingTaskId !== t.id,
-                );
-                return (
-                  <div
-                    key={col.status}
-                    className="bg-slate-100/80 border border-slate-200/80 rounded-xl p-3 flex flex-col"
-                  >
-                    <div className="px-1.5 pb-2.5 mb-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`w-2 h-2 rounded-full shrink-0 ${col.activeSegmentCls}`} />
-                          <h2 className={`text-sm font-bold ${col.textCls}`}>{col.label}</h2>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">{col.hint}</p>
-                      </div>
-                      <span className="text-xs font-mono tabular-nums font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-md shrink-0">
-                        {colTasks.length}
-                      </span>
-                    </div>
-
-                    <div className="space-y-3 flex-1">
-                      {colTasks.length === 0 ? (
-                        <div className="h-28 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400">
-                          暂无{col.label}任务
-                        </div>
-                      ) : (
-                        colTasks.map((task) => {
-                          const agent = agentMap.get(task.assigneeId);
-                          const snap = snapshotByAgentId.get(task.assigneeId);
-                          const proj = workspaceMap.get(task.sessionId);
-                          const isExecuting = executingTaskId === task.id;
-
-                          return (
-                            <article
-                              key={task.id}
-                              className="bg-white rounded-lg p-3.5 border border-slate-200 hover:border-slate-300 transition-colors flex flex-col gap-2.5"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-[11px] font-medium text-slate-500 truncate">
-                                  {kanbanProjectScope === 'all' && proj ? `${proj.name} · ` : ''}
-                                  {task.featureModule}
-                                </span>
-                                <WorkStatusBadge status={task.status} executing={isExecuting} />
-                              </div>
-
-                              <div>
-                                <h3 className="text-sm font-semibold text-slate-900 leading-snug">
-                                  {task.title}
-                                </h3>
-                                <p className="text-xs text-slate-600 mt-1 leading-relaxed line-clamp-2">
-                                  {task.description}
-                                </p>
-                              </div>
-
-                              {task.dependsOnTaskId && (
-                                <div className="inline-flex items-center gap-1 text-[11px] text-slate-500 font-mono">
-                                  <GitBranch className="w-3 h-3 text-slate-400" />
-                                  <span>依赖 {task.dependsOnTaskId}</span>
-                                </div>
-                              )}
-
-                              {task.deliverableArtifact && (
-                                <div className="rounded-md bg-slate-50 border border-slate-200/80 px-2.5 py-2 space-y-1">
-                                  {task.deliverableSummary && (
-                                    <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
-                                      {task.deliverableSummary}
-                                    </p>
-                                  )}
-                                  <div className="flex items-center gap-1 font-mono text-[11px] text-blue-700 truncate">
-                                    <FileCode2 className="w-3 h-3 shrink-0" />
-                                    <span className="truncate">{task.deliverableArtifact}</span>
-                                  </div>
-                                </div>
-                              )}
-
-                              <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <EntityAvatar
-                                    kind="agent"
-                                    code={agent?.avatarCode || 'AI'}
-                                    accent={agent?.avatarAccent || '#334155'}
-                                    size="xs"
-                                    showCornerMark={false}
-                                  />
-                                  <AgentIdentityName
-                                    name={task.assigneeHandle}
-                                    runtime={agent?.runtimeAgent}
-                                    model={agent?.defaultModel}
-                                    showModel
-                                    className="font-semibold text-slate-900"
-                                  />
-                                </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
-                                  <span
-                                    className={`text-[11px] font-semibold whitespace-nowrap ${WORK_TYPE_COLORS[task.workType]}`}
-                                  >
-                                    {WORK_TYPE_LABELS[task.workType]}
-                                  </span>
-                                  {snap && (
-                                    <span
-                                      title={`${snap.availabilityLabel} · ${snap.availabilityDetail}`}
-                                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                        snap.availability === 'busy'
-                                          ? 'bg-blue-600'
-                                          : snap.availability === 'idle'
-                                            ? 'bg-emerald-500'
-                                            : 'bg-slate-400'
-                                      }`}
-                                    />
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenTaskSession(task.id)}
-                                  className="inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer shrink-0"
-                                >
-                                  <MessageSquareCode className="w-3.5 h-3.5 text-indigo-600" />
-                                  <span>Agent 任务</span>
-                                </button>
-
-                                {task.status === 'pending' && !isExecuting && (
-                                  <button
-                                    type="button"
-                                    disabled={Boolean(executingTaskId)}
-                                    onClick={() => onRunTask(task.id)}
-                                    className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
-                                  >
-                                    <Play className="w-3 h-3" />
-                                    <span>批准执行</span>
-                                  </button>
-                                )}
-
-                                {(task.status === 'in_progress' || isExecuting) && (
-                                  <div className="flex-1 text-center py-1.5 px-2 text-xs font-semibold text-blue-700 bg-blue-50 rounded-md truncate">
-                                    执行中...
-                                  </div>
-                                )}
-
-                                {task.status === 'review' && !isExecuting && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdateStatus(task.id, 'done')}
-                                      className="flex-1 inline-flex items-center justify-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
-                                    >
-                                      <CheckCircle2 className="w-3.5 h-3.5" />
-                                      <span>验证通过</span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdateStatus(task.id, 'pending')}
-                                      title="退回待批准"
-                                      className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer shrink-0"
-                                    >
-                                      <RotateCcw className="w-3.5 h-3.5" />
-                                    </button>
-                                  </>
-                                )}
-
-                                {task.status === 'done' && (
-                                  <div className="flex-1 flex items-center justify-end gap-1 text-[11px] text-emerald-700 font-semibold whitespace-nowrap">
-                                    <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>已完成</span>
-                                  </div>
-                                )}
-                              </div>
-                            </article>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* ================= WORK PROJECTS 4: WORK ORCHESTRATION PIPELINE ================= */}
+          {/* ================= WORK PROJECTS 3: TASK ORCHESTRATION ================= */}
           {activeTab === 'orchestration' && activePipelineProject && (
             <div className={WORKSPACE_MAX_WIDTH_CLASS}>
               <ProjectOrchestrationPanel
                 project={activePipelineProject}
-                slots={projectPipelines[activePipelineProject.id] || []}
+                assignments={projectAgentAssignments[activePipelineProject.id] || []}
+                taskTypes={
+                  projectTaskTypes[activePipelineProject.id] || DEFAULT_PROJECT_TASK_TYPES
+                }
                 agents={agents}
                 computeNodes={computeNodes}
                 spaceSharedNodes={spaceSharedNodes}
                 zones={zones}
                 storageVolumes={storageVolumes}
-                projectTasks={allTasks.filter((t) => t.sessionId === activePipelineProject.id)}
-                onUpdateStageSlot={onUpdateProjectStageSlot}
-                onSyncPipelineToProject={onSyncPipelineAgentsToProject}
-                onUpdateAgentRuntimeConfig={onUpdateAgentRuntimeConfig}
-                onOpenStageKanban={(projId, wt) => {
-                  setKanbanProjectScope(projId);
-                  setWorkTypeFilter(wt);
-                  switchTab('kanban');
-                }}
+                onAddAgentAssignment={onAddProjectAgentAssignment}
+                onRemoveAgentAssignment={onRemoveProjectAgentAssignment}
+                onUpdateAgentAssignment={onUpdateProjectAgentAssignment}
+                onAddTaskType={onAddProjectTaskType}
+                onUpdateTaskType={onUpdateProjectTaskType}
+                onDeleteTaskType={onDeleteProjectTaskType}
+                onApplyTaskTypePresetPack={onApplyTaskTypePresetPack}
+                onStartTemplateConversation={onStartTemplateConversation}
                 onJumpToSpaceAgents={onJumpToTeam}
               />
             </div>

@@ -164,6 +164,33 @@ export type TaskStatus = 'pending' | 'in_progress' | 'review' | 'done';
 
 export type WorkCardType = 'planning' | 'development' | 'testing' | 'review';
 
+export type ActiveWorkflowStage = 'planning' | 'development' | 'testing';
+
+export type TaskTypeAccent = 'blue' | 'indigo' | 'emerald' | 'amber' | 'rose' | 'slate';
+
+export interface ProjectTaskType {
+  id: string;
+  name: string;
+  description: string;
+  /** Standard deliverable skeleton / prompt checklist auto-applied when creating this card */
+  templateChecklist?: string;
+  accent: TaskTypeAccent;
+  /** Specific specialist Agent(s) authorized to create/generate this card template via conversation */
+  creatorAgentIds?: string[];
+  /** Legacy fallback for single default Agent */
+  defaultAgentId?: string;
+  isBuiltin?: boolean;
+}
+
+export interface ProjectAgentAssignment {
+  agentId: string;
+  /** Active workflow positions this specialist Agent occupies: 计划 / 执行 / 验证 */
+  stages: ActiveWorkflowStage[];
+  /** Concise responsibility description within this project */
+  roleNote: string;
+  handoffMode: PipelineHandoffMode;
+}
+
 export type NegotiationStatus = 'negotiating' | 'quoted' | 'hired';
 
 export type PlatformServiceCategory =
@@ -346,6 +373,10 @@ export interface WorkflowTask {
   sessionId: string;
   featureModule: string;
   workType: WorkCardType;
+  /** Optional custom task card type ID defined in 任务编排 */
+  taskTypeId?: string;
+  /** Optional cached label for the custom task card type */
+  taskTypeLabel?: string;
   title: string;
   description: string;
   assigneeId: string;
@@ -525,7 +556,6 @@ export interface ProjectArtifact {
 export type WorkspaceTabId =
   | 'overview'
   | 'my_projects'
-  | 'kanban'
   | 'orchestration'
   | 'artifacts_all'
   | 'artifacts_yours'

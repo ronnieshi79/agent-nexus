@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Menu, PanelLeftOpen } from 'lucide-react';
 import { WORKSPACE_GUTTER_CLASS } from '../shared/ViewToolbar';
 
@@ -8,6 +9,8 @@ export interface BreadcrumbItem {
 
 interface TopHeaderProps {
   breadcrumbs: BreadcrumbItem[];
+  breadcrumbTrailing?: ReactNode;
+  rightActions?: ReactNode;
   sidebarCollapsed?: boolean;
   onToggleSidebarCollapse?: () => void;
   onOpenMobileMenu: () => void;
@@ -15,6 +18,8 @@ interface TopHeaderProps {
 
 export function TopHeader({
   breadcrumbs,
+  breadcrumbTrailing,
+  rightActions,
   sidebarCollapsed = false,
   onToggleSidebarCollapse,
   onOpenMobileMenu,
@@ -45,10 +50,10 @@ export function TopHeader({
           </button>
         )}
 
-        <nav aria-label="页面导航路径" className="flex items-center gap-2 min-w-0 overflow-hidden">
+        <nav aria-label="页面导航路径" className="flex items-center gap-2 min-w-0">
           {breadcrumbs.map((item, idx) => {
             const isFirst = idx === 0;
-            const isLast = idx === breadcrumbs.length - 1;
+            const isLast = idx === breadcrumbs.length - 1 && !breadcrumbTrailing;
             const clickable = Boolean(item.onClick) && !isLast;
             return (
               <div
@@ -91,8 +96,21 @@ export function TopHeader({
               </div>
             );
           })}
+
+          {breadcrumbTrailing && (
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-slate-300 select-none shrink-0" aria-hidden="true">
+                /
+              </span>
+              {breadcrumbTrailing}
+            </div>
+          )}
         </nav>
       </div>
+
+      {rightActions && (
+        <div className="flex items-center gap-1.5 shrink-0">{rightActions}</div>
+      )}
     </header>
   );
 }

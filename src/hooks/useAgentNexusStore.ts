@@ -11,6 +11,7 @@ import {
   INITIAL_MARKET_SKILLS,
   INITIAL_MESSAGES,
   INITIAL_NEGOTIATIONS,
+  INITIAL_PROJECT_AGENT_ASSIGNMENTS,
   INITIAL_PROJECT_ARTIFACTS,
   INITIAL_PROJECT_PIPELINES,
   INITIAL_SETTLEMENTS,
@@ -35,8 +36,26 @@ import {
   sendPlatformAssistantMessage,
   sendTaskSessionMessage,
 } from '../services/api';
+import {
+  DEFAULT_PROJECT_TASK_TYPES,
+  STAGE_TO_STATUS,
+  STATUS_TO_STAGE,
+  TASK_STATUS_LABEL_MAP,
+  buildTaskTypesFromPack,
+  createInitialProjectTaskTypes,
+  deriveInitialAgentAssignments,
+  getDefaultProjectPipelineSlots,
+  getDefaultStagesForAgentCategory,
+  getNextPipelineStage,
+  getPipelineStageMeta,
+  getPipelineStageMetaByStatus,
+  getTemplateCreatorIds,
+  syncSlotsFromAssignments,
+  type TaskTemplatePackId,
+} from '../utils/pipelineSync';
 import type {
   ActiveChatChannel,
+  ActiveWorkflowStage,
   AgentCategory,
   AgentLeaseRecord,
   AgentNexusAccount,
@@ -67,9 +86,11 @@ import type {
   PlatformAuditLog,
   PlatformServiceCategory,
   PrivateCommunityScope,
+  ProjectAgentAssignment,
   ProjectArtifact,
   ProjectLifecycleStatus,
   ProjectStageSlot,
+  ProjectTaskType,
   ProjectWorkspace,
   SettlementRecord,
   SkillKind,
@@ -81,6 +102,7 @@ import type {
   StorageVolume,
   TaskSessionMessage,
   TaskStatus,
+  TaskTypeAccent,
   TeamExpertMembership,
   TeamSectionTab,
   WorkCardType,
@@ -186,6 +208,27 @@ export function useAgentNexusStore() {
   const [storageVolumes, setStorageVolumes] = useState<StorageVolume[]>(INITIAL_STORAGE_VOLUMES);
   const [projectPipelines, setProjectPipelines] =
     useState<Record<string, ProjectStageSlot[]>>(INITIAL_PROJECT_PIPELINES);
+  const [projectAgentAssignments, setProjectAgentAssignments] = useState<
+    Record<string, ProjectAgentAssignment[]>
+  >(() => ({
+    ...deriveInitialAgentAssignments(
+      INITIAL_WORKSPACES,
+      INITIAL_PROJECT_PIPELINES,
+      INITIAL_EXPERT_AGENTS,
+    ),
+    ...INITIAL_PROJECT_AGENT_ASSIGNMENTS,
+  }));
+  const [projectTaskTypes, setProjectTaskTypes] = useState<Record<string, ProjectTaskType[]>>(
+    () =>
+      createInitialProjectTaskTypes(INITIAL_WORKSPACES, {
+        ...deriveInitialAgentAssignments(
+          INITIAL_WORKSPACES,
+          INITIAL_PROJECT_PIPELINES,
+          INITIAL_EXPERT_AGENTS,
+        ),
+        ...INITIAL_PROJECT_AGENT_ASSIGNMENTS,
+      }),
+  );
   const [artifacts, setArtifacts] = useState<ProjectArtifact[]>(INITIAL_PROJECT_ARTIFACTS);
   const [marketSkills, setMarketSkills] = useState<MarketSkill[]>(INITIAL_MARKET_SKILLS);
   const [activeCommunityTab, setActiveCommunityTab] = useState<CommunityHubTab>('social_all');
@@ -351,11 +394,14 @@ export function useAgentNexusStore() {
     setActiveView('chat');
   }, []);
 
-  const openKanbanForProject = useCallback((projectId?: string) => {
-    setKanbanProjectSeed(projectId || 'all');
-    setKanbanTabSeed('kanban');
-    setActiveView('kanban');
-  }, []);
+  const openKanbanForProject = useCallback(
+    (projectId?: string) => {
+      setKanbanProjectSeed(projectId || activeWorkspace.id);
+      setKanbanTabSeed('my_projects');
+      setActiveView('kanban');
+    },
+    [activeWorkspace.id],
+  );
 
   const openWorkspaceTab = useCallback((tab: WorkspaceTabId) => {
     setKanbanTabSeed(tab);
@@ -1121,6 +1167,34 @@ export function useAgentNexusStore() {
           },
         ],
       }));
+      const initialNewAssignments: ProjectAgentAssignment[] = [
+        {
+          agentId: 'agent_pm_lin',
+          stages: ['planning'],
+          roleNote: '任务规划与需求拆解',
+          handoffMode: 'manual',
+        },
+        {
+          agentId: 'agent_dev_us',
+          stages: ['development'],
+          roleNote: '主力方案落地与执行',
+          handoffMode: 'auto',
+        },
+        {
+          agentId: 'agent_qa_zero',
+          stages: ['testing'],
+          roleNote: '交付验证与回归把关',
+          handoffMode: 'manual',
+        },
+      ];
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [newId]: initialNewAssignments,
+      }));
+      setProjectTaskTypes((prev) => ({
+        ...prev,
+        [newId]: buildTaskTypesFromPack('engineering', initialNewAssignments),
+      }));
       if (resolvedVolumeId) {
         setStorageVolumes((prev) =>
           prev.map((v) =>
@@ -1144,7 +1218,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 节点与持久化存储，默认接入 @产品策划师。你可以在工作编排中指定各阶段专业 Agent 身份。`,
+          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 节点与持久化存储，默认接入 @产品策划师。你可以在任务编排中定义任务卡片类型与各阶段专业 Agent。`,
           timestamp: ts,
         },
       ]);
@@ -2537,17 +2611,6 @@ export function useAgentNexusStore() {
     [activeZone.id, agents, zones],
   );
 
-  const updateAgentRuntimeConfig = useCallback(
-    (agentId: string, runtimeAgent: string, defaultModel: string) => {
-      setAgents((prev) =>
-        prev.map((a) =>
-          a.id === agentId ? { ...a, runtimeAgent, defaultModel } : a,
-        ),
-      );
-    },
-    [],
-  );
-
   const sendGroupMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
@@ -2633,15 +2696,58 @@ export function useAgentNexusStore() {
   const updateTaskStatus = useCallback(
     (taskId: string, nextStatus: TaskStatus) => {
       const target = allTasks.find((t) => t.id === taskId);
-      if (!target) return;
+      if (!target || target.status === nextStatus) return;
       const ts = nowTimeStr();
+      const proj = workspaces.find((w) => w.id === target.sessionId);
+      const targetStage = STATUS_TO_STAGE[nextStatus];
+      const stageMeta = getPipelineStageMetaByStatus(nextStatus);
+      const assignments = projectAgentAssignments[target.sessionId] || [];
+      const slots = projectPipelines[target.sessionId] || getDefaultProjectPipelineSlots();
+      const targetSlot = slots.find((s) => s.stage === targetStage);
 
-      setAllTasks((prev) =>
-        prev.map((t) => (t.id === taskId ? { ...t, status: nextStatus, updatedAt: ts } : t)),
+      let targetStageAgent: ExpertAgent | undefined;
+      if (nextStatus === 'in_progress' || nextStatus === 'review') {
+        const activeTargetStage: ActiveWorkflowStage =
+          nextStatus === 'in_progress' ? 'development' : 'testing';
+        const stageExperts = assignments.filter((a) => a.stages.includes(activeTargetStage));
+        const currentAlreadyStationed = stageExperts.some((a) => a.agentId === target.assigneeId);
+        if (!currentAlreadyStationed) {
+          const pickedId = stageExperts[0]?.agentId || targetSlot?.agentId;
+          targetStageAgent = pickedId ? agents.find((a) => a.id === pickedId) : undefined;
+        }
+      }
+
+      const shouldReassign =
+        Boolean(targetStageAgent) && targetStageAgent!.id !== target.assigneeId;
+
+      const nextAssigneeId = shouldReassign ? targetStageAgent!.id : target.assigneeId;
+      const nextAssigneeHandle = shouldReassign ? targetStageAgent!.handle : target.assigneeHandle;
+
+      const finalTasks = allTasks.map((t) =>
+        t.id === taskId
+          ? {
+              ...t,
+              status: nextStatus,
+              assigneeId: nextAssigneeId,
+              assigneeHandle: nextAssigneeHandle,
+              updatedAt: ts,
+            }
+          : t,
       );
 
+      setAllTasks(finalTasks);
+
+      if (shouldReassign && targetStageAgent) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === target.sessionId && !w.hiredAgentIds.includes(targetStageAgent.id)
+              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, targetStageAgent.id] }
+              : w,
+          ),
+        );
+      }
+
       if (nextStatus === 'done') {
-        const proj = workspaces.find((w) => w.id === target.sessionId);
         setAllMessages((prev) => [
           ...prev,
           {
@@ -2650,8 +2756,8 @@ export function useAgentNexusStore() {
             senderType: 'system',
             senderId: 'system',
             senderName: '项目看板同步',
-            senderHandle: '看板同步',
-            content: `已审批通过工作卡片「${target.title}」（${target.assigneeHandle}），交付产物已归档至工作区。`,
+            senderHandle: '任务编排',
+            content: `任务卡片「${target.title}」（${nextAssigneeHandle}）已通过验证并归档至「已完成」，任务编排进度已同步更新。`,
             timestamp: ts,
             linkedTaskIds: [taskId],
           },
@@ -2666,7 +2772,7 @@ export function useAgentNexusStore() {
                 id: `tsm_done_${Date.now()}`,
                 taskId,
                 sender: 'system',
-                content: `雇主已验证通过「${target.title}」，产物归档完成，结论已自动摘要回写至项目群聊。`,
+                content: `「${target.title}」已验证通过并流转至「已完成」，产物归档完成，结论已自动摘要回写至项目群聊。`,
                 timestamp: ts,
                 milestoneSynced: true,
               },
@@ -2677,16 +2783,30 @@ export function useAgentNexusStore() {
           {
             id: `aud_ok_${Date.now()}`,
             category: 'audit',
-            title: `交付验证通过：${target.title}`,
-            detail: `${proj?.name || '项目'} · ${target.assigneeHandle} 产物已合并归档。`,
+            title: `任务验收完成：${target.title}`,
+            detail: `${proj?.name || '项目'} · ${nextAssigneeHandle} 交付产物已验证归档。`,
             severity: 'success',
+            timestamp: ts,
+          },
+          ...prev,
+        ]);
+      } else {
+        setAuditLogs((prev) => [
+          {
+            id: `aud_sync_${Date.now()}`,
+            category: 'audit',
+            title: `任务流转至「${stageMeta.label}」`,
+            detail: `${proj?.name || '项目'} · 「${target.title}」已进入「${TASK_STATUS_LABEL_MAP[nextStatus]}」${
+              shouldReassign ? `，已交接给阶段专业 Agent ${nextAssigneeHandle}` : ''
+            }，任务编排阶段进度已实时同步。`,
+            severity: 'info',
             timestamp: ts,
           },
           ...prev,
         ]);
       }
     },
-    [allTasks, workspaces],
+    [agents, allTasks, projectAgentAssignments, projectPipelines, workspaces],
   );
 
   const openTaskSession = useCallback(
@@ -4139,36 +4259,7 @@ export function useAgentNexusStore() {
   const updateProjectStageSlot = useCallback(
     (projectId: string, stage: WorkCardType, patch: Partial<Omit<ProjectStageSlot, 'stage'>>) => {
       setProjectPipelines((prev) => {
-        const existing = prev[projectId] || [
-          {
-            stage: 'planning',
-            roleTitle: '主产品架构师',
-            agentId: 'agent_pm_lin',
-            handoffMode: 'manual' as PipelineHandoffMode,
-            deliverableContract: 'PRD 规格书与核心验收清单',
-          },
-          {
-            stage: 'development',
-            roleTitle: '核心研发工程师',
-            agentId: 'agent_dev_us',
-            handoffMode: 'auto' as PipelineHandoffMode,
-            deliverableContract: '核心功能实现与构建验证',
-          },
-          {
-            stage: 'testing',
-            roleTitle: '质量验收工程师',
-            agentId: 'agent_qa_eu',
-            handoffMode: 'auto' as PipelineHandoffMode,
-            deliverableContract: '自动化测试脚本与缺陷回归报告',
-          },
-          {
-            stage: 'review',
-            roleTitle: '安全与架构审查官',
-            agentId: 'agent_review_my',
-            handoffMode: 'manual' as PipelineHandoffMode,
-            deliverableContract: '架构合规复核与上线签字',
-          },
-        ];
+        const existing = prev[projectId] || getDefaultProjectPipelineSlots();
         return {
           ...prev,
           [projectId]: existing.map((slot) =>
@@ -4176,8 +4267,522 @@ export function useAgentNexusStore() {
           ),
         };
       });
+
+      // Bidirectional sync: when a stage's bound Agent changes in Work Orchestration,
+      // sync the agent into the project's roster and update unfinished tasks in that stage on the Kanban board.
+      if (patch.agentId) {
+        const nextAgent = agents.find((a) => a.id === patch.agentId);
+        if (nextAgent) {
+          const ts = nowTimeStr();
+          setWorkspaces((prev) =>
+            prev.map((w) =>
+              w.id === projectId && !w.hiredAgentIds.includes(nextAgent.id)
+                ? { ...w, hiredAgentIds: [...w.hiredAgentIds, nextAgent.id] }
+                : w,
+            ),
+          );
+          const stageStatus = STAGE_TO_STATUS[stage];
+          setAllTasks((prev) =>
+            prev.map((t) =>
+              t.sessionId === projectId && t.status === stageStatus && stageStatus !== 'done'
+                ? {
+                    ...t,
+                    assigneeId: nextAgent.id,
+                    assigneeHandle: nextAgent.handle,
+                    updatedAt: ts,
+                  }
+                : t,
+            ),
+          );
+        }
+      }
+    },
+    [agents],
+  );
+
+  const addProjectAgentAssignment = useCallback(
+    (projectId: string, agentId: string, initialStages?: ActiveWorkflowStage[]) => {
+      const targetAgent = agents.find((a) => a.id === agentId);
+      if (!targetAgent) return;
+      const stages =
+        initialStages && initialStages.length > 0
+          ? initialStages
+          : getDefaultStagesForAgentCategory(targetAgent.category);
+
+      let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
+      setProjectAgentAssignments((prev) => {
+        const existing = prev[projectId] || [];
+        if (existing.some((a) => a.agentId === agentId)) {
+          nextAssignmentsSnapshot = existing;
+          return prev;
+        }
+        nextAssignmentsSnapshot = [
+          ...existing,
+          {
+            agentId,
+            stages,
+            roleNote: targetAgent.title,
+            handoffMode: stages.includes('development') ? 'auto' : 'manual',
+          },
+        ];
+        return {
+          ...prev,
+          [projectId]: nextAssignmentsSnapshot,
+        };
+      });
+
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
+      }));
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === projectId && !w.hiredAgentIds.includes(agentId)
+            ? { ...w, hiredAgentIds: [...w.hiredAgentIds, agentId] }
+            : w,
+        ),
+      );
+    },
+    [agents],
+  );
+
+  const removeProjectAgentAssignment = useCallback((projectId: string, agentId: string) => {
+    let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
+    setProjectAgentAssignments((prev) => {
+      const existing = prev[projectId] || [];
+      nextAssignmentsSnapshot = existing.filter((a) => a.agentId !== agentId);
+      return {
+        ...prev,
+        [projectId]: nextAssignmentsSnapshot,
+      };
+    });
+
+    setProjectPipelines((prev) => ({
+      ...prev,
+      [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
+    }));
+
+    setWorkspaces((prev) =>
+      prev.map((w) =>
+        w.id === projectId
+          ? { ...w, hiredAgentIds: w.hiredAgentIds.filter((id) => id !== agentId) }
+          : w,
+      ),
+    );
+
+    setProjectTaskTypes((prev) => {
+      const list = prev[projectId];
+      if (!list) return prev;
+      return {
+        ...prev,
+        [projectId]: list.map((tpl) => ({
+          ...tpl,
+          creatorAgentIds: (tpl.creatorAgentIds || []).filter((id) => id !== agentId),
+        })),
+      };
+    });
+  }, []);
+
+  const updateProjectAgentAssignment = useCallback(
+    (
+      projectId: string,
+      agentId: string,
+      patch: Partial<Omit<ProjectAgentAssignment, 'agentId'>>,
+    ) => {
+      let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
+      setProjectAgentAssignments((prev) => {
+        const existing = prev[projectId] || [];
+        nextAssignmentsSnapshot = existing.map((item) =>
+          item.agentId === agentId ? { ...item, ...patch } : item,
+        );
+        return {
+          ...prev,
+          [projectId]: nextAssignmentsSnapshot,
+        };
+      });
+
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
+      }));
     },
     [],
+  );
+
+  const addProjectTaskType = useCallback(
+    (
+      projectId: string,
+      input: {
+        name: string;
+        description: string;
+        templateChecklist?: string;
+        accent: TaskTypeAccent;
+        creatorAgentIds?: string[];
+      },
+    ) => {
+      const cleanName = input.name.trim();
+      if (!cleanName) return;
+      const creators = (input.creatorAgentIds || []).filter(Boolean);
+      const newType: ProjectTaskType = {
+        id: `tt_${Date.now().toString(36)}`,
+        name: cleanName,
+        description: input.description.trim() || '自定义任务卡片模板',
+        templateChecklist: input.templateChecklist?.trim() || undefined,
+        accent: input.accent,
+        creatorAgentIds: creators,
+        defaultAgentId: creators[0],
+        isBuiltin: false,
+      };
+      setProjectTaskTypes((prev) => {
+        const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
+        return {
+          ...prev,
+          [projectId]: [...existing, newType],
+        };
+      });
+    },
+    [],
+  );
+
+  const updateProjectTaskType = useCallback(
+    (
+      projectId: string,
+      typeId: string,
+      patch: Partial<Omit<ProjectTaskType, 'id'>>,
+    ) => {
+      setProjectTaskTypes((prev) => {
+        const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
+        return {
+          ...prev,
+          [projectId]: existing.map((item) =>
+            item.id === typeId
+              ? {
+                  ...item,
+                  ...patch,
+                  defaultAgentId:
+                    patch.creatorAgentIds !== undefined
+                      ? patch.creatorAgentIds[0]
+                      : item.defaultAgentId,
+                }
+              : item,
+          ),
+        };
+      });
+      if (patch.name) {
+        const cleanName = patch.name.trim();
+        if (cleanName) {
+          setAllTasks((prev) =>
+            prev.map((t) =>
+              t.sessionId === projectId && t.taskTypeId === typeId
+                ? { ...t, taskTypeLabel: cleanName }
+                : t,
+            ),
+          );
+        }
+      }
+    },
+    [],
+  );
+
+  const deleteProjectTaskType = useCallback((projectId: string, typeId: string) => {
+    setProjectTaskTypes((prev) => {
+      const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
+      if (existing.length <= 1) return prev;
+      return {
+        ...prev,
+        [projectId]: existing.filter((item) => item.id !== typeId),
+      };
+    });
+  }, []);
+
+  const applyTaskTypePresetPack = useCallback(
+    (projectId: string, packId: TaskTemplatePackId) => {
+      const assignments = projectAgentAssignments[projectId] || [];
+      const nextTypes = buildTaskTypesFromPack(packId, assignments);
+      setProjectTaskTypes((prev) => ({
+        ...prev,
+        [projectId]: nextTypes,
+      }));
+    },
+    [projectAgentAssignments],
+  );
+
+  const startTemplateConversation = useCallback(
+    async (
+      projectId: string,
+      taskTypeId: string,
+      options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
+    ) => {
+      const types = projectTaskTypes[projectId] || DEFAULT_PROJECT_TASK_TYPES;
+      const tpl = types.find((t) => t.id === taskTypeId) || types[0];
+      const creatorIds = tpl ? getTemplateCreatorIds(tpl) : [];
+      const chosenCreatorId =
+        options?.creatorAgentId ||
+        creatorIds[0] ||
+        projectAgentAssignments[projectId]?.find((a) => a.stages.includes('planning'))?.agentId;
+      const creatorAgent = chosenCreatorId
+        ? agents.find((a) => a.id === chosenCreatorId)
+        : undefined;
+      const mentionPrefix = creatorAgent ? `${creatorAgent.handle} ` : '';
+      const checklistHint = tpl?.templateChecklist
+        ? `（按交付骨架：${tpl.templateChecklist}）`
+        : '';
+      const userPrompt = options?.prompt?.trim() || '';
+
+      const messageText = userPrompt
+        ? `${mentionPrefix}请基于【${tpl?.name || '任务'}】模板与我对话梳理，并生成标准任务计划卡${checklistHint}：\n${userPrompt}`
+        : `${mentionPrefix}请按【${tpl?.name || '任务'}】模板与我对话梳理，并生成一张标准任务计划卡${checklistHint}：`;
+
+      setActiveSessionId(projectId);
+      setPreferredConversationMode('chat');
+      setActiveChatChannel({ type: 'group', projectId });
+      setActiveView('chat');
+
+      if (!options?.autoSend || !userPrompt) {
+        setChatDraftSeed(messageText);
+        return;
+      }
+
+      const targetWorkspace = workspaces.find((w) => w.id === projectId);
+      if (!targetWorkspace) {
+        setChatDraftSeed(messageText);
+        return;
+      }
+
+      setChatDraftSeed('');
+      setAiError(null);
+
+      const userMsgId = `msg_user_${Date.now()}`;
+      const userMsg: ChatMessage = {
+        id: userMsgId,
+        sessionId: targetWorkspace.id,
+        senderType: 'employer',
+        senderId: 'employer',
+        senderName: '我（项目负责人）',
+        senderHandle: '@指挥官',
+        content: messageText,
+        timestamp: nowTimeStr(),
+      };
+
+      const projectHiredAgents = agents.filter((a) =>
+        targetWorkspace.hiredAgentIds.includes(a.id),
+      );
+      const recentProjectMessages = [
+        ...allMessages.filter((m) => m.sessionId === targetWorkspace.id),
+        userMsg,
+      ];
+      const existingProjectTasks = allTasks.filter((t) => t.sessionId === targetWorkspace.id);
+
+      setAllMessages((prev) => [...prev, userMsg]);
+      setIsAiBusy(true);
+
+      try {
+        const result = await orchestrateGroupChat({
+          message: messageText,
+          workspace: targetWorkspace,
+          hiredAgents: projectHiredAgents,
+          recentMessages: recentProjectMessages,
+          existingTasks: existingProjectTasks,
+        });
+
+        const ts = nowTimeStr();
+        const validTypes = new Set<WorkCardType>(['planning', 'development', 'testing', 'review']);
+        const createdTasks: WorkflowTask[] = (result.newTasks || []).map((nt, idx) => {
+          const validAssignee =
+            projectHiredAgents.find((a) => a.id === nt.assigneeId) ||
+            creatorAgent ||
+            projectHiredAgents[0];
+          const wType: WorkCardType = validTypes.has(nt.workType) ? nt.workType : 'planning';
+          return {
+            id: `tsk_${Date.now().toString().slice(-4)}_${idx + 1}`,
+            sessionId: targetWorkspace.id,
+            featureModule: nt.featureModule?.trim() || tpl?.name || '任务计划',
+            workType: wType,
+            taskTypeId: tpl?.id,
+            taskTypeLabel: tpl?.name,
+            title: nt.title,
+            description: nt.description,
+            assigneeId: validAssignee ? validAssignee.id : 'butler',
+            assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Nexa',
+            status: 'pending',
+            priority: nt.priority === '高' || nt.priority === '低' ? nt.priority : '中',
+            createdAt: ts,
+            updatedAt: ts,
+            sourceMessageId: userMsgId,
+          };
+        });
+
+        if (createdTasks.length > 0) {
+          setAllTasks((prev) => [...createdTasks, ...prev]);
+        }
+
+        const aiReplies: ChatMessage[] = (result.replies || []).map((r, idx) => ({
+          id: `msg_ai_${Date.now()}_${idx}`,
+          sessionId: targetWorkspace.id,
+          senderType: r.senderType === 'butler' ? 'butler' : 'agent',
+          senderId: r.senderId,
+          senderName: r.senderName,
+          senderHandle: r.senderHandle,
+          content: r.content,
+          timestamp: ts,
+          linkedTaskIds:
+            idx === result.replies.length - 1 ? createdTasks.map((t) => t.id) : undefined,
+        }));
+
+        if (aiReplies.length > 0) {
+          setAllMessages((prev) => [...prev, ...aiReplies]);
+        }
+      } catch (err) {
+        setAiError(err instanceof Error ? err.message : '发起任务对话失败');
+      } finally {
+        setIsAiBusy(false);
+      }
+    },
+    [agents, allMessages, allTasks, projectAgentAssignments, projectTaskTypes, workspaces],
+  );
+
+  const createPipelineStageTask = useCallback(
+    (projectId: string, stage: WorkCardType, customTitle?: string, taskTypeId?: string) => {
+      const assignments = projectAgentAssignments[projectId] || [];
+      const slots = projectPipelines[projectId] || getDefaultProjectPipelineSlots();
+      const slot = slots.find((s) => s.stage === stage);
+      const stageMeta = getPipelineStageMeta(stage);
+      const types = projectTaskTypes[projectId] || DEFAULT_PROJECT_TASK_TYPES;
+      const selectedType =
+        (taskTypeId ? types.find((t) => t.id === taskTypeId) : undefined) || types[0];
+      const creatorIds = selectedType ? getTemplateCreatorIds(selectedType) : [];
+      const activeStage: ActiveWorkflowStage =
+        stage === 'review' ? 'testing' : stage;
+      const stageAssignedId = assignments.find((a) => a.stages.includes(activeStage))?.agentId;
+
+      const preferredAgentId =
+        stage === 'planning'
+          ? creatorIds[0] || stageAssignedId || slot?.agentId
+          : stageAssignedId || creatorIds[0] || slot?.agentId;
+
+      const assignee =
+        (preferredAgentId ? agents.find((a) => a.id === preferredAgentId) : undefined) ||
+        agents[0];
+      const ts = nowTimeStr();
+      const title =
+        customTitle?.trim() || `${selectedType?.name || stageMeta.label}：新建任务`;
+
+      const newTask: WorkflowTask = {
+        id: `tsk_${Date.now().toString().slice(-4)}`,
+        sessionId: projectId,
+        featureModule: selectedType?.name || stageMeta.label,
+        workType: stage,
+        taskTypeId: selectedType?.id,
+        taskTypeLabel: selectedType?.name,
+        title,
+        description:
+          selectedType?.templateChecklist ||
+          selectedType?.description ||
+          `按「${stageMeta.label}」阶段要求完成交付与验证。`,
+        assigneeId: assignee?.id || 'butler',
+        assigneeHandle: assignee?.handle || '@Nexa',
+        status: STAGE_TO_STATUS[stage],
+        priority: '高',
+        createdAt: ts,
+        updatedAt: ts,
+      };
+
+      setAllTasks((prev) => [newTask, ...prev]);
+      if (assignee) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === projectId && !w.hiredAgentIds.includes(assignee.id)
+              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, assignee.id] }
+              : w,
+          ),
+        );
+      }
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_stage_task_${Date.now()}`,
+          sessionId: projectId,
+          senderType: 'butler',
+          senderId: 'butler',
+          senderName: 'Nexa 助理',
+          senderHandle: '@Nexa',
+          content: `已按【${selectedType?.name || '任务'}】模板创建「${newTask.title}」并加入「${stageMeta.label}」，指派给 ${newTask.assigneeHandle}。`,
+          timestamp: ts,
+          linkedTaskIds: [newTask.id],
+        },
+      ]);
+      return newTask;
+    },
+    [agents, projectAgentAssignments, projectPipelines, projectTaskTypes],
+  );
+
+  const handoffPipelineStage = useCallback(
+    (projectId: string, fromStage: WorkCardType) => {
+      const nextStage = getNextPipelineStage(fromStage);
+      if (!nextStage) return;
+
+      const slots = projectPipelines[projectId] || getDefaultProjectPipelineSlots();
+      const fromMeta = getPipelineStageMeta(fromStage);
+      const nextMeta = getPipelineStageMeta(nextStage);
+      const nextSlot = slots.find((s) => s.stage === nextStage);
+      const nextAgent = agents.find((a) => a.id === nextSlot?.agentId) || agents[0];
+      const ts = nowTimeStr();
+
+      const fromStatus = STAGE_TO_STATUS[fromStage];
+      const nextStatus = STAGE_TO_STATUS[nextStage];
+      const stageTasks = allTasks.filter(
+        (t) => t.sessionId === projectId && t.status === fromStatus,
+      );
+
+      if (stageTasks.length === 0) return;
+
+      const movedIds = new Set(stageTasks.map((t) => t.id));
+      const reassignNext =
+        Boolean(nextAgent) && (nextStatus === 'in_progress' || nextStatus === 'review');
+
+      setAllTasks((prev) =>
+        prev.map((t) =>
+          movedIds.has(t.id)
+            ? {
+                ...t,
+                status: nextStatus,
+                assigneeId: reassignNext && nextAgent ? nextAgent.id : t.assigneeId,
+                assigneeHandle: reassignNext && nextAgent ? nextAgent.handle : t.assigneeHandle,
+                updatedAt: ts,
+              }
+            : t,
+        ),
+      );
+
+      if (reassignNext && nextAgent) {
+        setWorkspaces((prev) =>
+          prev.map((w) =>
+            w.id === projectId && !w.hiredAgentIds.includes(nextAgent.id)
+              ? { ...w, hiredAgentIds: [...w.hiredAgentIds, nextAgent.id] }
+              : w,
+          ),
+        );
+      }
+
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_handoff_${Date.now()}`,
+          sessionId: projectId,
+          senderType: 'system',
+          senderId: 'system',
+          senderName: '阶段流转',
+          senderHandle: '任务编排',
+          content: `已将「${fromMeta.label}」中的 ${stageTasks.length} 项任务流转至「${nextMeta.label}」${
+            reassignNext && nextAgent ? `，并交接给 ${nextAgent.handle}` : ''
+          }。`,
+          timestamp: ts,
+          linkedTaskIds: stageTasks.map((t) => t.id),
+        },
+      ]);
+    },
+    [agents, allTasks, projectPipelines],
   );
 
   const syncPipelineAgentsToProject = useCallback(
@@ -4206,8 +4811,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_pipe_${Date.now()}`,
           category: 'audit',
-          title: `工作编排已同步：${proj?.name || projectId}`,
-          detail: `已将 ${slotAgentIds.length} 个阶段工位 Agent 及其宿主机载体节点同步至项目协同阵容。`,
+          title: `任务编排已同步：${proj?.name || projectId}`,
+          detail: `已将 ${slotAgentIds.length} 个阶段专业 Agent 及其运行节点同步至项目协同阵容。`,
           severity: 'success',
           timestamp: nowTimeStr(),
         },
@@ -4303,6 +4908,8 @@ export function useAgentNexusStore() {
     computeNodes,
     storageVolumes,
     projectPipelines,
+    projectAgentAssignments,
+    projectTaskTypes,
     mountPrivateNode,
     provisionCloudNode,
     toggleNodeStatus,
@@ -4319,6 +4926,16 @@ export function useAgentNexusStore() {
     updateProjectLifecycle,
     updateProjectSpaceBinding,
     updateProjectStageSlot,
+    addProjectAgentAssignment,
+    removeProjectAgentAssignment,
+    updateProjectAgentAssignment,
+    addProjectTaskType,
+    updateProjectTaskType,
+    deleteProjectTaskType,
+    applyTaskTypePresetPack,
+    startTemplateConversation,
+    createPipelineStageTask,
+    handoffPipelineStage,
     syncPipelineAgentsToProject,
     leaseAgent,
     acquireSkill,
@@ -4387,7 +5004,6 @@ export function useAgentNexusStore() {
     releaseAgent,
     savePrivateAgent,
     toggleMarketListing,
-    updateAgentRuntimeConfig,
     sendGroupMessage,
     updateTaskStatus,
     runAutonomousTask,

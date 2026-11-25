@@ -264,7 +264,7 @@ export function NewSessionLauncherPane({
         {/* Minimalist Product Slogan (No Icon, No User Name, Generous Spacing to Composer) */}
         <div className="text-center mb-12 sm:mb-14">
           <h1 className="font-display text-2xl sm:text-[30px] font-extrabold tracking-tight text-slate-900">
-            多专家 Agent 网络，协同达成目标
+            专家 Agent 网络协同，高质量任务交付
           </h1>
         </div>
 

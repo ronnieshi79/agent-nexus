@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from 'react';
-import { X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { FolderKanban, X } from 'lucide-react';
 import { AccountAuthModal } from './components/account/AccountPanel';
 import { UnifiedChatView } from './components/chat/UnifiedChatView';
 import { Sidebar } from './components/layout/Sidebar';
 import { TopHeader, type BreadcrumbItem } from './components/layout/TopHeader';
 import { formatAgentDisplayName } from './components/shared/EntityIdentity';
+import { ToolbarDropdown } from './components/shared/ViewToolbar';
 import { CommunityHubView } from './components/views/CommunityHubView';
 import { MyTeamView } from './components/views/MyTeamView';
 import { WorkflowKanbanView, type WorkKanbanTab } from './components/views/WorkflowKanbanView';
@@ -20,9 +21,8 @@ const WORKSPACE_TAB_META: Record<
   { group: '工作项目' | 'Artifacts'; groupRoot: WorkKanbanTab; label: string }
 > = {
   overview: { group: '工作项目', groupRoot: 'overview', label: '项目概要' },
-  my_projects: { group: '工作项目', groupRoot: 'overview', label: '我的项目' },
-  kanban: { group: '工作项目', groupRoot: 'overview', label: '项目看板' },
-  orchestration: { group: '工作项目', groupRoot: 'overview', label: '工作编排' },
+  my_projects: { group: '工作项目', groupRoot: 'overview', label: '项目看板' },
+  orchestration: { group: '工作项目', groupRoot: 'overview', label: '任务编排' },
   artifacts_all: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '全部产物' },
   artifacts_yours: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '我创建的' },
   artifacts_shared: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '分享给我的' },
@@ -80,6 +80,24 @@ export default function App() {
     artifactCategory?: ArtifactCategoryGroup;
     onClearFocus?: () => void;
   }>({ tab: 'overview', artifactCategory: 'all' });
+
+  const [selectedWorkspaceProjectId, setSelectedWorkspaceProjectId] = useState<string>(
+    store.workspaces[0]?.id || '',
+  );
+
+  useEffect(() => {
+    if (store.kanbanProjectSeed && store.kanbanProjectSeed !== 'all') {
+      setSelectedWorkspaceProjectId(store.kanbanProjectSeed);
+    }
+  }, [store.kanbanProjectSeed]);
+
+  const activeWorkspaceProject = useMemo(
+    () =>
+      store.workspaces.find((w) => w.id === selectedWorkspaceProjectId) ||
+      store.workspaces[0] ||
+      null,
+    [selectedWorkspaceProjectId, store.workspaces],
+  );
 
   const handleTeamBreadcrumbChange = useCallback(
     (ctx: { section: TeamSectionTab; managedZoneName?: string | null }) => {
@@ -144,21 +162,8 @@ export default function App() {
           label: meta.group,
           onClick: () => store.openWorkspaceTab(meta.groupRoot),
         },
-        {
-          label: meta.label,
-          onClick:
-            workspaceBreadcrumbCtx.tab === 'my_projects' &&
-            workspaceBreadcrumbCtx.focusedProjectName
-              ? () => workspaceBreadcrumbCtx.onClearFocus?.()
-              : undefined,
-        },
+        { label: meta.label },
       ];
-      if (
-        workspaceBreadcrumbCtx.tab === 'my_projects' &&
-        workspaceBreadcrumbCtx.focusedProjectName
-      ) {
-        items.push({ label: workspaceBreadcrumbCtx.focusedProjectName });
-      }
       if (
         meta.group === 'Artifacts' &&
         workspaceBreadcrumbCtx.artifactCategory &&
@@ -296,6 +301,25 @@ export default function App() {
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
         <TopHeader
           breadcrumbs={breadcrumbs}
+          breadcrumbTrailing={
+            store.activeView === 'kanban' &&
+            (workspaceBreadcrumbCtx.tab === 'my_projects' ||
+              workspaceBreadcrumbCtx.tab === 'orchestration') &&
+            activeWorkspaceProject ? (
+              <ToolbarDropdown
+                label="项目"
+                value={activeWorkspaceProject.id}
+                defaultValue=""
+                icon={<FolderKanban className="w-3.5 h-3.5 text-blue-600" />}
+                onChange={(nextId) => setSelectedWorkspaceProjectId(nextId)}
+                options={store.workspaces.map((w) => ({
+                  id: w.id,
+                  label: w.name,
+                  hint: `${store.allTasks.filter((t) => t.sessionId === w.id).length} 卡`,
+                }))}
+              />
+            ) : undefined
+          }
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
@@ -389,7 +413,10 @@ export default function App() {
               workspaces={store.workspaces}
               computeNodes={store.computeNodes}
               storageVolumes={store.storageVolumes}
-              projectPipelines={store.projectPipelines}
+              projectAgentAssignments={store.projectAgentAssignments}
+              projectTaskTypes={store.projectTaskTypes}
+              selectedProjectId={activeWorkspaceProject?.id || ''}
+              onSelectProjectId={setSelectedWorkspaceProjectId}
               projectSeed={store.kanbanProjectSeed}
               onClearProjectSeed={store.clearKanbanProjectSeed}
               tabSeed={store.kanbanTabSeed}
@@ -423,10 +450,15 @@ export default function App() {
               onLeaseAgent={store.leaseAgent}
               onAssignExpertToWorkspace={store.assignExpertToWorkspace}
               onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
-              onUpdateAgentRuntimeConfig={store.updateAgentRuntimeConfig}
               onUpdateProjectLifecycle={store.updateProjectLifecycle}
-              onUpdateProjectStageSlot={store.updateProjectStageSlot}
-              onSyncPipelineAgentsToProject={store.syncPipelineAgentsToProject}
+              onAddProjectAgentAssignment={store.addProjectAgentAssignment}
+              onRemoveProjectAgentAssignment={store.removeProjectAgentAssignment}
+              onUpdateProjectAgentAssignment={store.updateProjectAgentAssignment}
+              onAddProjectTaskType={store.addProjectTaskType}
+              onUpdateProjectTaskType={store.updateProjectTaskType}
+              onDeleteProjectTaskType={store.deleteProjectTaskType}
+              onApplyTaskTypePresetPack={store.applyTaskTypePresetPack}
+              onStartTemplateConversation={store.startTemplateConversation}
             />
           )}
 
