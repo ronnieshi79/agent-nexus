@@ -74,6 +74,7 @@ const ROLE_LABELS: Record<SpaceMemberRole, { label: string; cls: string }> = {
 const POST_TYPE_LABELS: Record<CommunityPostType, { label: string; cls: string }> = {
   announcement: { label: '主理公告', cls: 'bg-amber-50 text-amber-800 border-amber-200' },
   project: { label: '项目共创', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
+  event: { label: '主题活动', cls: 'bg-violet-50 text-violet-700 border-violet-200' },
   skill_share: { label: 'Skill / MCP', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
   agn_recommend: { label: '专家 Agent', cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
   discussion: { label: '交流讨论', cls: 'bg-slate-100 text-slate-700 border-slate-200' },

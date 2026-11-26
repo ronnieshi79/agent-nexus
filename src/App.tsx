@@ -575,6 +575,7 @@ export default function App() {
               dmError={store.dmError}
               categorySeed={store.marketCategorySeed}
               zoneProjects={store.zoneProjects}
+              communityEvents={store.communityEvents}
               communityPosts={store.communityPosts}
               followedEntityKeys={store.followedEntityKeys}
               zoneSeed={store.discoverZoneSeed}
@@ -600,6 +601,8 @@ export default function App() {
               onAddPostComment={store.addPostComment}
               onPublishZoneProject={store.publishZoneProject}
               onClaimZoneProject={store.claimZoneProject}
+              onPublishEvent={store.publishCommunityEvent}
+              onToggleRegisterEvent={store.toggleRegisterCommunityEvent}
               onJumpToKanban={store.openKanbanForProject}
             />
           )}

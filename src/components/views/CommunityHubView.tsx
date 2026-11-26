@@ -1,9 +1,19 @@
 import { useMemo } from 'react';
-import { Blocks, Briefcase, Cpu, Flame, Pin, Rocket, UserCheck } from 'lucide-react';
+import {
+  Blocks,
+  Briefcase,
+  CalendarDays,
+  Cpu,
+  Flame,
+  Pin,
+  Rocket,
+  UserCheck,
+} from 'lucide-react';
 import type {
   AgentCategory,
   AgentLeaseRecord,
   AgentSliceFirewallPolicy,
+  CommunityEvent,
   CommunityHubTab,
   CommunityPost,
   CommunityPostType,
@@ -15,6 +25,7 @@ import type {
   LeasePeriod,
   MarketSkill,
   ProjectWorkspace,
+  PublishCommunityEventInput,
   SkillKind,
   TeamExpertMembership,
   ZoneProjectOpportunity,
@@ -50,6 +61,7 @@ interface CommunityHubViewProps {
   dmError: string | null;
   categorySeed: 'all' | AgentCategory;
   zoneProjects: ZoneProjectOpportunity[];
+  communityEvents: CommunityEvent[];
   communityPosts: CommunityPost[];
   followedEntityKeys: string[];
   zoneSeed: string | null;
@@ -116,6 +128,8 @@ interface CommunityHubViewProps {
     requiredRoles: string[];
   }) => string;
   onClaimZoneProject: (oppId: string) => string;
+  onPublishEvent: (input: PublishCommunityEventInput) => string;
+  onToggleRegisterEvent: (eventId: string, note?: string) => void;
   onJumpToKanban: (projectId?: string) => void;
 }
 
@@ -149,6 +163,7 @@ export function CommunityHubView({
   dmError,
   categorySeed,
   zoneProjects,
+  communityEvents,
   communityPosts,
   followedEntityKeys,
   zoneSeed,
@@ -174,6 +189,8 @@ export function CommunityHubView({
   onAddPostComment,
   onPublishZoneProject,
   onClaimZoneProject,
+  onPublishEvent,
+  onToggleRegisterEvent,
   onJumpToKanban,
 }: CommunityHubViewProps) {
   const isServiceMode = activeTab.startsWith('service_');
@@ -188,11 +205,13 @@ export function CommunityHubView({
   const socialFeedScope: SocialFeedScope =
     activeTab === 'social_projects'
       ? 'projects'
-      : activeTab === 'social_following'
-        ? 'following'
-        : activeTab === 'social_pinned'
-          ? 'pinned'
-          : 'all';
+      : activeTab === 'social_events'
+        ? 'events'
+        : activeTab === 'social_following'
+          ? 'following'
+          : activeTab === 'social_pinned'
+            ? 'pinned'
+            : 'all';
 
   // Live rail counts for activeZone
   const zoneHumansCount = useMemo(
@@ -218,6 +237,11 @@ export function CommunityHubView({
   const zoneProjectsCount = useMemo(
     () => zoneProjects.filter((p) => p.zoneId === activeZone.id).length,
     [activeZone.id, zoneProjects],
+  );
+
+  const zoneEventsCount = useMemo(
+    () => communityEvents.filter((ev) => ev.zoneId === activeZone.id).length,
+    [activeZone.id, communityEvents],
   );
 
   const followedSet = useMemo(() => new Set(followedEntityKeys), [followedEntityKeys]);
@@ -266,6 +290,13 @@ export function CommunityHubView({
       count: zoneProjectsCount,
       icon: Rocket,
       tint: 'text-blue-600',
+    },
+    {
+      id: 'social_events',
+      label: '主题活动',
+      count: zoneEventsCount,
+      icon: CalendarDays,
+      tint: 'text-violet-600',
     },
     {
       id: 'social_following',
@@ -455,6 +486,7 @@ export function CommunityHubView({
               controlledFeedScope={socialFeedScope}
               onChangeFeedScope={(next) => {
                 if (next === 'projects') onChangeTab('social_projects');
+                else if (next === 'events') onChangeTab('social_events');
                 else if (next === 'following') onChangeTab('social_following');
                 else if (next === 'pinned') onChangeTab('social_pinned');
                 else onChangeTab('social_all');
@@ -463,6 +495,7 @@ export function CommunityHubView({
               activeZone={activeZone}
               joinedZoneIds={joinedZoneIds}
               zoneProjects={zoneProjects}
+              communityEvents={communityEvents}
               communityPosts={communityPosts}
               followedEntityKeys={followedEntityKeys}
               allAgents={allAgents}
@@ -483,6 +516,8 @@ export function CommunityHubView({
               onAddPostComment={onAddPostComment}
               onPublishZoneProject={onPublishZoneProject}
               onClaimZoneProject={onClaimZoneProject}
+              onPublishEvent={onPublishEvent}
+              onToggleRegisterEvent={onToggleRegisterEvent}
               onStartNegotiation={onStartNegotiation}
               onJumpToZoneMarket={(zoneId) => {
                 onSelectZone(zoneId);

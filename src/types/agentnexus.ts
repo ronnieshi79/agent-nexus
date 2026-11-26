@@ -6,6 +6,7 @@ export type CommunityHubTab =
   | 'service_skills'
   | 'social_all'
   | 'social_projects'
+  | 'social_events'
   | 'social_following'
   | 'social_pinned';
 
@@ -644,9 +645,50 @@ export interface ZoneProjectOpportunity {
 export type CommunityPostType =
   | 'discussion'
   | 'project'
+  | 'event'
   | 'skill_share'
   | 'agn_recommend'
   | 'announcement';
+
+export type CommunityEventFormat = 'offline_meetup' | 'online_live' | 'workshop_training';
+
+export interface CommunityEvent {
+  id: string;
+  zoneId: string;
+  title: string;
+  summary: string;
+  format: CommunityEventFormat;
+  hostName: string;
+  hostRole: string;
+  hostAccent: string;
+  hostCode: string;
+  startTimeLabel: string;
+  location: string;
+  isFree: boolean;
+  priceCny: number;
+  capacity: number;
+  registeredCount: number;
+  registeredByMe?: boolean;
+  registrationCode?: string;
+  registrationNote?: string;
+  tags: string[];
+  agenda: string[];
+  createdAt: string;
+}
+
+export interface PublishCommunityEventInput {
+  zoneId: string;
+  title: string;
+  summary: string;
+  format: CommunityEventFormat;
+  startTimeLabel: string;
+  location: string;
+  isFree: boolean;
+  priceCny: number;
+  capacity: number;
+  agenda?: string[];
+  tags?: string[];
+}
 
 export interface CommunityComment {
   id: string;
@@ -680,6 +722,8 @@ export interface CommunityPost {
   comments: CommunityComment[];
   /** Present when this feed post embeds a live project matchmaking opportunity */
   linkedProjectId?: string;
+  /** Present when this feed post embeds a community themed event (meetup / live / workshop) */
+  linkedEventId?: string;
   /** Present when this feed post showcases an expert Agent available in Service Market */
   linkedAgentId?: string;
   /** Present when this feed post publishes a Skill / MCP available in Service Market */

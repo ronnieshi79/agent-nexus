@@ -3,6 +3,7 @@ import {
   INITIAL_AGENT_LEASES,
   INITIAL_ASSISTANT_MESSAGES,
   INITIAL_AUDIT_LOGS,
+  INITIAL_COMMUNITY_EVENTS,
   INITIAL_COMMUNITY_POSTS,
   INITIAL_COMPUTE_NODES,
   INITIAL_EXPERT_AGENTS,
@@ -67,6 +68,7 @@ import type {
   ChatMessage,
   CliAuthMode,
   CliToolType,
+  CommunityEvent,
   CommunityHubTab,
   CommunityPost,
   CommunityPostType,
@@ -95,6 +97,7 @@ import type {
   ProjectStageSlot,
   ProjectTaskType,
   ProjectWorkspace,
+  PublishCommunityEventInput,
   SettlementRecord,
   SkillKind,
   SpaceJoinApplication,
@@ -248,6 +251,9 @@ export function useAgentNexusStore() {
   ]);
   const [spaceSharedNodes, setSpaceSharedNodes] = useState<SpaceSharedNode[]>(
     INITIAL_SPACE_SHARED_NODES,
+  );
+  const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>(
+    INITIAL_COMMUNITY_EVENTS,
   );
 
   const [activeView, setActiveView] = useState<NavViewId>('chat');
@@ -1691,6 +1697,7 @@ export function useAgentNexusStore() {
       tags?: string[];
       pinned?: boolean;
       pinnedBy?: string;
+      linkedEventId?: string;
       linkedAgentId?: string;
       linkedSkillId?: string;
     }) => {
@@ -1699,6 +1706,7 @@ export function useAgentNexusStore() {
       if (!cleanedContent) return;
       const defaultTagMap: Record<Exclude<CommunityPostType, 'project'>, string> = {
         discussion: '分享讨论',
+        event: '主题活动',
         skill_share: '发布 Skill',
         agn_recommend: '发布专家 Agent',
         announcement: '社区公告',
@@ -1741,6 +1749,7 @@ export function useAgentNexusStore() {
         likedByMe: false,
         pinned: Boolean(input.pinned),
         pinnedBy: input.pinned ? input.pinnedBy || (account ? account.name : '林致远（我）') : undefined,
+        linkedEventId: input.linkedEventId,
         linkedAgentId: input.linkedAgentId,
         linkedSkillId: input.linkedSkillId,
         comments: [],
@@ -1749,6 +1758,121 @@ export function useAgentNexusStore() {
     },
     [account],
   );
+
+  const publishCommunityEvent = useCallback(
+    (input: PublishCommunityEventInput) => {
+      const cleanedTitle = input.title.trim();
+      if (!cleanedTitle) return '';
+      const id = `ev_${Date.now().toString().slice(-6)}`;
+      const hostName = account ? account.name : '林致远（我）';
+      const hostCode = account ? account.avatarInitials : '致远';
+      const priceCny = input.isFree ? 0 : Math.max(1, Math.round(input.priceCny));
+      const capacity = Math.max(5, Math.min(2000, Math.round(input.capacity || 30)));
+      const formatLabel =
+        input.format === 'offline_meetup'
+          ? '线下交流'
+          : input.format === 'online_live'
+            ? '线上直播分享'
+            : '实战培训';
+
+      const newEvent: CommunityEvent = {
+        id,
+        zoneId: input.zoneId,
+        title: cleanedTitle,
+        summary: input.summary.trim() || `${formatLabel}主题活动，欢迎社区成员报名参加并深度交流。`,
+        format: input.format,
+        hostName,
+        hostRole: '社区主理 · 活动发起人',
+        hostAccent: '#0284c7',
+        hostCode,
+        startTimeLabel: input.startTimeLabel.trim() || '近期开场（具体时间报名后通知）',
+        location:
+          input.location.trim() ||
+          (input.format === 'online_live' ? 'AGN 社区直播间' : '线下活动场地待定'),
+        isFree: priceCny <= 0,
+        priceCny,
+        capacity,
+        registeredCount: 1,
+        registeredByMe: true,
+        registrationCode: `AGN-EV-${Date.now().toString().slice(-4)}`,
+        tags:
+          input.tags && input.tags.length > 0
+            ? input.tags
+            : ['主题活动', formatLabel, priceCny <= 0 ? '免费活动' : '付费活动'],
+        agenda: (input.agenda || []).map((s) => s.trim()).filter(Boolean),
+        createdAt: '刚刚',
+      };
+
+      setCommunityEvents((prev) => [newEvent, ...prev]);
+      createCommunityPost({
+        zoneId: input.zoneId,
+        type: 'event',
+        title: `【${formatLabel}】${cleanedTitle}${priceCny <= 0 ? '（免费报名）' : `（¥${priceCny}/人）`}`,
+        content:
+          `${newEvent.summary}\n\n时间：${newEvent.startTimeLabel} · 地点/方式：${newEvent.location}（限 ${capacity} 席）`,
+        tags: ['主题活动', formatLabel],
+        linkedEventId: id,
+      });
+      setAuditLogs((prev) => [
+        {
+          id: `aud_ev_pub_${Date.now()}`,
+          category: 'general',
+          title: `已发布社区主题活动：${cleanedTitle.slice(0, 26)}`,
+          detail: `${formatLabel} · ${priceCny <= 0 ? '免费' : `收费 ¥${priceCny}/人`} · 限 ${capacity} 人`,
+          severity: 'info',
+          timestamp: nowTimeStr(),
+        },
+        ...prev,
+      ]);
+      return id;
+    },
+    [account, createCommunityPost],
+  );
+
+  const toggleRegisterCommunityEvent = useCallback((eventId: string, note?: string) => {
+    const target = communityEvents.find((ev) => ev.id === eventId);
+    if (!target) return;
+
+    const nextRegistered = !target.registeredByMe;
+    if (nextRegistered && target.registeredCount >= target.capacity) {
+      return;
+    }
+
+    const ticketCode =
+      target.registrationCode || `AGN-EV-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    setCommunityEvents((prev) =>
+      prev.map((ev) => {
+        if (ev.id !== eventId) return ev;
+        return {
+          ...ev,
+          registeredByMe: nextRegistered,
+          registeredCount: Math.max(
+            0,
+            Math.min(ev.capacity, ev.registeredCount + (nextRegistered ? 1 : -1)),
+          ),
+          registrationCode: nextRegistered ? ticketCode : undefined,
+          registrationNote: nextRegistered ? note || ev.registrationNote : undefined,
+        };
+      }),
+    );
+
+    setAuditLogs((prev) => [
+      {
+        id: `aud_ev_reg_${Date.now()}`,
+        category: 'general',
+        title: nextRegistered
+          ? `已报名主题活动：${target.title.slice(0, 24)}`
+          : `已取消活动报名：${target.title.slice(0, 24)}`,
+        detail: nextRegistered
+          ? `${target.isFree || target.priceCny <= 0 ? '免费席位' : `已支付报名费 ¥${target.priceCny}`} · 入场凭证 ${ticketCode}`
+          : '已释放该活动席位。',
+        severity: 'info',
+        timestamp: nowTimeStr(),
+      },
+      ...prev,
+    ]);
+  }, [communityEvents]);
 
   const publishCommunitySkill = useCallback(
     (input: {
@@ -6034,6 +6158,9 @@ export function useAgentNexusStore() {
     sendGroupMessage,
     updateTaskStatus,
     runAutonomousTask,
+    communityEvents,
+    publishCommunityEvent,
+    toggleRegisterCommunityEvent,
     jumpToChatWithMention,
     jumpToMarketWithCategory,
     jumpToMountPrivateAgent,

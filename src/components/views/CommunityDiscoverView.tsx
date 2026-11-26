@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Blocks,
   Briefcase,
+  CalendarDays,
   Check,
   CheckCircle2,
   Clock,
@@ -28,6 +29,10 @@ import {
   X,
 } from 'lucide-react';
 import {
+  CommunityEventInlineCard,
+  CommunityEventsPanel,
+} from '../community/CommunityEventsPanel';
+import {
   AgentIdentityName,
   AgentMark,
   EntityAvatar,
@@ -47,24 +52,28 @@ import {
 } from '../shared/ViewToolbar';
 import type {
   AgentCategory,
+  CommunityEvent,
+  CommunityEventFormat,
   CommunityPost,
   CommunityPostType,
   CommunityZone,
   ExpertAgent,
   HumanExpert,
   MarketSkill,
+  PublishCommunityEventInput,
   ServiceMode,
   SkillKind,
   ZoneProjectOpportunity,
 } from '../../types/agentnexus';
 
-export type SocialFeedScope = 'all' | 'projects' | 'following' | 'pinned';
+export type SocialFeedScope = 'all' | 'projects' | 'events' | 'following' | 'pinned';
 
 interface CommunityDiscoverViewProps {
   zones: CommunityZone[];
   activeZone: CommunityZone;
   joinedZoneIds: string[];
   zoneProjects: ZoneProjectOpportunity[];
+  communityEvents?: CommunityEvent[];
   communityPosts: CommunityPost[];
   followedEntityKeys: string[];
   allAgents: ExpertAgent[];
@@ -85,6 +94,7 @@ interface CommunityDiscoverViewProps {
     tags?: string[];
     pinned?: boolean;
     pinnedBy?: string;
+    linkedEventId?: string;
     linkedAgentId?: string;
     linkedSkillId?: string;
   }) => void;
@@ -115,6 +125,8 @@ interface CommunityDiscoverViewProps {
     requiredRoles: string[];
   }) => string;
   onClaimZoneProject: (oppId: string) => string;
+  onPublishEvent?: (input: PublishCommunityEventInput) => string;
+  onToggleRegisterEvent?: (eventId: string, note?: string) => void;
   onStartNegotiation: (agentId: string) => void;
   onJumpToZoneMarket: (zoneId: string) => void;
   onJumpToKanban: (projectId?: string) => void;
@@ -138,6 +150,12 @@ const POST_TYPE_META: Record<
     cls: 'text-blue-700',
     badgeCls: 'bg-blue-50 text-blue-700 border-blue-200/80',
     icon: Rocket,
+  },
+  event: {
+    label: '主题活动',
+    cls: 'text-violet-700',
+    badgeCls: 'bg-violet-50 text-violet-700 border-violet-200/80',
+    icon: CalendarDays,
   },
   skill_share: {
     label: '发布 Skill',
@@ -200,6 +218,7 @@ export function CommunityDiscoverView({
   activeZone,
   joinedZoneIds,
   zoneProjects,
+  communityEvents = [],
   communityPosts,
   followedEntityKeys,
   allAgents,
@@ -220,6 +239,8 @@ export function CommunityDiscoverView({
   onAddPostComment,
   onPublishZoneProject,
   onClaimZoneProject,
+  onPublishEvent,
+  onToggleRegisterEvent,
   onStartNegotiation,
   onJumpToZoneMarket,
   onJumpToKanban,
@@ -237,6 +258,8 @@ export function CommunityDiscoverView({
   };
   const [topicFilter, setTopicFilter] = useState<'all' | CommunityPostType>('all');
   const [projectStatusFilter, setProjectStatusFilter] = useState<'all' | 'open' | 'claimed'>('all');
+  const [eventFormatFilter, setEventFormatFilter] = useState<'all' | CommunityEventFormat>('all');
+  const [eventPricingFilter, setEventPricingFilter] = useState<'all' | 'free' | 'paid' | 'registered'>('all');
   const [crossZoneFollowing, setCrossZoneFollowing] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [principalDemoZones, setPrincipalDemoZones] = useState<Record<string, boolean>>({});
@@ -259,6 +282,14 @@ export function CommunityDiscoverView({
   const [projBudget, setProjBudget] = useState(3200);
   const [projDays, setProjDays] = useState(7);
   const [projRoles, setProjRoles] = useState('架构审查, 全栈研发');
+  // Event publish fields
+  const [eventFormat, setEventFormat] = useState<CommunityEventFormat>('offline_meetup');
+  const [eventStartTime, setEventStartTime] = useState('12月14日 (周日) 14:00 - 17:30');
+  const [eventLocation, setEventLocation] = useState('杭州 · 良渚文化村路演厅');
+  const [eventIsFree, setEventIsFree] = useState(false);
+  const [eventPriceCny, setEventPriceCny] = useState(199);
+  const [eventCapacity, setEventCapacity] = useState(30);
+  const [eventAgendaText, setEventAgendaText] = useState('');
   // Skill publish fields
   const [skillName, setSkillName] = useState('');
   const [skillKind, setSkillKind] = useState<SkillKind>('skill');
@@ -344,6 +375,12 @@ export function CommunityDiscoverView({
     return map;
   }, [marketSkills]);
 
+  const eventMap = useMemo(() => {
+    const map = new Map<string, CommunityEvent>();
+    communityEvents.forEach((ev) => map.set(ev.id, ev));
+    return map;
+  }, [communityEvents]);
+
   const followedSet = useMemo(() => new Set(followedEntityKeys), [followedEntityKeys]);
 
   const zoneMap = useMemo(() => {
@@ -384,6 +421,7 @@ export function CommunityDiscoverView({
       all: zonePosts.length,
       discussion: 0,
       project: 0,
+      event: 0,
       skill_share: 0,
       agn_recommend: 0,
       announcement: 0,
@@ -411,6 +449,9 @@ export function CommunityDiscoverView({
       if (feedScope === 'projects') {
         return p.type === 'project';
       }
+      if (feedScope === 'events') {
+        return p.type === 'event';
+      }
       if (feedScope === 'following') {
         const primaryKey = getPostAuthorFollowKey(p);
         const ownerFollowed =
@@ -431,6 +472,7 @@ export function CommunityDiscoverView({
       all: scopeBasePosts.length,
       discussion: 0,
       project: 0,
+      event: 0,
       skill_share: 0,
       agn_recommend: 0,
       announcement: 0,
@@ -446,7 +488,7 @@ export function CommunityDiscoverView({
   const communityFeedPosts = useMemo(() => {
     const q = searchKeyword.trim().toLowerCase();
     const filtered = scopeBasePosts.filter((p) => {
-      if (feedScope !== 'projects' && topicFilter !== 'all' && p.type !== topicFilter) return false;
+      if (feedScope !== 'projects' && feedScope !== 'events' && topicFilter !== 'all' && p.type !== topicFilter) return false;
       if (!q) return true;
       const haystack = [
         p.title,
@@ -478,6 +520,26 @@ export function CommunityDiscoverView({
         .includes(q);
     });
   }, [communityOpenProjects, projectStatusFilter, searchKeyword]);
+
+  const communityZoneEvents = useMemo(
+    () => communityEvents.filter((ev) => ev.zoneId === activeCommunity.id),
+    [activeCommunity.id, communityEvents],
+  );
+
+  const filteredZoneEvents = useMemo(() => {
+    const q = searchKeyword.trim().toLowerCase();
+    return communityZoneEvents.filter((ev) => {
+      if (eventFormatFilter !== 'all' && ev.format !== eventFormatFilter) return false;
+      if (eventPricingFilter === 'free' && !(ev.isFree || ev.priceCny <= 0)) return false;
+      if (eventPricingFilter === 'paid' && (ev.isFree || ev.priceCny <= 0)) return false;
+      if (eventPricingFilter === 'registered' && !ev.registeredByMe) return false;
+      if (!q) return true;
+      return [ev.title, ev.summary, ev.hostName, ev.location, ...ev.tags]
+        .join(' ')
+        .toLowerCase()
+        .includes(q);
+    });
+  }, [communityZoneEvents, eventFormatFilter, eventPricingFilter, searchKeyword]);
 
   const trendingPostsRanking = useMemo(() => {
     return [...zonePosts]
@@ -674,6 +736,33 @@ export function CommunityDiscoverView({
         durationDays: projDays,
         requiredRoles: roles,
       });
+    } else if (composerMode === 'event') {
+      if (!postTitle.trim() && !postBody.trim()) return;
+      const agendaLines = eventAgendaText
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (onPublishEvent) {
+        onPublishEvent({
+          zoneId: activeCommunity.id,
+          title: postTitle.trim() || postBody.trim().slice(0, 28),
+          summary: postBody.trim() || postTitle.trim(),
+          format: eventFormat,
+          startTimeLabel: eventStartTime.trim(),
+          location: eventLocation.trim(),
+          isFree: eventIsFree,
+          priceCny: eventIsFree ? 0 : eventPriceCny,
+          capacity: eventCapacity,
+          agenda: agendaLines,
+        });
+      } else {
+        onCreatePost({
+          zoneId: activeCommunity.id,
+          type: 'event',
+          title: postTitle.trim() || postBody.trim().slice(0, 32),
+          content: postBody.trim() || postTitle.trim(),
+        });
+      }
     } else if (composerMode === 'skill_share') {
       const targetName = skillName.trim() || postTitle.trim();
       if (!targetName) return;
@@ -715,9 +804,12 @@ export function CommunityDiscoverView({
     setPostBody('');
     setSkillName('');
     setSkillPrice(0);
+    setEventAgendaText('');
     setComposerPin(false);
     if (composerMode === 'project') {
       setFeedScope('projects');
+    } else if (composerMode === 'event') {
+      setFeedScope('events');
     } else {
       setFeedScope('all');
     }
@@ -742,12 +834,14 @@ export function CommunityDiscoverView({
   }[] = [
     { id: 'all', label: '全部动态', icon: Flame, count: categoryCounts.all },
     { id: 'projects', label: '项目共创', icon: Rocket, count: communityOpenProjects.length },
+    { id: 'events', label: '主题活动', icon: CalendarDays, count: communityZoneEvents.length },
     { id: 'following', label: '我的关注', icon: UserCheck, count: followingCountInScope },
     { id: 'pinned', label: '主理置顶', icon: Pin, count: pinnedPostsCount },
   ];
 
   const resolveComposerMode = (): CommunityPostType => {
     if (feedScope === 'projects') return 'project';
+    if (feedScope === 'events') return 'event';
     return topicFilter === 'all' ? 'discussion' : topicFilter;
   };
 
@@ -808,7 +902,9 @@ export function CommunityDiscoverView({
                   placeholder={
                     feedScope === 'projects'
                       ? `在「${activeCommunity.name}」搜索共创项目、所需角色...`
-                      : `在「${activeCommunity.name}」搜索帖子、Skill、标签或作者...`
+                      : feedScope === 'events'
+                        ? `在「${activeCommunity.name}」搜索主题活动、主理人或地点...`
+                        : `在「${activeCommunity.name}」搜索帖子、Skill、标签或作者...`
                   }
                   widthClass="w-full sm:w-56 lg:w-64"
                 />
@@ -832,6 +928,57 @@ export function CommunityDiscoverView({
                       },
                     ]}
                   />
+                ) : feedScope === 'events' ? (
+                  <>
+                    <ToolbarDropdown
+                      label="形式"
+                      value={eventFormatFilter}
+                      defaultValue="all"
+                      onChange={setEventFormatFilter}
+                      options={[
+                        { id: 'all', label: '全部形式', hint: `${communityZoneEvents.length}` },
+                        {
+                          id: 'offline_meetup',
+                          label: '线下交流',
+                          hint: `${communityZoneEvents.filter((e) => e.format === 'offline_meetup').length}`,
+                        },
+                        {
+                          id: 'online_live',
+                          label: '线上直播分享',
+                          hint: `${communityZoneEvents.filter((e) => e.format === 'online_live').length}`,
+                        },
+                        {
+                          id: 'workshop_training',
+                          label: '实战培训',
+                          hint: `${communityZoneEvents.filter((e) => e.format === 'workshop_training').length}`,
+                        },
+                      ]}
+                    />
+                    <ToolbarDropdown
+                      label="费用"
+                      value={eventPricingFilter}
+                      defaultValue="all"
+                      onChange={setEventPricingFilter}
+                      options={[
+                        { id: 'all', label: '全部费用', hint: `${communityZoneEvents.length}` },
+                        {
+                          id: 'free',
+                          label: '免费活动',
+                          hint: `${communityZoneEvents.filter((e) => e.isFree || e.priceCny <= 0).length}`,
+                        },
+                        {
+                          id: 'paid',
+                          label: '收费活动',
+                          hint: `${communityZoneEvents.filter((e) => !e.isFree && e.priceCny > 0).length}`,
+                        },
+                        {
+                          id: 'registered',
+                          label: '我已报名',
+                          hint: `${communityZoneEvents.filter((e) => e.registeredByMe).length}`,
+                        },
+                      ]}
+                    />
+                  </>
                 ) : (
                   <ToolbarDropdown
                     label="分类"
@@ -842,6 +989,7 @@ export function CommunityDiscoverView({
                       { id: 'all', label: '全部分类', hint: `${scopeTopicCounts.all}` },
                       { id: 'discussion', label: '分享讨论', hint: `${scopeTopicCounts.discussion}` },
                       { id: 'project', label: '项目共创', hint: `${scopeTopicCounts.project}` },
+                      { id: 'event', label: '主题活动', hint: `${scopeTopicCounts.event}` },
                       { id: 'skill_share', label: '发布 Skill', hint: `${scopeTopicCounts.skill_share}` },
                       { id: 'agn_recommend', label: '专家 Agent', hint: `${scopeTopicCounts.agn_recommend}` },
                       { id: 'announcement', label: '社区公告', hint: `${scopeTopicCounts.announcement}` },
@@ -876,7 +1024,13 @@ export function CommunityDiscoverView({
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{feedScope === 'projects' ? '发起项目共创' : '发布内容'}</span>
+                <span>
+                  {feedScope === 'projects'
+                    ? '发起项目共创'
+                    : feedScope === 'events'
+                      ? '发布主题活动'
+                      : '发布内容'}
+                </span>
               </button>
             </>
           ) : undefined
@@ -1084,6 +1238,15 @@ export function CommunityDiscoverView({
                         })
                       )}
                     </div>
+                  ) : feedScope === 'events' ? (
+                    <CommunityEventsPanel
+                      communityName={activeCommunity.name}
+                      events={filteredZoneEvents}
+                      onToggleRegisterEvent={(eventId, note) =>
+                        onToggleRegisterEvent?.(eventId, note)
+                      }
+                      onOpenPublishEvent={() => openComposer('event')}
+                    />
                   ) : (
                     <>
                   {/* Active Filter Context Bar (shown when filtering by scope / topic / search) */}
@@ -1602,6 +1765,22 @@ export function CommunityDiscoverView({
                                       )}
                                     </div>
                                   </div>
+                                );
+                              })()}
+
+                            {/* Embedded Themed Event Card when post links a community event */}
+                            {post.linkedEventId &&
+                              (() => {
+                                const linkedEv = eventMap.get(post.linkedEventId);
+                                if (!linkedEv) return null;
+                                return (
+                                  <CommunityEventInlineCard
+                                    event={linkedEv}
+                                    onToggleRegisterEvent={(eventId) =>
+                                      onToggleRegisterEvent?.(eventId)
+                                    }
+                                    onJumpToEventsTab={() => setFeedScope('events')}
+                                  />
                                 );
                               })()}
 
@@ -2180,6 +2359,7 @@ export function CommunityDiscoverView({
                   [
                     { id: 'discussion', label: '分享讨论' },
                     { id: 'project', label: '项目共创' },
+                    { id: 'event', label: '主题活动' },
                     { id: 'skill_share', label: '发布 Skill' },
                     { id: 'agn_recommend', label: '发布专家 Agent' },
                     { id: 'announcement', label: '社区公告' },
@@ -2270,7 +2450,7 @@ export function CommunityDiscoverView({
               ) : (
                 <div>
                   <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                    标题
+                    {composerMode === 'event' ? '活动主题标题' : '标题'}
                   </label>
                   <input
                     type="text"
@@ -2280,14 +2460,142 @@ export function CommunityDiscoverView({
                     placeholder={
                       composerMode === 'project'
                         ? '一句话标题：如「寻全栈与设计创客 72h 共创开源 Agent 评测工具」'
-                        : composerMode === 'agn_recommend'
-                          ? '专家 Agent 标题：如「发布自建 Claude Code 全栈研发特工，支持按周租赁」'
-                          : composerMode === 'announcement'
-                            ? '公告标题：如「【社区公告】本月共创黑客松与协作规范」'
-                            : `在「${activeCommunity.name}」发起分享讨论、实战复盘或行业观察`
+                        : composerMode === 'event'
+                          ? '活动标题：如「杭州 OPC 主理人商业交付实战工作坊（1日闭门）」'
+                          : composerMode === 'agn_recommend'
+                            ? '专家 Agent 标题：如「发布自建 Claude Code 全栈研发特工，支持按周租赁」'
+                            : composerMode === 'announcement'
+                              ? '公告标题：如「【社区公告】本月共创黑客松与协作规范」'
+                              : `在「${activeCommunity.name}」发起分享讨论、实战复盘或行业观察`
                     }
                     className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   />
+                </div>
+              )}
+
+              {composerMode === 'event' && (
+                <div className="space-y-2.5 rounded-xl bg-slate-50/80 border border-slate-200/80 p-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        活动形式
+                      </label>
+                      <select
+                        value={eventFormat}
+                        onChange={(e) => {
+                          const nextFmt = e.target.value as CommunityEventFormat;
+                          setEventFormat(nextFmt);
+                          if (nextFmt === 'online_live' && eventLocation.includes('良渚')) {
+                            setEventLocation('AGN 社区直播间（报名后自动推送入口）');
+                          }
+                        }}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                      >
+                        <option value="offline_meetup">线下交流</option>
+                        <option value="online_live">线上直播分享</option>
+                        <option value="workshop_training">实战培训</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        收费模式
+                      </label>
+                      <div className="grid grid-cols-2 gap-1 bg-white border border-slate-200 rounded-lg p-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEventIsFree(true)}
+                          className={`py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+                            eventIsFree
+                              ? 'bg-emerald-600 text-white'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          免费
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEventIsFree(false)}
+                          className={`py-1 rounded-md text-[11px] font-semibold cursor-pointer ${
+                            !eventIsFree
+                              ? 'bg-slate-900 text-white'
+                              : 'text-slate-600 hover:text-slate-900'
+                          }`}
+                        >
+                          收费
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        {eventIsFree ? '人数上限（人）' : '门票价格（¥）'}
+                      </label>
+                      {eventIsFree ? (
+                        <input
+                          type="number"
+                          min={5}
+                          max={2000}
+                          value={eventCapacity}
+                          onChange={(e) => setEventCapacity(Math.max(5, Number(e.target.value) || 30))}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                        />
+                      ) : (
+                        <input
+                          type="number"
+                          min={1}
+                          step={10}
+                          value={eventPriceCny}
+                          onChange={(e) => setEventPriceCny(Math.max(1, Number(e.target.value) || 99))}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        活动时间
+                      </label>
+                      <input
+                        type="text"
+                        value={eventStartTime}
+                        onChange={(e) => setEventStartTime(e.target.value)}
+                        placeholder="例：12月14日 (周日) 14:00 - 17:30"
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                      />
+                    </div>
+                    <div className={eventIsFree ? 'sm:col-span-2' : ''}>
+                      <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                        {eventFormat === 'online_live' ? '直播入口 / 会议平台' : '活动地点'}
+                      </label>
+                      <input
+                        type="text"
+                        value={eventLocation}
+                        onChange={(e) => setEventLocation(e.target.value)}
+                        placeholder={
+                          eventFormat === 'online_live'
+                            ? '例：AGN 社区直播间 / 腾讯会议'
+                            : '例：杭州 · 良渚大屋顶 2F 路演厅'
+                        }
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900"
+                      />
+                    </div>
+                    {!eventIsFree && (
+                      <div>
+                        <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                          人数上限（人）
+                        </label>
+                        <input
+                          type="number"
+                          min={5}
+                          max={2000}
+                          value={eventCapacity}
+                          onChange={(e) => setEventCapacity(Math.max(5, Number(e.target.value) || 30))}
+                          className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono tabular-nums text-slate-900"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -2329,28 +2637,47 @@ export function CommunityDiscoverView({
                 <label className="block text-[11px] font-medium text-slate-600 mb-1">
                   {composerMode === 'project'
                     ? '项目说明与共创目标'
-                    : composerMode === 'skill_share'
-                      ? '能力介绍与适用场景'
-                      : '内容详情'}
+                    : composerMode === 'event'
+                      ? '活动介绍与面向人群'
+                      : composerMode === 'skill_share'
+                        ? '能力介绍与适用场景'
+                        : '内容详情'}
                 </label>
                 <textarea
-                  rows={4}
+                  rows={composerMode === 'event' ? 3 : 4}
                   value={postBody}
                   onChange={(e) => setPostBody(e.target.value)}
                   placeholder={
                     composerMode === 'project'
                       ? '补充项目背景、交付范围与共创分工（发布后自动进入「项目共创」并同步至「工作台 → 我的项目」）...'
-                      : composerMode === 'skill_share'
-                        ? '介绍该 Skill / MCP 解决的核心问题、兼容底座与最佳实践（发布后自动同步至本社区「服务市场 → Skills / MCP」）...'
-                        : composerMode === 'agn_recommend'
-                          ? '介绍该专家 Agent 的擅长场景、实测案例与协作方式（关联后将自动同步至本社区「服务市场 → 专家 Agent」）...'
-                          : composerMode === 'announcement'
-                            ? '撰写社区公告、规则更新或活动通知...'
-                            : '写下你的技术实践、商业洞察、共创想法或踩坑复盘...'
+                      : composerMode === 'event'
+                        ? '介绍活动亮点、主理人分享内容与适合人群（发布后自动同步至「主题活动」与「全部动态」，开放成员报名）...'
+                        : composerMode === 'skill_share'
+                          ? '介绍该 Skill / MCP 解决的核心问题、兼容底座与最佳实践（发布后自动同步至本社区「服务市场 → Skills / MCP」）...'
+                          : composerMode === 'agn_recommend'
+                            ? '介绍该专家 Agent 的擅长场景、实测案例与协作方式（关联后将自动同步至本社区「服务市场 → 专家 Agent」）...'
+                            : composerMode === 'announcement'
+                              ? '撰写社区公告、规则更新或活动通知...'
+                              : '写下你的技术实践、商业洞察、共创想法或踩坑复盘...'
                   }
                   className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
                 />
               </div>
+
+              {composerMode === 'event' && (
+                <div>
+                  <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                    活动议程（选填，每行一条）
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={eventAgendaText}
+                    onChange={(e) => setEventAgendaText(e.target.value)}
+                    placeholder={'14:00 - 15:00｜主题分享与实战案例拆解\n15:00 - 17:00｜现场演练与主理人答疑'}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+                  />
+                </div>
+              )}
 
               {composerMode === 'project' && (
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-0.5">
@@ -2394,7 +2721,10 @@ export function CommunityDiscoverView({
                 </div>
               )}
 
-              {composerMode !== 'project' && composerMode !== 'skill_share' && canManagePin && (
+              {composerMode !== 'project' &&
+                composerMode !== 'event' &&
+                composerMode !== 'skill_share' &&
+                canManagePin && (
                 <label className="flex items-center gap-2 pt-0.5 text-xs text-amber-900 bg-amber-50/70 border border-amber-200/80 rounded-lg px-3 py-2 cursor-pointer select-none">
                   <input
                     type="checkbox"
@@ -2415,11 +2745,13 @@ export function CommunityDiscoverView({
               <span className="text-[11px] text-slate-500">
                 {composerMode === 'project'
                   ? '发布后自动进入「项目共创」并同步至「工作台 → 我的项目」'
-                  : composerMode === 'skill_share'
-                    ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
-                    : composerMode === 'agn_recommend' && selectedPublishAgentId
-                      ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专家 Agent」'
-                      : '发布后支持社区成员与专家节点评论交流'}
+                  : composerMode === 'event'
+                    ? '发布后自动上架「主题活动」并同步至社区动态，开放报名与凭证核验'
+                    : composerMode === 'skill_share'
+                      ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
+                      : composerMode === 'agn_recommend' && selectedPublishAgentId
+                        ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专家 Agent」'
+                        : '发布后支持社区成员与专家节点评论交流'}
               </span>
               <div className="flex items-center gap-2 shrink-0">
                 <button
@@ -2442,9 +2774,11 @@ export function CommunityDiscoverView({
                   <span>
                     {composerMode === 'project'
                       ? '发布项目共创'
-                      : composerMode === 'skill_share'
-                        ? '发布并上架 Skill'
-                        : `发布${POST_TYPE_META[composerMode].label}`}
+                      : composerMode === 'event'
+                        ? '发布主题活动'
+                        : composerMode === 'skill_share'
+                          ? '发布并上架 Skill'
+                          : `发布${POST_TYPE_META[composerMode].label}`}
                   </span>
                 </button>
               </div>
