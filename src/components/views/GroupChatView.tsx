@@ -6,8 +6,10 @@ import {
   ClipboardPlus,
   FileCode2,
   FolderKanban,
+  Lock,
   MessageSquareCode,
   Play,
+  RotateCcw,
   Send,
   Sparkles,
   UserPlus,
@@ -54,6 +56,7 @@ interface GroupChatViewProps {
   onJumpToMarket: () => void;
   onJumpToKanban: () => void;
   onJumpToTeam: () => void;
+  onReactivateProject?: (projectId: string) => void;
 }
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
@@ -83,7 +86,10 @@ export function GroupChatView({
   onJumpToMarket,
   onJumpToKanban,
   onJumpToTeam,
+  onReactivateProject,
 }: GroupChatViewProps) {
+  const isReadOnly =
+    workspace.lifecycleStatus === 'completed' || workspace.lifecycleStatus === 'archived';
   const [draft, setDraft] = useState('');
   const [rightOpen, setRightOpen] = useState(true);
   const [rightTab, setRightTab] = useState<'tasks' | 'members'>('tasks');
@@ -94,7 +100,7 @@ export function GroupChatView({
   );
 
   // New work card form fields inside composer
-  const [cardModule, setCardModule] = useState('A功能 · 多币种结算');
+  const [cardModule, setCardModule] = useState(workspace.name);
   const [cardType, setCardType] = useState<WorkCardType>('development');
   const [cardTitle, setCardTitle] = useState('');
   const [cardDesc, setCardDesc] = useState('');
@@ -103,6 +109,11 @@ export function GroupChatView({
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    setCardModule(workspace.name);
+    setComposerTool('none');
+  }, [workspace.id, workspace.name]);
 
   useEffect(() => {
     if (hiredAgents.length > 0 && !hiredAgents.some((a) => a.id === cardAssignee)) {
@@ -141,7 +152,7 @@ export function GroupChatView({
 
   const submitMessage = async () => {
     const cleaned = draft.trim();
-    if (!cleaned || isBusy) return;
+    if (!cleaned || isBusy || isReadOnly) return;
     setDraft('');
     setComposerTool('none');
     await onSendMessage(cleaned);
@@ -161,7 +172,7 @@ export function GroupChatView({
 
   const handleCreateCardSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!cardTitle.trim()) return;
+    if (!cardTitle.trim() || isReadOnly) return;
     onCreateWorkCard({
       sessionId: workspace.id,
       featureModule: cardModule,
@@ -370,9 +381,9 @@ export function GroupChatView({
                                     {task.status === 'pending' && (
                                       <button
                                         type="button"
-                                        disabled={Boolean(executingTaskId)}
+                                        disabled={isReadOnly || Boolean(executingTaskId)}
                                         onClick={() => onRunTask(task.id)}
-                                        className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                                        className="font-semibold text-blue-600 hover:text-blue-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                                       >
                                         批准执行
                                       </button>
@@ -380,8 +391,9 @@ export function GroupChatView({
                                     {task.status === 'review' && (
                                       <button
                                         type="button"
+                                        disabled={isReadOnly}
                                         onClick={() => onApproveTask(task.id)}
-                                        className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer whitespace-nowrap"
+                                        className="font-semibold text-emerald-600 hover:text-emerald-800 hover:underline underline-offset-2 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                                       >
                                         验证通过
                                       </button>
@@ -411,8 +423,29 @@ export function GroupChatView({
         {/* Unified Bottom Chat Input Composer (All @Agent Mentions & + New Work Card Tools Live Here!) */}
         <div className="shrink-0 border-t border-slate-200 bg-white px-4 sm:px-8 py-3.5">
           <div className="max-w-3xl mx-auto space-y-2.5">
+            {isReadOnly && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    该项目已{workspace.lifecycleStatus === 'completed' ? '结项完成' : '归档'}，群聊派单与任务审批已锁定。
+                  </span>
+                </span>
+                {onReactivateProject && (
+                  <button
+                    type="button"
+                    onClick={() => onReactivateProject(workspace.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>重新激活项目</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             {/* Attached Popover Shelf 1: @ Agent Expert Picker */}
-            {composerTool === 'mention' && (
+            {!isReadOnly && composerTool === 'mention' && (
               <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-800">
@@ -578,7 +611,11 @@ export function GroupChatView({
             {/* Main Unified Input Box */}
             <form
               onSubmit={handleSubmit}
-              className="rounded-xl border border-slate-300 bg-slate-50/60 focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15 transition-all"
+              className={`rounded-xl border border-slate-300 bg-slate-50/60 transition-all ${
+                isReadOnly
+                  ? 'opacity-65'
+                  : 'focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15'
+              }`}
             >
               <textarea
                 ref={textareaRef}
@@ -586,9 +623,13 @@ export function GroupChatView({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isBusy}
-                placeholder="输入项目需求、@ 专家派单，或点击下方工具栏新建工作卡片...（Enter 发送，Shift+Enter 换行）"
-                className="w-full bg-transparent px-3.5 pt-3 pb-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+                disabled={isBusy || isReadOnly}
+                placeholder={
+                  isReadOnly
+                    ? '项目已结项/归档，只读查看历史记录。重新激活项目后可继续派单。'
+                    : '输入项目需求、@ 专家派单，或点击下方工具栏新建工作卡片...（Enter 发送，Shift+Enter 换行）'
+                }
+                className="w-full bg-transparent px-3.5 pt-3 pb-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
               />
 
               {/* Composer Bottom Action Bar: @ Expert, + New Work Card, Quick Directives, Send */}
@@ -596,10 +637,11 @@ export function GroupChatView({
                 <div className="flex items-center gap-1 overflow-x-auto">
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() =>
                       setComposerTool((t) => (t === 'mention' ? 'none' : 'mention'))
                     }
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                       composerTool === 'mention'
                         ? 'bg-slate-900 text-white'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
@@ -611,10 +653,11 @@ export function GroupChatView({
 
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() =>
                       setComposerTool((t) => (t === 'newCard' ? 'none' : 'newCard'))
                     }
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                       composerTool === 'newCard'
                         ? 'bg-blue-600 text-white'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
@@ -626,10 +669,11 @@ export function GroupChatView({
 
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() =>
                       setComposerTool((t) => (t === 'presets' ? 'none' : 'presets'))
                     }
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
                       composerTool === 'presets'
                         ? 'bg-slate-200 text-slate-900'
                         : 'text-slate-500 hover:text-slate-900 hover:bg-slate-200/70'
@@ -642,8 +686,8 @@ export function GroupChatView({
 
                 <button
                   type="submit"
-                  disabled={isBusy || !draft.trim()}
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
+                  disabled={isBusy || isReadOnly || !draft.trim()}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{isBusy ? '发送中...' : '发送'}</span>
@@ -780,9 +824,9 @@ export function GroupChatView({
                               {task.status === 'pending' && (
                                 <button
                                   type="button"
-                                  disabled={Boolean(executingTaskId)}
+                                  disabled={isReadOnly || Boolean(executingTaskId)}
                                   onClick={() => onRunTask(task.id)}
-                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
+                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                 >
                                   <Play className="w-3 h-3" />
                                   <span>{isExec ? '执行中' : '批准执行'}</span>
@@ -792,8 +836,9 @@ export function GroupChatView({
                               {task.status === 'review' && (
                                 <button
                                   type="button"
+                                  disabled={isReadOnly}
                                   onClick={() => onApproveTask(task.id)}
-                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
+                                  className="inline-flex items-center justify-center gap-1 py-1.5 px-2.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                 >
                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                   <span>验证通过</span>

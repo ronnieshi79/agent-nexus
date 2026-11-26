@@ -3,22 +3,19 @@ import {
   Check,
   Cloud,
   Copy,
-  Cpu,
   Database,
-  HardDrive,
   KeyRound,
   Laptop,
-  Layers,
   Minus,
   Monitor,
   PauseCircle,
   PlayCircle,
   Plus,
   Server,
+  ShoppingBag,
   Terminal,
   Trash2,
   UserCheck,
-  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -31,8 +28,6 @@ import type {
   StorageVolume,
 } from '../../types/agentnexus';
 import { getRuntimePreset } from '../shared/EntityIdentity';
-
-export type NodeDrawerMode = 'private' | 'cloud' | null;
 
 const OS_META: Record<
   NodeOsType,
@@ -116,6 +111,7 @@ interface CloudNodePlan {
   os: NodeOsType;
   osVersion: string;
   label: string;
+  audience: string;
   tagline: string;
   cpuCores: number;
   memoryGb: number;
@@ -130,7 +126,8 @@ const CLOUD_NODE_PLANS: CloudNodePlan[] = [
     os: 'linux',
     osVersion: 'Ubuntu 24.04 LTS (Cloud)',
     label: 'Linux 高效研发节点',
-    tagline: '适合多路 Claude Code / Codex CLI 并发编码与构建',
+    audience: '适合日常多路并发研发',
+    tagline: '稳定承载 Claude Code / Codex CLI 多沙箱并发编码与构建测试',
     cpuCores: 8,
     memoryGb: 32,
     storageQuotaGb: 256,
@@ -141,7 +138,8 @@ const CLOUD_NODE_PLANS: CloudNodePlan[] = [
     os: 'win11',
     osVersion: 'Windows 11 Pro 24H2',
     label: 'Win11 桌面自动化节点',
-    tagline: '适合 Windows 客户端构建、办公软件与浏览器自动化',
+    audience: '适合桌面与浏览器交付',
+    tagline: '原生 Windows 环境，适合客户端构建、办公套件与 RPA 自动化交付',
     cpuCores: 8,
     memoryGb: 32,
     storageQuotaGb: 256,
@@ -152,7 +150,8 @@ const CLOUD_NODE_PLANS: CloudNodePlan[] = [
     os: 'macos',
     osVersion: 'macOS Sequoia 15.2 (M3 Pro)',
     label: 'macOS 专属编译云主机',
-    tagline: '适合 iOS / macOS 原生构建与 Antigravity / CC 并发开发',
+    audience: '适合 Apple 生态与全栈团队',
+    tagline: 'Apple Silicon 独享算力，支持 iOS / macOS 原生编译与 Antigravity 并发开发',
     cpuCores: 12,
     memoryGb: 36,
     storageQuotaGb: 512,
@@ -163,7 +162,8 @@ const CLOUD_NODE_PLANS: CloudNodePlan[] = [
     os: 'linux',
     osVersion: 'Ubuntu 24.04 LTS · CUDA 12.6',
     label: 'Linux 高配 GPU 节点',
-    tagline: '支持 8+ 路 CLI 并发与本地多模态/仿真推理任务',
+    audience: '适合高并发与多模态推理',
+    tagline: '支持 8+ 路 CLI 并发与本地多模态、仿真及大规模自动化验证任务',
     cpuCores: 16,
     memoryGb: 64,
     gpuSpec: 'NVIDIA L40S 48GB',
@@ -173,14 +173,17 @@ const CLOUD_NODE_PLANS: CloudNodePlan[] = [
 ];
 
 interface SpaceNodesPanelProps {
+  mode: 'list' | 'purchase';
   nodes: ComputeNode[];
   agents: ExpertAgent[];
   storageVolumes: StorageVolume[];
   searchKeyword: string;
   osFilter: 'all' | NodeOsType;
   originFilter: 'all' | 'private' | 'cloud';
-  drawerMode: NodeDrawerMode;
-  onChangeDrawerMode: (mode: NodeDrawerMode) => void;
+  mountDrawerOpen: boolean;
+  onChangeMountDrawerOpen: (open: boolean) => void;
+  onOpenPurchasePage: () => void;
+  onReturnToList: () => void;
   onMountPrivateNode: (input: {
     name: string;
     os: NodeOsType;
@@ -228,14 +231,17 @@ interface SpaceNodesPanelProps {
 }
 
 export function SpaceNodesPanel({
+  mode,
   nodes,
   agents,
   storageVolumes,
   searchKeyword,
   osFilter,
   originFilter,
-  drawerMode,
-  onChangeDrawerMode,
+  mountDrawerOpen,
+  onChangeMountDrawerOpen,
+  onOpenPurchasePage,
+  onReturnToList,
   onMountPrivateNode,
   onProvisionCloudNode,
   onToggleNodeStatus,
@@ -247,7 +253,7 @@ export function SpaceNodesPanel({
   onJumpToStorage,
   onJumpToAgents,
 }: SpaceNodesPanelProps) {
-  // Mount Private Device form state
+  // Self-mounted Private Device Drawer state
   const [privOs, setPrivOs] = useState<NodeOsType>('macos');
   const [privName, setPrivName] = useState('');
   const [privRegion, setPrivRegion] = useState('自有设备 · 本地网络');
@@ -257,18 +263,16 @@ export function SpaceNodesPanel({
   const [privDesc, setPrivDesc] = useState('');
   const [copiedCmd, setCopiedCmd] = useState(false);
 
-  // Rent Cloud Node form state
-  const [cloudPlanId, setCloudPlanId] = useState<string>('linux_std');
-  const [cloudName, setCloudName] = useState('');
+  // Secondary Procurement Page (Platform Cloud Node) config state
   const [cloudRegion, setCloudRegion] = useState('华东-上海云区');
-  const [cloudDesc, setCloudDesc] = useState('');
+  const [cloudNamePrefix, setCloudNamePrefix] = useState('');
 
   // Inline CLI Auth Editor state (keyed by `${nodeId}:${cliId}`)
   const [editingAuthKey, setEditingAuthKey] = useState<string | null>(null);
   const [editAuthMode, setEditAuthMode] = useState<CliAuthMode>('account_oauth');
   const [editCredLabel, setEditCredLabel] = useState('');
 
-  // Add CLI Drawer state (inline right from any node card)
+  // Add CLI Drawer state
   const [cliDrawerNodeId, setCliDrawerNodeId] = useState<string | null>(null);
   const [cliTool, setCliTool] = useState<CliToolType>('claude_code');
   const [cliDefaultModel, setCliDefaultModel] = useState<string>('Claude 4.5 Sonnet');
@@ -306,6 +310,17 @@ export function SpaceNodesPanel({
     );
   });
 
+  const filteredPlans = CLOUD_NODE_PLANS.filter((plan) => {
+    if (osFilter !== 'all' && plan.os !== osFilter) return false;
+    if (!q) return true;
+    return (
+      plan.label.toLowerCase().includes(q) ||
+      plan.osVersion.toLowerCase().includes(q) ||
+      plan.tagline.toLowerCase().includes(q) ||
+      (plan.gpuSpec || '').toLowerCase().includes(q)
+    );
+  });
+
   const onlineCount = nodes.filter((n) => n.status === 'online').length;
   const totalCpu = nodes.reduce((s, n) => s + n.cpuCores, 0);
   const totalMem = nodes.reduce((s, n) => s + n.memoryGb, 0);
@@ -317,9 +332,6 @@ export function SpaceNodesPanel({
     0,
   );
   const boundAgentCount = agents.filter((a) => Boolean(a.hostNodeId && a.hostCliId)).length;
-
-  const selectedPlan =
-    CLOUD_NODE_PLANS.find((p) => p.id === cloudPlanId) || CLOUD_NODE_PLANS[0];
 
   const cliJoinCommand =
     privOs === 'win11'
@@ -342,38 +354,38 @@ export function SpaceNodesPanel({
     e.preventDefault();
     if (!privName.trim()) return;
     onMountPrivateNode({
-      name: privName,
+      name: privName.trim(),
       os: privOs,
       osVersion: OS_META[privOs].defaultVersion,
-      region: privRegion,
+      region: privRegion.trim() || '自有设备 · 本地网络',
       cpuCores: privCpu,
       memoryGb: privMem,
       storageQuotaGb: privDisk,
-      description: privDesc,
+      description: privDesc.trim(),
     });
     setPrivName('');
     setPrivDesc('');
-    onChangeDrawerMode(null);
+    onChangeMountDrawerOpen(false);
   };
 
-  const handleCloudSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    const effectiveName = cloudName.trim() || `${selectedPlan.label} · ${cloudRegion}`;
+  const handlePurchasePlan = (plan: CloudNodePlan) => {
+    const effectiveName = cloudNamePrefix.trim()
+      ? `${cloudNamePrefix.trim()} · ${OS_META[plan.os].short}`
+      : `${plan.label} · ${cloudRegion.slice(0, 5)}`;
     onProvisionCloudNode({
       name: effectiveName,
-      os: selectedPlan.os,
-      osVersion: selectedPlan.osVersion,
+      os: plan.os,
+      osVersion: plan.osVersion,
       region: cloudRegion,
-      cpuCores: selectedPlan.cpuCores,
-      memoryGb: selectedPlan.memoryGb,
-      gpuSpec: selectedPlan.gpuSpec,
-      storageQuotaGb: selectedPlan.storageQuotaGb,
-      monthlyCostUsd: selectedPlan.monthlyCostUsd,
-      description: cloudDesc || selectedPlan.tagline,
+      cpuCores: plan.cpuCores,
+      memoryGb: plan.memoryGb,
+      gpuSpec: plan.gpuSpec,
+      storageQuotaGb: plan.storageQuotaGb,
+      monthlyCostUsd: plan.monthlyCostUsd,
+      description: plan.tagline,
     });
-    setCloudName('');
-    setCloudDesc('');
-    onChangeDrawerMode(null);
+    setCloudNamePrefix('');
+    onReturnToList();
   };
 
   const openInlineAuthEditor = (nodeId: string, cli: NodeCliEntry) => {
@@ -408,86 +420,157 @@ export function SpaceNodesPanel({
     setCliDrawerNodeId(null);
   };
 
+  /* ================= SECONDARY PAGE: PLATFORM CLOUD NODE PROCUREMENT ================= */
+  if (mode === 'purchase') {
+    return (
+      <div className="space-y-4">
+        {/* Concise Context & Inline Procurement Options */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="text-xs text-slate-600">
+            <strong className="text-slate-900">AGN 平台云端算力节点采购</strong>
+            <span className="mx-1.5 text-slate-300" aria-hidden="true">·</span>
+            <span>24/7 在线托管，按月计费随时退租，采购后自动上线并可在列表配置多路 Agent CLI</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
+              <span className="whitespace-nowrap">部署地域</span>
+              <select
+                value={cloudRegion}
+                onChange={(e) => setCloudRegion(e.target.value)}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-900 focus:outline-none"
+              >
+                <option value="华东-上海云区">华东-上海云区</option>
+                <option value="华北-北京云区">华北-北京云区</option>
+                <option value="亚太-新加坡云区">亚太-新加坡云区</option>
+                <option value="美西-硅谷云区">美西-硅谷云区</option>
+              </select>
+            </label>
+            <input
+              type="text"
+              value={cloudNamePrefix}
+              onChange={(e) => setCloudNamePrefix(e.target.value)}
+              placeholder="自定义节点名称前缀（可选）"
+              className="h-8 w-44 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none"
+            />
+          </div>
+        </div>
+
+        {/* Unified List Layout: Left = Plan Summary, Right = Specs & Purchase Action */}
+        {filteredPlans.length === 0 ? (
+          <div className="py-12 text-center rounded-xl border border-dashed border-slate-300 bg-white text-xs text-slate-500">
+            当前筛选下暂无匹配的平台云节点规格
+          </div>
+        ) : (
+          <div className="border border-slate-200 rounded-xl bg-white overflow-hidden">
+            <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_180px] @[860px]:items-center @[860px]:gap-6 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
+              <div>平台节点概要</div>
+              <div>硬件规格与适用说明</div>
+              <div className="text-right">费用与采购</div>
+            </div>
+
+            <div className="divide-y divide-slate-200">
+              {filteredPlans.map((plan) => {
+                const osMeta = OS_META[plan.os];
+                const OsIcon = osMeta.icon;
+                return (
+                  <div
+                    key={plan.id}
+                    className="px-5 py-4 grid grid-cols-1 @[860px]:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_180px] @[860px]:items-center gap-4 @[860px]:gap-6 hover:bg-slate-50/60 transition-colors"
+                  >
+                    {/* Left: Plan Summary */}
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
+                        <OsIcon className={`w-4 h-4 ${osMeta.cls}`} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <h3 className="text-sm font-bold text-slate-900">{plan.label}</h3>
+                          <span className={`text-xs font-semibold ${osMeta.cls}`}>
+                            {osMeta.short}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-slate-500 flex flex-wrap items-center gap-x-1.5">
+                          <span>{plan.osVersion}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{plan.audience}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Middle: Hardware Specs & Tagline */}
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-xs font-mono tabular-nums font-semibold text-slate-800">
+                        {plan.cpuCores} vCPU · {plan.memoryGb} GB RAM · {plan.storageQuotaGb} GB NVMe
+                        {plan.gpuSpec ? ` · ${plan.gpuSpec}` : ''}
+                      </div>
+                      <p className="text-xs text-slate-500 leading-relaxed">{plan.tagline}</p>
+                    </div>
+
+                    {/* Right: Price & Instant Purchase */}
+                    <div className="flex @[860px]:flex-col @[860px]:items-end items-center justify-between gap-2 shrink-0">
+                      <div className="font-mono tabular-nums text-right">
+                        <span className="text-base font-bold text-slate-900">
+                          ${plan.monthlyCostUsd}
+                        </span>
+                        <span className="text-xs text-slate-500"> / 月</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handlePurchasePlan(plan)}
+                        className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                      >
+                        <ShoppingBag className="w-3.5 h-3.5" />
+                        <span>立即采购上线</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  /* ================= PRIMARY PAGE: MY AGENT NODES UNIFIED LIST ================= */
   return (
-    <div className="space-y-5">
-      {/* KPI Summary Strip */}
-      <div className="grid grid-cols-2 @[760px]:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">在线 Agent 节点</span>
-            <Server className="w-4 h-4 text-blue-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {onlineCount}/{nodes.length}
-            </span>
-            <span className="text-xs font-semibold text-emerald-700">运行中</span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            Linux {nodes.filter((n) => n.os === 'linux').length} · macOS{' '}
-            {nodes.filter((n) => n.os === 'macos').length} · Win11{' '}
-            {nodes.filter((n) => n.os === 'win11').length}
-          </div>
+    <div className="space-y-4">
+      {/* Concise Single-Line Summary Bar (No 4-Card KPI Clutter) */}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+        <div className="text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span>
+            在线 <strong className="font-mono tabular-nums text-slate-900">{onlineCount}/{nodes.length}</strong> 节点
+          </span>
+          <span className="text-slate-300" aria-hidden="true">·</span>
+          <span className="font-mono tabular-nums text-slate-700">
+            {totalCpu} vCPU / {totalMem} GB RAM
+          </span>
+          <span className="text-slate-300" aria-hidden="true">·</span>
+          <span>
+            并发沙箱配额 <strong className="font-mono tabular-nums text-slate-900">{totalConcurrency}</strong>（已绑 {boundAgentCount} 位 Agent）
+          </span>
+          <span className="text-slate-300" aria-hidden="true">·</span>
+          <span>
+            云端月租 <strong className="font-mono tabular-nums text-slate-900">${monthlyCloudCost}/月</strong>
+          </span>
         </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">总算力资源</span>
-            <Cpu className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {totalCpu}C
-            </span>
-            <span className="text-xs font-mono tabular-nums text-slate-600">
-              {totalMem} GB RAM
-            </span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            自有挂载 {nodes.filter((n) => n.origin === 'private').length} · 云端租用{' '}
-            {nodes.filter((n) => n.origin === 'cloud').length}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">并发沙箱总配额</span>
-            <Terminal className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              {totalConcurrency}
-            </span>
-            <span className="text-xs text-slate-500">个沙箱上限</span>
-          </div>
-          <div className="text-[11px] text-slate-500">
-            已绑定 {boundAgentCount} 位自建专业 Agent · 自动隔离
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-1.5">
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <span className="font-medium">云端节点月租</span>
-            <Cloud className="w-4 h-4 text-sky-600" />
-          </div>
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="text-2xl font-bold font-mono tabular-nums text-slate-900">
-              ${monthlyCloudCost}
-            </span>
-            <span className="text-xs text-slate-500">/ 月</span>
-          </div>
-          <div className="text-[11px] text-slate-500">挂载自有 Win11/Linux/Mac 零月租</div>
-        </div>
+        <span className="text-xs font-mono tabular-nums text-slate-400 shrink-0">
+          共 {filteredNodes.length} 个节点
+        </span>
       </div>
 
-      {/* Unified Node Cards: Hardware + Shared Storage Mount + Direct CLI & Concurrency Config */}
+      {/* Unified Bordered List: Left = Node Summary, Right = Agent CLI & Storage Config */}
       {filteredNodes.length === 0 ? (
         <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
           <p className="text-sm font-medium text-slate-700">当前筛选下暂无 Agent 节点</p>
+          <p className="text-xs text-slate-500">
+            可免费挂载自己的 Win11 / Linux / macOS 设备，或前往平台采购 24/7 云端算力节点。
+          </p>
           <div className="flex items-center justify-center gap-2">
             <button
               type="button"
-              onClick={() => onChangeDrawerMode('private')}
+              onClick={() => onChangeMountDrawerOpen(true)}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -495,98 +578,94 @@ export function SpaceNodesPanel({
             </button>
             <button
               type="button"
-              onClick={() => onChangeDrawerMode('cloud')}
+              onClick={onOpenPurchasePage}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
             >
               <Cloud className="w-3.5 h-3.5" />
-              <span>租用云端节点</span>
+              <span>平台采购节点</span>
             </button>
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
-          {filteredNodes.map((node) => {
-            const osMeta = OS_META[node.os];
-            const OsIcon = osMeta.icon;
-            const enabledClis = node.installedClis.filter((c) => c.enabled);
-            const nodeConcurrency = enabledClis.reduce((s, c) => s + c.concurrency, 0);
-            const nodeBoundAgents = agents.filter((a) => a.hostNodeId === node.id);
-            const diskPct = Math.min(
-              100,
-              Math.round((node.storageUsedGb / Math.max(1, node.storageQuotaGb)) * 100),
-            );
-            const isOnline = node.status === 'online';
+        <div className="border border-slate-200 rounded-xl bg-white overflow-hidden mb-16">
+          {/* Desktop Column Header */}
+          <div className="hidden @[920px]:grid @[920px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] @[920px]:items-center @[920px]:gap-6 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
+            <div>节点概要</div>
+            <div>Agent CLI 与存储配置</div>
+          </div>
 
-            return (
-              <section
-                key={node.id}
-                className="bg-white rounded-xl border border-slate-200 overflow-hidden hover:border-slate-300 transition-colors"
-              >
-                {/* 1. Node Header & Hardware Spec */}
-                <div className="p-4 bg-slate-50/70 border-b border-slate-200 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                    <div className="flex items-start gap-2.5 min-w-0">
-                      <div className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0">
+          <div className="divide-y divide-slate-200">
+            {filteredNodes.map((node) => {
+              const osMeta = OS_META[node.os];
+              const OsIcon = osMeta.icon;
+              const enabledClis = node.installedClis.filter((c) => c.enabled);
+              const nodeConcurrency = enabledClis.reduce((s, c) => s + c.concurrency, 0);
+              const nodeBoundAgents = agents.filter((a) => a.hostNodeId === node.id);
+              const diskPct = Math.min(
+                100,
+                Math.round((node.storageUsedGb / Math.max(1, node.storageQuotaGb)) * 100),
+              );
+              const isOnline = node.status === 'online';
+
+              return (
+                <div
+                  key={node.id}
+                  className="px-5 py-4 grid grid-cols-1 @[920px]:grid-cols-[minmax(280px,340px)_minmax(0,1fr)] gap-4 @[920px]:gap-6 hover:bg-slate-50/40 transition-colors"
+                >
+                  {/* LEFT COLUMN: Node Summary & Node Lifecycle Controls */}
+                  <div className="flex flex-col justify-between gap-3 min-w-0 @[920px]:pr-4 @[920px]:border-r @[920px]:border-slate-100">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-center shrink-0 mt-0.5">
                         <OsIcon className={`w-4 h-4 ${osMeta.cls}`} />
                       </div>
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1 space-y-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                           <h3 className="text-sm font-bold text-slate-900 truncate">
                             {node.name}
                           </h3>
-                          <span className={`text-xs font-bold ${osMeta.cls}`}>{osMeta.short}</span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
                           <span
-                            className={`text-[11px] font-semibold ${
-                              node.origin === 'cloud' ? 'text-blue-700' : 'text-slate-600'
+                            className={`text-xs font-semibold whitespace-nowrap ${
+                              isOnline ? 'text-emerald-700' : 'text-slate-400'
                             }`}
                           >
-                            {node.origin === 'cloud'
-                              ? `云端租用 $${node.monthlyCostUsd}/月`
-                              : '自有设备挂载'}
-                          </span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold">
-                            <span
-                              className={`w-1.5 h-1.5 rounded-full ${
-                                isOnline ? 'bg-emerald-500' : 'bg-slate-400'
-                              }`}
-                            />
-                            <span className={isOnline ? 'text-emerald-700' : 'text-slate-500'}>
-                              {isOnline ? '在线' : '休眠'}
-                            </span>
+                            {isOnline ? '在线' : '休眠'}
                           </span>
                         </div>
-                        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500">
-                          <span>{node.osVersion}</span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span>{node.region}</span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="font-mono text-slate-600">
-                            {node.cpuCores} vCPU / {node.memoryGb} GB RAM
-                            {node.gpuSpec ? ` / ${node.gpuSpec}` : ''}
+
+                        <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                          <span className={`font-semibold ${osMeta.cls}`}>{osMeta.short}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>
+                            {node.origin === 'cloud'
+                              ? `平台采购 $${node.monthlyCostUsd}/月`
+                              : '自有设备挂载'}
                           </span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="font-mono text-slate-600">
+                          <span aria-hidden="true">·</span>
+                          <span>{node.region}</span>
+                        </div>
+
+                        <div className="text-[11px] font-mono tabular-nums text-slate-600">
+                          {node.cpuCores} vCPU · {node.memoryGb} GB RAM
+                          {node.gpuSpec ? ` · ${node.gpuSpec}` : ''}
+                        </div>
+
+                        <div className="text-[11px] font-mono tabular-nums text-slate-500 flex flex-wrap items-center gap-x-1.5">
+                          <span>
                             本地盘 {node.storageUsedGb}/{node.storageQuotaGb} GB ({diskPct}%)
                           </span>
-                          <span className="text-slate-300" aria-hidden="true">·</span>
-                          <span className="font-mono font-semibold text-blue-700">
+                          <span aria-hidden="true">·</span>
+                          <span className="text-blue-700 font-semibold">
                             沙箱 {nodeBoundAgents.length}/{nodeConcurrency}
                           </span>
+                        </div>
+
+                        <div className="text-[11px] font-mono text-slate-400 truncate">
+                          {node.endpoint}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => setCliDrawerNodeId(node.id)}
-                        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>添加 CLI</span>
-                      </button>
+                    <div className="flex items-center gap-2 pl-12">
                       <button
                         type="button"
                         onClick={() => onToggleNodeStatus(node.id)}
@@ -607,7 +686,6 @@ export function SpaceNodesPanel({
                       <button
                         type="button"
                         onClick={() => onRemoveNode(node.id)}
-                        title={node.origin === 'cloud' ? '退租节点' : '解除挂载'}
                         className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer whitespace-nowrap"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -616,224 +694,253 @@ export function SpaceNodesPanel({
                     </div>
                   </div>
 
-                  {/* Endpoint & Mounted Shared Storage Row */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200/70">
-                    <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600 shrink-0">
-                        <Database className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>挂载共享存储：</span>
-                      </span>
-                      {storageVolumes.length === 0 ? (
+                  {/* RIGHT COLUMN: Inline Agent CLI & Shared Storage Configuration */}
+                  <div className="min-w-0 space-y-2.5">
+                    {/* Config Sub-Header: Add CLI + Shared Storage Toggles */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                      <div className="flex flex-wrap items-center gap-2 text-xs">
+                        <span className="font-semibold text-slate-800">
+                          已配置 Agent CLI ({node.installedClis.length})
+                        </span>
                         <button
                           type="button"
-                          onClick={onJumpToStorage}
-                          className="text-[11px] text-blue-700 hover:underline cursor-pointer"
+                          onClick={() => setCliDrawerNodeId(node.id)}
+                          className="inline-flex items-center gap-1 h-6 px-2 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
                         >
-                          暂无 Agent 存储，去购买/租用 →
+                          <Plus className="w-3 h-3" />
+                          <span>添加 CLI</span>
                         </button>
-                      ) : (
-                        storageVolumes.map((vol) => {
-                          const mounted = node.mountedStorageIds.includes(vol.id);
+                      </div>
+
+                      {/* Mounted Storage Volume Quick Toggles */}
+                      <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                        <span className="text-slate-400 inline-flex items-center gap-1">
+                          <Database className="w-3 h-3 text-slate-400" />
+                          <span>存储：</span>
+                        </span>
+                        {storageVolumes.length === 0 ? (
+                          <button
+                            type="button"
+                            onClick={onJumpToStorage}
+                            className="text-blue-700 hover:underline font-medium cursor-pointer"
+                          >
+                            去配置 →
+                          </button>
+                        ) : (
+                          storageVolumes.map((vol) => {
+                            const mounted = node.mountedStorageIds.includes(vol.id);
+                            return (
+                              <button
+                                key={vol.id}
+                                type="button"
+                                onClick={() => onToggleNodeStorageMount(node.id, vol.id)}
+                                title={mounted ? '点击卸载此存储' : '点击挂载此存储到节点'}
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
+                                  mounted
+                                    ? 'bg-indigo-50 border-indigo-200 text-indigo-800'
+                                    : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800'
+                                }`}
+                              >
+                                {mounted && <Check className="w-3 h-3 text-indigo-600" />}
+                                <span className="max-w-[120px] truncate">{vol.name}</span>
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Compact CLI Rows */}
+                    {node.installedClis.length === 0 ? (
+                      <div className="py-4 text-xs text-slate-400 flex items-center justify-between gap-2">
+                        <span>暂未配置 Agent CLI，点击「添加 CLI」安装 Claude Code / Antigravity / Codex。</span>
+                        <button
+                          type="button"
+                          onClick={() => setCliDrawerNodeId(node.id)}
+                          className="text-blue-700 hover:underline font-semibold cursor-pointer whitespace-nowrap"
+                        >
+                          + 立即配置
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100">
+                        {node.installedClis.map((cli) => {
+                          const preset =
+                            CLI_TOOL_PRESETS.find((p) => p.id === cli.cliTool) ||
+                            CLI_TOOL_PRESETS[0];
+                          const rtPreset = getRuntimePreset(cli.runtimeAgent);
+                          const authKey = `${node.id}:${cli.id}`;
+                          const isEditingAuth = editingAuthKey === authKey;
+                          const boundAgents = agents.filter(
+                            (a) => a.hostNodeId === node.id && a.hostCliId === cli.id,
+                          );
+                          const minConcurrency = Math.max(1, boundAgents.length);
+                          const atFloor = cli.concurrency <= minConcurrency;
+
                           return (
-                            <button
-                              key={vol.id}
-                              type="button"
-                              onClick={() => onToggleNodeStorageMount(node.id, vol.id)}
-                              title={
-                                mounted
-                                  ? '点击从该节点卸载此共享存储'
-                                  : '点击挂载此共享存储到该节点'
-                              }
-                              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-medium transition-colors cursor-pointer ${
-                                mounted
-                                  ? 'bg-indigo-50/90 border-indigo-200 text-indigo-800'
-                                  : 'bg-white border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+                            <div
+                              key={cli.id}
+                              className={`py-2.5 first:pt-0.5 last:pb-0 space-y-2 ${
+                                cli.enabled ? '' : 'opacity-65'
                               }`}
                             >
-                              <span
-                                className={`w-3.5 h-3.5 rounded flex items-center justify-center border ${
-                                  mounted
-                                    ? 'bg-indigo-600 border-indigo-600 text-white'
-                                    : 'bg-white border-slate-300'
-                                }`}
-                              >
-                                {mounted && <Check className="w-2.5 h-2.5" />}
-                              </span>
-                              <span className="truncate max-w-[160px]">{vol.name}</span>
-                              <span className="font-mono text-[10px] opacity-75">
-                                {vol.quotaGb}GB
-                              </span>
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 text-[11px] shrink-0">
-                      <span className="hidden md:inline font-mono text-slate-400">
-                        {node.endpoint}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={onJumpToStorage}
-                        className="font-medium text-slate-500 hover:text-blue-700 cursor-pointer whitespace-nowrap"
-                      >
-                        管理 Agent 存储 →
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2. Inline Agent CLI, Auth & Concurrency Sandbox Configuration */}
-                {node.installedClis.length === 0 ? (
-                  <div className="px-4 py-6 text-center text-xs text-slate-400 space-y-2">
-                    <p>
-                      该节点暂未配置 Agent CLI，点击右上角「添加 CLI」安装 Claude Code / Antigravity / Codex 并设置并发沙箱数。
-                    </p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-100">
-                    {node.installedClis.map((cli) => {
-                      const preset =
-                        CLI_TOOL_PRESETS.find((p) => p.id === cli.cliTool) || CLI_TOOL_PRESETS[0];
-                      const rtPreset = getRuntimePreset(cli.runtimeAgent);
-                      const authKey = `${node.id}:${cli.id}`;
-                      const isEditingAuth = editingAuthKey === authKey;
-                      const boundAgents = agents.filter(
-                        (a) => a.hostNodeId === node.id && a.hostCliId === cli.id,
-                      );
-                      const minConcurrency = Math.max(1, boundAgents.length);
-                      const atFloor = cli.concurrency <= minConcurrency;
-                      const isFull = boundAgents.length >= cli.concurrency;
-                      const remainingSlots = Math.max(0, cli.concurrency - boundAgents.length);
-
-                      return (
-                        <div
-                          key={cli.id}
-                          className={`p-4 space-y-3 transition-colors ${
-                            cli.enabled ? 'hover:bg-slate-50/40' : 'bg-slate-50/50 opacity-75'
-                          }`}
-                        >
-                          {/* CLI Row 1: Identity + Default Model + Enable/Delete */}
-                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
-                              <span className="w-6 h-6 rounded-md bg-slate-900 text-white inline-flex items-center justify-center shrink-0">
-                                <Terminal className="w-3 h-3" />
-                              </span>
-                              <span className="text-xs font-bold text-slate-900">
-                                {preset.label}
-                              </span>
-                              <span className="font-mono text-[11px] text-slate-500">
-                                {cli.cliVersion}
-                              </span>
-                              <span className="text-slate-300" aria-hidden="true">·</span>
-                              <span
-                                className={`text-[11px] font-semibold ${
-                                  cli.enabled ? 'text-emerald-700' : 'text-slate-500'
-                                }`}
-                              >
-                                {cli.enabled ? '已启用' : '已暂停'}
-                              </span>
-                              <span className="text-slate-300 hidden sm:inline" aria-hidden="true">
-                                ·
-                              </span>
-                              <code className="hidden sm:inline text-[11px] font-mono text-slate-400">
-                                $ {preset.cliCmd}
-                              </code>
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-2 shrink-0">
-                              <select
-                                value={cli.defaultModel}
-                                onChange={(e) =>
-                                  onUpdateNodeCli(node.id, cli.id, {
-                                    defaultModel: e.target.value,
-                                  })
-                                }
-                                aria-label={`${preset.label} 默认模型`}
-                                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-mono text-slate-800 focus:outline-none"
-                              >
-                                {Array.from(
-                                  new Set([...rtPreset.models, cli.defaultModel]),
-                                ).map((m) => (
-                                  <option key={m} value={m}>
-                                    模型：{m}
-                                  </option>
-                                ))}
-                              </select>
-
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onUpdateNodeCli(node.id, cli.id, { enabled: !cli.enabled })
-                                }
-                                className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-medium text-slate-700 cursor-pointer"
-                              >
-                                {cli.enabled ? (
-                                  <>
-                                    <PauseCircle className="w-3 h-3 text-amber-600" />
-                                    <span>暂停</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <PlayCircle className="w-3 h-3 text-emerald-600" />
-                                    <span>启用</span>
-                                  </>
-                                )}
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => onRemoveNodeCli(node.id, cli.id)}
-                                title="从此节点卸载该 Agent CLI"
-                                className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>删除</span>
-                              </button>
-                            </div>
-                          </div>
-
-                          {/* CLI Row 2: Account/Key | Concurrency Sandbox Stepper | Bound Professional Agents */}
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-2.5">
-                            {/* Account / API Key */}
-                            <div className="rounded-lg bg-slate-50 border border-slate-200/80 p-2.5 space-y-1.5">
-                              <div className="flex items-center justify-between gap-2 text-[11px]">
-                                <span className="inline-flex items-center gap-1 font-semibold text-slate-600">
-                                  {cli.authMode === 'account_oauth' ? (
-                                    <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                                  ) : (
-                                    <KeyRound className="w-3.5 h-3.5 text-amber-600" />
-                                  )}
-                                  <span>
-                                    {cli.authMode === 'account_oauth'
-                                      ? 'CLI 账号登录'
-                                      : 'API Key 凭证'}
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                {/* CLI Name + Status + Auth */}
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                                  <Terminal className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+                                  <span className="text-xs font-bold text-slate-900">
+                                    {preset.label}
                                   </span>
+                                  <span className="text-[11px] font-mono text-slate-400">
+                                    {cli.cliVersion}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span
+                                    className={`text-[11px] font-semibold ${
+                                      cli.enabled ? 'text-emerald-700' : 'text-slate-400'
+                                    }`}
+                                  >
+                                    {cli.enabled ? '已启用' : '已暂停'}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      isEditingAuth
+                                        ? setEditingAuthKey(null)
+                                        : openInlineAuthEditor(node.id, cli)
+                                    }
+                                    className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-blue-700 cursor-pointer"
+                                    title="点击修改 CLI 账号或 API Key"
+                                  >
+                                    {cli.authMode === 'account_oauth' ? (
+                                      <UserCheck className="w-3 h-3 text-emerald-600" />
+                                    ) : (
+                                      <KeyRound className="w-3 h-3 text-amber-600" />
+                                    )}
+                                    <span className="font-mono max-w-[140px] truncate">
+                                      {cli.credentialLabel}
+                                    </span>
+                                    <span className="text-blue-600 font-medium">
+                                      {isEditingAuth ? '收起' : '改凭证'}
+                                    </span>
+                                  </button>
+                                </div>
+
+                                {/* Inline Config Controls: Model + Concurrency Stepper + Pause + Delete */}
+                                <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                                  <select
+                                    value={cli.defaultModel}
+                                    onChange={(e) =>
+                                      onUpdateNodeCli(node.id, cli.id, {
+                                        defaultModel: e.target.value,
+                                      })
+                                    }
+                                    aria-label={`${preset.label} 默认模型`}
+                                    className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-mono text-slate-800 focus:outline-none"
+                                  >
+                                    {Array.from(
+                                      new Set([...rtPreset.models, cli.defaultModel]),
+                                    ).map((m) => (
+                                      <option key={m} value={m}>
+                                        {m}
+                                      </option>
+                                    ))}
+                                  </select>
+
+                                  <div
+                                    className="inline-flex items-center gap-1 h-7 px-1.5 rounded-md border border-slate-200 bg-white text-[11px]"
+                                    title="并发沙箱上限（可绑定专业 Agent 数量）"
+                                  >
+                                    <span className="text-slate-400">沙箱</span>
+                                    <button
+                                      type="button"
+                                      disabled={atFloor}
+                                      onClick={() =>
+                                        onUpdateNodeCli(node.id, cli.id, {
+                                          concurrency: Math.max(
+                                            minConcurrency,
+                                            cli.concurrency - 1,
+                                          ),
+                                        })
+                                      }
+                                      aria-label="减少并发沙箱数"
+                                      className="w-5 h-5 rounded hover:bg-slate-100 disabled:opacity-35 flex items-center justify-center text-slate-700 cursor-pointer"
+                                    >
+                                      <Minus className="w-3 h-3" />
+                                    </button>
+                                    <span className="font-mono tabular-nums font-bold text-slate-900 min-w-[26px] text-center">
+                                      {boundAgents.length}/{cli.concurrency}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      disabled={cli.concurrency >= 16}
+                                      onClick={() =>
+                                        onUpdateNodeCli(node.id, cli.id, {
+                                          concurrency: Math.min(16, cli.concurrency + 1),
+                                        })
+                                      }
+                                      aria-label="增加并发沙箱数"
+                                      className="w-5 h-5 rounded hover:bg-slate-100 disabled:opacity-35 flex items-center justify-center text-slate-700 cursor-pointer"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                    </button>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onUpdateNodeCli(node.id, cli.id, { enabled: !cli.enabled })
+                                    }
+                                    className="h-7 px-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-medium text-slate-700 cursor-pointer whitespace-nowrap"
+                                  >
+                                    {cli.enabled ? '暂停' : '启用'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => onRemoveNodeCli(node.id, cli.id)}
+                                    title="删除此 Agent CLI"
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                                    aria-label={`删除 ${preset.label}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Secondary Line: Bound Agents Summary */}
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 pl-5">
+                                <span className="truncate">
+                                  已绑 Agent：
+                                  {boundAgents.length > 0 ? (
+                                    <span className="font-medium text-slate-700">
+                                      {boundAgents.map((a) => a.handle).join('、')}
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">暂无（空闲可用）</span>
+                                  )}
                                 </span>
                                 <button
                                   type="button"
-                                  onClick={() =>
-                                    isEditingAuth
-                                      ? setEditingAuthKey(null)
-                                      : openInlineAuthEditor(node.id, cli)
-                                  }
-                                  className="text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
+                                  onClick={onJumpToAgents}
+                                  className="text-slate-500 hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap shrink-0"
                                 >
-                                  {isEditingAuth ? '取消' : '编辑账号/Key'}
+                                  管理 Agent 成员 →
                                 </button>
                               </div>
 
-                              {isEditingAuth ? (
-                                <div className="space-y-1.5 pt-1">
-                                  <div className="grid grid-cols-2 gap-1">
+                              {/* Inline Auth Editor (Expanded Only When Clicked) */}
+                              {isEditingAuth && (
+                                <div className="pl-5 pt-1 flex flex-wrap items-center gap-2">
+                                  <div className="inline-flex rounded-md border border-slate-200 bg-slate-50 p-0.5">
                                     <button
                                       type="button"
                                       onClick={() => setEditAuthMode('account_oauth')}
-                                      className={`py-1 rounded text-[10px] font-semibold cursor-pointer ${
+                                      className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
                                         editAuthMode === 'account_oauth'
                                           ? 'bg-slate-900 text-white'
-                                          : 'bg-white border border-slate-200 text-slate-600'
+                                          : 'text-slate-600'
                                       }`}
                                     >
                                       账号 OAuth
@@ -841,330 +948,218 @@ export function SpaceNodesPanel({
                                     <button
                                       type="button"
                                       onClick={() => setEditAuthMode('api_key')}
-                                      className={`py-1 rounded text-[10px] font-semibold cursor-pointer ${
+                                      className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
                                         editAuthMode === 'api_key'
                                           ? 'bg-slate-900 text-white'
-                                          : 'bg-white border border-slate-200 text-slate-600'
+                                          : 'text-slate-600'
                                       }`}
                                     >
                                       API Key
                                     </button>
                                   </div>
-                                  <div className="flex items-center gap-1">
-                                    <input
-                                      type="text"
-                                      value={editCredLabel}
-                                      onChange={(e) => setEditCredLabel(e.target.value)}
-                                      placeholder={
-                                        editAuthMode === 'account_oauth'
-                                          ? '输入账号邮箱...'
-                                          : '输入 Key 标签如 sk-ant-••••'
-                                      }
-                                      className="flex-1 min-w-0 h-7 rounded border border-slate-200 bg-white px-2 text-[11px] font-mono text-slate-800 focus:outline-none"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => saveInlineAuth(node.id, cli.id)}
-                                      className="h-7 px-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold cursor-pointer shrink-0"
-                                    >
-                                      <Check className="w-3 h-3" />
-                                    </button>
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-between gap-2 text-xs">
-                                  <span className="font-mono text-[11px] text-slate-800 truncate">
-                                    {cli.credentialLabel}
-                                  </span>
-                                  <span className="text-[10px] font-semibold text-emerald-700 shrink-0">
-                                    已授权
-                                  </span>
+                                  <input
+                                    type="text"
+                                    value={editCredLabel}
+                                    onChange={(e) => setEditCredLabel(e.target.value)}
+                                    placeholder={
+                                      editAuthMode === 'account_oauth'
+                                        ? '输入账号邮箱...'
+                                        : '输入 API Key 标签如 sk-ant-••••'
+                                    }
+                                    className="flex-1 min-w-[180px] max-w-xs h-7 rounded-md border border-slate-200 bg-white px-2.5 text-[11px] font-mono text-slate-900 focus:outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => saveInlineAuth(node.id, cli.id)}
+                                    className="h-7 px-2.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold cursor-pointer"
+                                  >
+                                    保存凭证
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingAuthKey(null)}
+                                    className="h-7 px-2 text-[11px] text-slate-500 hover:text-slate-800 cursor-pointer"
+                                  >
+                                    取消
+                                  </button>
                                 </div>
                               )}
                             </div>
-
-                            {/* Concurrency Sandbox Stepper */}
-                            <div className="rounded-lg bg-slate-50 border border-slate-200/80 p-2.5 flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-600">
-                                  <Layers className="w-3.5 h-3.5 text-blue-600" />
-                                  <span>并发沙箱数</span>
-                                </div>
-                                <div className="text-[10px] text-slate-500 mt-0.5 truncate">
-                                  最多可配置 {cli.concurrency} 位专业 Agent
-                                </div>
-                              </div>
-                              <div className="inline-flex items-center gap-1.5 shrink-0">
-                                <button
-                                  type="button"
-                                  disabled={atFloor}
-                                  title={
-                                    boundAgents.length > 0 && cli.concurrency <= boundAgents.length
-                                      ? `已绑定 ${boundAgents.length} 位专业 Agent，无法低于当前已用沙箱数`
-                                      : '减少并发沙箱数'
-                                  }
-                                  onClick={() =>
-                                    onUpdateNodeCli(node.id, cli.id, {
-                                      concurrency: Math.max(minConcurrency, cli.concurrency - 1),
-                                    })
-                                  }
-                                  aria-label="减少并发沙箱数"
-                                  className="w-6 h-6 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center text-slate-700 cursor-pointer"
-                                >
-                                  <Minus className="w-3 h-3" />
-                                </button>
-                                <span className="min-w-[50px] text-center font-mono tabular-nums text-xs font-bold text-slate-900">
-                                  {cli.concurrency} 沙箱
-                                </span>
-                                <button
-                                  type="button"
-                                  disabled={cli.concurrency >= 16}
-                                  onClick={() =>
-                                    onUpdateNodeCli(node.id, cli.id, {
-                                      concurrency: Math.min(16, cli.concurrency + 1),
-                                    })
-                                  }
-                                  aria-label="增加并发沙箱数"
-                                  className="w-6 h-6 rounded border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 flex items-center justify-center text-slate-700 cursor-pointer"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
-                              </div>
-                            </div>
-
-                            {/* Bound Professional Agents */}
-                            <div className="rounded-lg bg-slate-50 border border-slate-200/80 p-2.5 flex flex-col justify-between gap-1">
-                              <div className="flex items-center justify-between gap-2 text-[11px]">
-                                <span className="inline-flex items-center gap-1 font-semibold text-slate-600 min-w-0">
-                                  <Users className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                  <span className="truncate">
-                                    已绑定 Agent ({boundAgents.length}/{cli.concurrency})
-                                  </span>
-                                </span>
-                                <span
-                                  className={`text-[10px] font-semibold shrink-0 ${
-                                    isFull ? 'text-amber-700' : 'text-emerald-700'
-                                  }`}
-                                >
-                                  {isFull ? '沙箱已满' : `余 ${remainingSlots} 席位`}
-                                </span>
-                              </div>
-                              <div className="flex items-center justify-between gap-2 text-[11px]">
-                                <div className="min-w-0 truncate">
-                                  {boundAgents.length > 0 ? (
-                                    <span className="font-semibold text-slate-800">
-                                      {boundAgents.map((a) => a.handle).join('、')}
-                                    </span>
-                                  ) : (
-                                    <span className="text-slate-400">
-                                      就绪待用 · 可在「Agent 成员」选用
-                                    </span>
-                                  )}
-                                </div>
-                                <button
-                                  type="button"
-                                  onClick={onJumpToAgents}
-                                  className="text-blue-700 hover:underline font-medium cursor-pointer whitespace-nowrap shrink-0"
-                                >
-                                  Agent 成员 →
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                )}
-              </section>
-            );
-          })}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Slide-in Drawer A: Mount Private Device OR Rent Cloud Node */}
-      {drawerMode && (
+      {/* Slide-in Drawer A: Self-Mount Private Device Node (Free) */}
+      {mountDrawerOpen && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
             className="fixed inset-0 bg-slate-900/30"
-            onClick={() => onChangeDrawerMode(null)}
+            onClick={() => onChangeMountDrawerOpen(false)}
             aria-hidden="true"
           />
           <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
             <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
               <div>
-                <h2 className="text-sm font-bold text-slate-900">
-                  {drawerMode === 'private' ? '挂载自有设备节点' : '直接租用云端节点'}
-                </h2>
+                <h2 className="text-sm font-bold text-slate-900">挂载自有设备节点</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {drawerMode === 'private'
-                    ? '支持将自己的 Windows 11、Linux 或 macOS 电脑挂载为个人 Agent 节点，零月租费用。'
-                    : '即开即用的 Win11 / Linux / macOS 云主机，24/7 在线承载多路 CLI Agent。'}
+                  将自己的 Windows 11、Linux 或 macOS 主机免费挂载为 Agent 节点，零月租费用。
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => onChangeDrawerMode(null)}
+                onClick={() => onChangeMountDrawerOpen(false)}
                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                aria-label="关闭挂载抽屉"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="px-5 pt-3 pb-2 border-b border-slate-100 shrink-0">
-              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => onChangeDrawerMode('private')}
-                  className={`py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
-                    drawerMode === 'private'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  挂载自有设备（免费）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onChangeDrawerMode('cloud')}
-                  className={`py-1.5 text-xs font-semibold rounded-md cursor-pointer transition-colors ${
-                    drawerMode === 'cloud'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  租用云端节点（按月）
-                </button>
+            <form
+              onSubmit={handlePrivateSubmit}
+              className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
+            >
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-slate-700">设备操作系统</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {(['win11', 'linux', 'macos'] as NodeOsType[]).map((osKey) => {
+                    const m = OS_META[osKey];
+                    const Icon = m.icon;
+                    const active = privOs === osKey;
+                    return (
+                      <button
+                        key={osKey}
+                        type="button"
+                        onClick={() => setPrivOs(osKey)}
+                        className={`p-2.5 rounded-lg border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-colors ${
+                          active
+                            ? 'bg-slate-900 text-white border-slate-900'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{m.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
 
-            {drawerMode === 'private' ? (
-              <form
-                onSubmit={handlePrivateSubmit}
-                className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-              >
-                <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-slate-700">设备操作系统</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(['win11', 'linux', 'macos'] as NodeOsType[]).map((osKey) => {
-                      const m = OS_META[osKey];
-                      const Icon = m.icon;
-                      const active = privOs === osKey;
-                      return (
-                        <button
-                          key={osKey}
-                          type="button"
-                          onClick={() => setPrivOs(osKey)}
-                          className={`p-2.5 rounded-lg border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-colors ${
-                            active
-                              ? 'bg-slate-900 text-white border-slate-900'
-                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                          }`}
-                        >
-                          <Icon className="w-4 h-4" />
-                          <span>{m.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">节点名称 *</label>
-                    <input
-                      type="text"
-                      required
-                      value={privName}
-                      onChange={(e) => setPrivName(e.target.value)}
-                      placeholder={`例如：我的 ${OS_META[privOs].short} 开发机`}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">位置 / 备注网络</label>
-                    <input
-                      type="text"
-                      value={privRegion}
-                      onChange={(e) => setPrivRegion(e.target.value)}
-                      placeholder="自有设备 · 办公室"
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2.5">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">CPU 核数</label>
-                    <input
-                      type="number"
-                      min={2}
-                      max={128}
-                      value={privCpu}
-                      onChange={(e) => setPrivCpu(Number(e.target.value))}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">内存 (GB)</label>
-                    <input
-                      type="number"
-                      min={4}
-                      max={512}
-                      value={privMem}
-                      onChange={(e) => setPrivMem(Number(e.target.value))}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">可用磁盘 (GB)</label>
-                    <input
-                      type="number"
-                      min={50}
-                      max={4000}
-                      value={privDisk}
-                      onChange={(e) => setPrivDisk(Number(e.target.value))}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                </div>
-
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">用途说明（可选）</label>
+                  <label className="text-xs font-semibold text-slate-700">节点名称 *</label>
                   <input
                     type="text"
-                    value={privDesc}
-                    onChange={(e) => setPrivDesc(e.target.value)}
-                    placeholder="例如：运行 Claude Code / Antigravity CLI 做日常前端和全栈交付"
+                    required
+                    value={privName}
+                    onChange={(e) => setPrivName(e.target.value)}
+                    placeholder={`例如：我的 ${OS_META[privOs].short} 开发机`}
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">位置 / 网络备注</label>
+                  <input
+                    type="text"
+                    value={privRegion}
+                    onChange={(e) => setPrivRegion(e.target.value)}
+                    placeholder="自有设备 · 办公室"
                     className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
                   />
                 </div>
+              </div>
 
-                <div className="rounded-lg bg-slate-900 text-slate-100 p-3 space-y-2">
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
-                    <span className="inline-flex items-center gap-1.5 font-semibold text-slate-200">
-                      <Terminal className="w-3.5 h-3.5 text-sky-400" />
-                      <span>在目标 {OS_META[privOs].label} 设备终端运行挂载命令</span>
-                    </span>
-                    <button
-                      type="button"
-                      onClick={handleCopyCli}
-                      className="inline-flex items-center gap-1 text-sky-300 hover:text-white cursor-pointer"
-                    >
-                      {copiedCmd ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                      <span>{copiedCmd ? '已复制' : '复制'}</span>
-                    </button>
-                  </div>
-                  <code className="block font-mono text-[11px] text-sky-200 break-all leading-relaxed">
-                    {cliJoinCommand}
-                  </code>
+              <div className="grid grid-cols-3 gap-2.5">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">CPU 核数</label>
+                  <input
+                    type="number"
+                    min={2}
+                    max={128}
+                    value={privCpu}
+                    onChange={(e) => setPrivCpu(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
                 </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">内存 (GB)</label>
+                  <input
+                    type="number"
+                    min={4}
+                    max={512}
+                    value={privMem}
+                    onChange={(e) => setPrivMem(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">可用磁盘 (GB)</label>
+                  <input
+                    type="number"
+                    min={50}
+                    max={4000}
+                    value={privDisk}
+                    onChange={(e) => setPrivDisk(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
 
-                <div className="pt-2 flex justify-end gap-2">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">用途说明（可选）</label>
+                <input
+                  type="text"
+                  value={privDesc}
+                  onChange={(e) => setPrivDesc(e.target.value)}
+                  placeholder="例如：运行 Claude Code / Antigravity CLI 做日常前端和全栈交付"
+                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                />
+              </div>
+
+              <div className="rounded-lg bg-slate-900 text-slate-100 p-3 space-y-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-200">
+                    <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                    <span>在目标 {OS_META[privOs].label} 终端运行挂载命令</span>
+                  </span>
                   <button
                     type="button"
-                    onClick={() => onChangeDrawerMode(null)}
-                    className="h-9 px-4 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                    onClick={handleCopyCli}
+                    className="inline-flex items-center gap-1 text-sky-300 hover:text-white cursor-pointer"
+                  >
+                    {copiedCmd ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedCmd ? '已复制' : '复制'}</span>
+                  </button>
+                </div>
+                <code className="block font-mono text-[11px] text-sky-200 break-all leading-relaxed">
+                  {cliJoinCommand}
+                </code>
+              </div>
+
+              <div className="pt-2 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChangeMountDrawerOpen(false);
+                    onOpenPurchasePage();
+                  }}
+                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                >
+                  没有闲置设备？去平台采购云节点 →
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onChangeMountDrawerOpen(false)}
+                    className="h-9 px-3.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                   >
                     取消
                   </button>
@@ -1175,120 +1170,8 @@ export function SpaceNodesPanel({
                     确认挂载并上线
                   </button>
                 </div>
-              </form>
-            ) : (
-              <form
-                onSubmit={handleCloudSubmit}
-                className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-              >
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-slate-700">
-                    选择云端节点（Win11 / Linux / macOS）
-                  </label>
-                  <div className="space-y-2">
-                    {CLOUD_NODE_PLANS.map((plan) => {
-                      const active = cloudPlanId === plan.id;
-                      const om = OS_META[plan.os];
-                      return (
-                        <button
-                          key={plan.id}
-                          type="button"
-                          onClick={() => setCloudPlanId(plan.id)}
-                          className={`w-full text-left p-3 rounded-xl border transition-colors cursor-pointer ${
-                            active
-                              ? 'border-blue-600 bg-blue-50/50'
-                              : 'border-slate-200 bg-white hover:bg-slate-50'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-slate-900">
-                                {plan.label}
-                              </span>
-                              <span className={`text-[11px] font-bold ${om.cls}`}>
-                                {om.short}
-                              </span>
-                            </div>
-                            <span className="text-sm font-bold font-mono tabular-nums text-blue-700">
-                              ${plan.monthlyCostUsd}/月
-                            </span>
-                          </div>
-                          <div className="mt-1 text-[11px] font-mono tabular-nums text-slate-700">
-                            {plan.cpuCores} vCPU · {plan.memoryGb} GB RAM · {plan.storageQuotaGb} GB
-                            NVMe
-                            {plan.gpuSpec ? ` · ${plan.gpuSpec}` : ''}
-                          </div>
-                          <p className="mt-1 text-[11px] text-slate-500">{plan.tagline}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">自定义节点名称</label>
-                    <input
-                      type="text"
-                      value={cloudName}
-                      onChange={(e) => setCloudName(e.target.value)}
-                      placeholder={`${selectedPlan.label} · ${cloudRegion}`}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">部署地域</label>
-                    <select
-                      value={cloudRegion}
-                      onChange={(e) => setCloudRegion(e.target.value)}
-                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="华东-上海云区">华东-上海云区</option>
-                      <option value="华北-北京云区">华北-北京云区</option>
-                      <option value="亚太-新加坡云区">亚太-新加坡云区</option>
-                      <option value="美西-硅谷云区">美西-硅谷云区</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">备注说明（可选）</label>
-                  <input
-                    type="text"
-                    value={cloudDesc}
-                    onChange={(e) => setCloudDesc(e.target.value)}
-                    placeholder="例如：专门用于 4 路 Claude Code 并发执行主力项目"
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-
-                <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 flex items-center justify-between text-xs">
-                  <span className="inline-flex items-center gap-1.5 text-slate-600">
-                    <HardDrive className="w-3.5 h-3.5 text-slate-500" />
-                    <span>{selectedPlan.osVersion} · 随时可退租</span>
-                  </span>
-                  <span className="font-mono font-bold text-slate-900">
-                    ${selectedPlan.monthlyCostUsd}/月
-                  </span>
-                </div>
-
-                <div className="pt-2 flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onChangeDrawerMode(null)}
-                    className="h-9 px-4 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="h-9 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    立即租用上线
-                  </button>
-                </div>
-              </form>
-            )}
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1309,7 +1192,7 @@ export function SpaceNodesPanel({
                   <span>为节点添加 Agent CLI</span>
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  目标节点：<strong className="text-slate-800">{cliDrawerNode.name}</strong> · 配置支持的 CLI、认证凭证与并发沙箱数。
+                  目标节点：<strong className="text-slate-800">{cliDrawerNode.name}</strong> · 配置 CLI 工具、认证凭证与并发沙箱数。
                 </p>
               </div>
               <button
@@ -1389,10 +1272,6 @@ export function SpaceNodesPanel({
                   </div>
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 -mt-2">
-                并发沙箱为 <span className="font-mono font-semibold text-slate-800">{cliConcurrency}</span>，意味着该 CLI 下最多可配置{' '}
-                <span className="font-mono font-semibold text-slate-800">{cliConcurrency}</span> 位专业 Agent（节点内部自动隔离）。
-              </p>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">

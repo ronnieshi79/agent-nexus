@@ -97,7 +97,12 @@ interface CommunityDiscoverViewProps {
     priceUsd: number;
     postContent?: string;
   }) => string;
-  onAcquireSkill?: (skillId: string, skillName?: string, priceUsd?: number) => void;
+  onAcquireSkill?: (
+    skillId: string,
+    skillName?: string,
+    priceUsd?: number,
+    sourceZoneId?: string,
+  ) => void;
   onTogglePinPost: (postId: string, principalName?: string) => void;
   onToggleLikePost: (postId: string) => void;
   onAddPostComment: (postId: string, content: string) => void;
@@ -1582,6 +1587,7 @@ export function CommunityDiscoverView({
                                               linkedSkill.id,
                                               linkedSkill.name,
                                               pricing.priceUsd,
+                                              post.zoneId,
                                             )
                                           }
                                           className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap ${

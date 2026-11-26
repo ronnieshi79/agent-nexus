@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
   ArrowUpRight,
+  Blocks,
   Briefcase,
   CalendarClock,
   Check,
-  Cloud,
   Compass,
   Cpu,
   Database,
@@ -16,6 +16,7 @@ import {
   Plus,
   Server,
   Settings2,
+  ShoppingBag,
   Sparkles,
   Terminal,
   UserCheck,
@@ -25,7 +26,8 @@ import {
   X,
 } from 'lucide-react';
 import { CollabSpacesPanel } from '../workspace/CollabSpacesPanel';
-import { SpaceNodesPanel, type NodeDrawerMode } from '../workspace/SpaceNodesPanel';
+import { SpaceNodesPanel } from '../workspace/SpaceNodesPanel';
+import { SpaceSkillsPanel } from '../workspace/SpaceSkillsPanel';
 import { SpaceStoragePanel } from '../workspace/SpaceStoragePanel';
 import { optimizeExpertProfile } from '../../services/api';
 import {
@@ -60,10 +62,13 @@ import type {
   ExpertRelationType,
   HumanExpert,
   LeasePeriod,
+  MarketSkill,
   NodeCliEntry,
   NodeOsType,
   PrivateCommunityScope,
   ProjectWorkspace,
+  SkillKind,
+  SkillOrigin,
   SpaceJoinApplication,
   SpaceMemberRole,
   SpaceSharedNode,
@@ -247,6 +252,26 @@ interface MyTeamViewProps {
   onToggleSpaceAgentOnline: (zoneId: string, agentId: string) => void;
   onPublishAgentToSpace: (zoneId: string, agentId: string) => void;
   onRemoveAgentFromSpace: (zoneId: string, agentId: string) => void;
+  marketSkills: MarketSkill[];
+  purchasedSkillIds: string[];
+  onAcquireSkill: (
+    skillId: string,
+    skillName?: string,
+    priceUsd?: number,
+    sourceZoneId?: string,
+  ) => void;
+  onCreateSpaceSkill: (input: {
+    name: string;
+    summary: string;
+    kind: SkillKind;
+    category: AgentCategory;
+    priceUsd?: number;
+    compatibleRuntimes?: string[];
+    zoneIds?: string[];
+    bindAgentIds?: string[];
+  }) => string;
+  onToggleAgentSkillBinding: (agentId: string, skillId: string) => void;
+  onToggleZoneSkillDistribution: (zoneId: string, skillId: string) => void;
 }
 
 type TeamOwnershipTab = 'all' | 'private' | 'external';
@@ -353,23 +378,36 @@ export function MyTeamView({
   onToggleSpaceAgentOnline,
   onPublishAgentToSpace,
   onRemoveAgentFromSpace,
+  marketSkills,
+  purchasedSkillIds,
+  onAcquireSkill,
+  onCreateSpaceSkill,
+  onToggleAgentSkillBinding,
+  onToggleZoneSkillDistribution,
 }: MyTeamViewProps) {
   const [teamSection, setTeamSection] = useState<TeamSectionTab>('agents');
   const [ownershipTab, setOwnershipTab] = useState<TeamOwnershipTab>('all');
+  const [principalRelationFilter, setPrincipalRelationFilter] = useState<
+    'all' | ExpertRelationType
+  >('all');
   const [expertZoneFilter, setExpertZoneFilter] = useState<string>('all');
   const [expertAssignFilter, setExpertAssignFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [statusFilter, setStatusFilter] = useState<AgentWorkStatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [skillPickerAgentId, setSkillPickerAgentId] = useState<string | null>(null);
   const actionMenuContainerRef = useRef<HTMLDivElement | null>(null);
 
-  // Infrastructure Settings (Agent Nodes & Agent Storage) state
+  // Infrastructure Settings (Agent Nodes, Storage, Skills/MCP) state
   const [nodeOsFilter, setNodeOsFilter] = useState<'all' | NodeOsType>('all');
   const [nodeOriginFilter, setNodeOriginFilter] = useState<'all' | 'private' | 'cloud'>('all');
-  const [nodeDrawerMode, setNodeDrawerMode] = useState<NodeDrawerMode>(null);
+  const [nodeMountDrawerOpen, setNodeMountDrawerOpen] = useState(false);
   const [volumeBillingFilter, setVolumeBillingFilter] = useState<'all' | StorageBillingMode>('all');
   const [volumeDrawerOpen, setVolumeDrawerOpen] = useState(false);
+  const [skillKindFilter, setSkillKindFilter] = useState<'all' | SkillKind>('all');
+  const [skillOriginFilter, setSkillOriginFilter] = useState<'all' | SkillOrigin>('all');
+  const [skillCreateDrawerOpen, setSkillCreateDrawerOpen] = useState(false);
 
   // Agent Communities (Agent 社区) state
   const [collabKindFilter, setCollabKindFilter] = useState<'all' | 'official' | 'private'>('all');
@@ -383,6 +421,10 @@ export function MyTeamView({
   );
 
   const onlineNodesCount = computeNodes.filter((n) => n.status === 'online').length;
+  const ownedSpaceSkills = useMemo(() => {
+    const ownedSet = new Set(purchasedSkillIds);
+    return marketSkills.filter((s) => ownedSet.has(s.id) || s.origin === 'custom');
+  }, [marketSkills, purchasedSkillIds]);
   const managedZones = useMemo(
     () =>
       allZones.filter(
@@ -462,6 +504,7 @@ export function MyTeamView({
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '自动化脚本执行', '产出质量自检']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
+  const [installedSkillIds, setInstalledSkillIds] = useState<string[]>([]);
   const [listedZoneIds, setListedZoneIds] = useState<string[]>([]);
   const [newSkillInput, setNewSkillInput] = useState('');
 
@@ -547,15 +590,20 @@ export function MyTeamView({
     return map;
   }, [humanExperts]);
 
-  const normalizedQuery = searchKeyword.trim().toLowerCase();
+  const skillMap = useMemo(() => {
+    const map = new Map<string, MarketSkill>();
+    marketSkills.forEach((s) => map.set(s.id, s));
+    return map;
+  }, [marketSkills]);
 
-  const activeExpertRelation: ExpertRelationType =
-    teamSection === 'friends' ? 'mutual_friend' : 'project_collab';
+  const normalizedQuery = searchKeyword.trim().toLowerCase();
 
   const displayedTeamExperts = useMemo(() => {
     const hiredExpertSet = new Set(workspace.hiredExpertIds || []);
     return teamExperts
-      .filter((m) => m.relation === activeExpertRelation)
+      .filter((m) =>
+        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
+      )
       .filter((m) =>
         expertZoneFilter === 'all'
           ? true
@@ -598,13 +646,13 @@ export function MyTeamView({
         },
       );
   }, [
-    activeExpertRelation,
     allAgents,
     categoryFilter,
     expertAssignFilter,
     expertZoneFilter,
     humanExpertMap,
     normalizedQuery,
+    principalRelationFilter,
     teamExperts,
     workspace.hiredExpertIds,
   ]);
@@ -716,10 +764,10 @@ export function MyTeamView({
       return counts;
     }
 
-    const relation: ExpertRelationType =
-      teamSection === 'friends' ? 'mutual_friend' : 'project_collab';
     const matchingExperts = teamExperts
-      .filter((m) => m.relation === relation)
+      .filter((m) =>
+        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
+      )
       .filter((m) =>
         expertZoneFilter === 'all'
           ? true
@@ -738,6 +786,7 @@ export function MyTeamView({
     externalHiredAgents,
     humanExpertMap,
     ownershipTab,
+    principalRelationFilter,
     privateAgents,
     teamExperts,
     teamRoster,
@@ -745,8 +794,11 @@ export function MyTeamView({
   ]);
 
   const currentRelationExperts = useMemo(
-    () => teamExperts.filter((m) => m.relation === activeExpertRelation),
-    [activeExpertRelation, teamExperts],
+    () =>
+      teamExperts.filter((m) =>
+        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
+      ),
+    [principalRelationFilter, teamExperts],
   );
 
   const assignedInCurrentCount = useMemo(() => {
@@ -881,6 +933,7 @@ export function MyTeamView({
     setBio('基于 AGN空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
     setSkills(['接口契约联调', '边界单测补全', '自动化产出校验']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
+    setInstalledSkillIds([]);
     setListedZoneIds(defaultZones);
     setAiAdvice(null);
     setAiError(null);
@@ -916,6 +969,7 @@ export function MyTeamView({
     setBio(agent.bio);
     setSkills([...agent.skills]);
     setMcpTools([...agent.mcpTools]);
+    setInstalledSkillIds([...(agent.installedSkillIds || [])]);
     setListedZoneIds([...agent.listedZoneIds]);
     setAiAdvice(null);
     setAiError(null);
@@ -933,6 +987,24 @@ export function MyTeamView({
     setListedZoneIds((prev) =>
       prev.includes(zoneId) ? prev.filter((id) => id !== zoneId) : [...prev, zoneId],
     );
+  };
+
+  const toggleDrawerSpaceSkill = (skill: MarketSkill) => {
+    const isEquipped = installedSkillIds.includes(skill.id);
+    const mcpLabel = skill.slug.split('/')[1] || skill.slug;
+    if (isEquipped) {
+      setInstalledSkillIds((prev) => prev.filter((id) => id !== skill.id));
+      setSkills((prev) => prev.filter((s) => s !== skill.name));
+      if (skill.kind === 'mcp') {
+        setMcpTools((prev) => prev.filter((m) => m !== mcpLabel));
+      }
+    } else {
+      setInstalledSkillIds((prev) => [...prev, skill.id]);
+      setSkills((prev) => (prev.includes(skill.name) ? prev : [...prev, skill.name]));
+      if (skill.kind === 'mcp') {
+        setMcpTools((prev) => (prev.includes(mcpLabel) ? prev : [...prev, mcpLabel]));
+      }
+    }
   };
 
   const handleAddSkill = () => {
@@ -1017,6 +1089,7 @@ export function MyTeamView({
       engineModel: `${resolvedRegionLabel} · ${effectiveRuntime} CLI`,
       skills: skills.length > 0 ? skills : ['私有领域交付'],
       mcpTools: mcpTools.length > 0 ? mcpTools : ['Git-PR'],
+      installedSkillIds,
       projectPriceUsd: Math.round(Number(projectPriceUsd)) || 1800,
       bio: bio.trim(),
       avatarAccent:
@@ -1103,51 +1176,14 @@ export function MyTeamView({
           />
           <RailNavButton
             variant="primary"
-            active={teamSection === 'collaborators'}
+            active={teamSection === 'principals'}
             onClick={() => {
-              setTeamSection('collaborators');
+              setTeamSection('principals');
               setOpenActionMenuId(null);
             }}
             icon={<Users className="w-3.5 h-3.5" />}
-            label="合作专家"
-            count={expertRelationCounts.projectCollab}
-          />
-          <RailNavButton
-            variant="primary"
-            active={teamSection === 'friends'}
-            onClick={() => {
-              setTeamSection('friends');
-              setOpenActionMenuId(null);
-            }}
-            icon={<UserCheck className="w-3.5 h-3.5" />}
-            label="我的好友"
-            count={expertRelationCounts.mutualFriend}
-          />
-        </div>
-
-        <div className="pt-3 border-t border-slate-100 space-y-1">
-          <RailSectionLabel>空间资源</RailSectionLabel>
-          <RailNavButton
-            variant="primary"
-            active={teamSection === 'nodes'}
-            onClick={() => {
-              setTeamSection('nodes');
-              setOpenActionMenuId(null);
-            }}
-            icon={<Server className="w-3.5 h-3.5" />}
-            label="Agent 节点"
-            count={`${onlineNodesCount}/${computeNodes.length}`}
-          />
-          <RailNavButton
-            variant="primary"
-            active={teamSection === 'storage'}
-            onClick={() => {
-              setTeamSection('storage');
-              setOpenActionMenuId(null);
-            }}
-            icon={<Database className="w-3.5 h-3.5" />}
-            label="Agent 存储"
-            count={storageVolumes.length}
+            label="Agent 主理"
+            count={teamExperts.length}
           />
           <RailNavButton
             variant="primary"
@@ -1161,8 +1197,45 @@ export function MyTeamView({
               setOpenActionMenuId(null);
             }}
             icon={<Globe className="w-3.5 h-3.5" />}
-            label="协作社区"
+            label="Agent 社区"
             count={zones.length}
+          />
+        </div>
+
+        <div className="pt-3 border-t border-slate-100 space-y-1">
+          <RailSectionLabel>空间资源</RailSectionLabel>
+          <RailNavButton
+            variant="primary"
+            active={teamSection === 'nodes' || teamSection === 'nodes_purchase'}
+            onClick={() => {
+              setTeamSection('nodes');
+              setOpenActionMenuId(null);
+            }}
+            icon={<Server className="w-3.5 h-3.5" />}
+            label="Agent 节点"
+            count={`${onlineNodesCount}/${computeNodes.length}`}
+          />
+          <RailNavButton
+            variant="primary"
+            active={teamSection === 'storage' || teamSection === 'storage_purchase'}
+            onClick={() => {
+              setTeamSection('storage');
+              setOpenActionMenuId(null);
+            }}
+            icon={<Database className="w-3.5 h-3.5" />}
+            label="Agent 存储"
+            count={storageVolumes.length}
+          />
+          <RailNavButton
+            variant="primary"
+            active={teamSection === 'skills' || teamSection === 'skills_purchase'}
+            onClick={() => {
+              setTeamSection('skills');
+              setOpenActionMenuId(null);
+            }}
+            icon={<Blocks className="w-3.5 h-3.5" />}
+            label="Skills / MCP"
+            count={ownedSpaceSkills.length}
           />
         </div>
       </WorkspacePrimaryRail>
@@ -1179,7 +1252,37 @@ export function MyTeamView({
                   className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  <span>返回协作社区</span>
+                  <span>返回 Agent 社区</span>
+                </button>
+              )}
+              {teamSection === 'nodes_purchase' && (
+                <button
+                  type="button"
+                  onClick={() => setTeamSection('nodes')}
+                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>返回 Agent 节点</span>
+                </button>
+              )}
+              {teamSection === 'storage_purchase' && (
+                <button
+                  type="button"
+                  onClick={() => setTeamSection('storage')}
+                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>返回 Agent 存储</span>
+                </button>
+              )}
+              {teamSection === 'skills_purchase' && (
+                <button
+                  type="button"
+                  onClick={() => setTeamSection('skills')}
+                  className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>返回 Skills / MCP</span>
                 </button>
               )}
 
@@ -1207,16 +1310,22 @@ export function MyTeamView({
                   onChange={setSearchKeyword}
                   placeholder={
                     teamSection === 'agents'
-                      ? '搜索 Agent 名称、底座、技能或所属专家...'
+                      ? '搜索 Agent 名称、底座、已加载 Skill 或所属主理...'
                       : teamSection === 'nodes'
                         ? '搜索 Win11 / Linux / macOS 节点、CLI 或账号凭证...'
-                        : teamSection === 'storage'
-                          ? '搜索共享云存储名称、套餐或可用区...'
-                          : teamSection === 'collab_my' || teamSection === 'collab_discover'
-                            ? '搜索 Agent 社区名称、语言区域、领域或主理人...'
-                            : teamSection === 'collaborators'
-                              ? '搜索合作专家姓名、专长方向或内建 Agent...'
-                              : '搜索好友姓名、专长方向或内建 Agent...'
+                        : teamSection === 'nodes_purchase'
+                          ? '搜索云端节点规格、系统或适用场景...'
+                          : teamSection === 'storage'
+                            ? '搜索共享云存储名称、挂载节点或可用区...'
+                            : teamSection === 'storage_purchase'
+                              ? '搜索平台共享云存储套餐、容量或计费方式...'
+                              : teamSection === 'skills'
+                                ? '搜索已入库 Skill / MCP、slug 或适配底座...'
+                                : teamSection === 'skills_purchase'
+                                  ? '搜索平台官方 Skill / MCP、底座或能力说明...'
+                                  : teamSection === 'collab_my' || teamSection === 'collab_discover'
+                                    ? '搜索 Agent 社区名称、语言区域、领域或主理人...'
+                                    : '搜索 Agent 主理姓名、专长方向、来源社区或名下 Agent...'
                   }
                   widthClass="flex-1 min-w-[160px] max-w-[300px]"
                 />
@@ -1254,7 +1363,7 @@ export function MyTeamView({
                     options={AGENT_STATUS_OPTIONS}
                   />
                 </>
-              ) : teamSection === 'nodes' ? (
+              ) : teamSection === 'nodes' || teamSection === 'nodes_purchase' ? (
                 <>
                   <ToolbarDropdown
                     label="系统"
@@ -1268,30 +1377,68 @@ export function MyTeamView({
                       { id: 'win11', label: 'Windows 11' },
                     ]}
                   />
-                  <ToolbarDropdown
-                    label="方式"
-                    value={nodeOriginFilter}
-                    defaultValue="all"
-                    onChange={setNodeOriginFilter}
-                    options={[
-                      { id: 'all', label: '全部节点' },
-                      { id: 'private', label: '自有设备挂载' },
-                      { id: 'cloud', label: '云端直接租用' },
-                    ]}
-                  />
+                  {teamSection === 'nodes' && (
+                    <ToolbarDropdown
+                      label="方式"
+                      value={nodeOriginFilter}
+                      defaultValue="all"
+                      onChange={setNodeOriginFilter}
+                      options={[
+                        { id: 'all', label: '全部节点' },
+                        { id: 'private', label: '自有设备挂载' },
+                        { id: 'cloud', label: '云端直接租用' },
+                      ]}
+                    />
+                  )}
                 </>
-              ) : teamSection === 'storage' ? (
+              ) : teamSection === 'storage' || teamSection === 'storage_purchase' ? (
                 <ToolbarDropdown
                   label="计费方式"
                   value={volumeBillingFilter}
                   defaultValue="all"
                   onChange={setVolumeBillingFilter}
                   options={[
-                    { id: 'all', label: '全部云存储' },
-                    { id: 'permanent', label: '永久存储买断包' },
+                    { id: 'all', label: '全部存储' },
+                    { id: 'permanent', label: '永久 / 自建存储' },
                     { id: 'monthly', label: '按月租用云盘' },
                   ]}
                 />
+              ) : teamSection === 'skills' || teamSection === 'skills_purchase' ? (
+                <>
+                  <ToolbarDropdown
+                    label="类目"
+                    value={categoryFilter}
+                    defaultValue="all"
+                    onChange={setCategoryFilter}
+                    options={AGENT_CATEGORY_OPTIONS}
+                  />
+                  <ToolbarDropdown
+                    label="类型"
+                    value={skillKindFilter}
+                    defaultValue="all"
+                    onChange={setSkillKindFilter}
+                    options={[
+                      { id: 'all', label: '全部类型' },
+                      { id: 'skill', label: 'SKILL 规范包' },
+                      { id: 'mcp', label: 'MCP 工具服务' },
+                      { id: 'workflow', label: '工作流模板' },
+                    ]}
+                  />
+                  {teamSection === 'skills' && (
+                    <ToolbarDropdown
+                      label="来源"
+                      value={skillOriginFilter}
+                      defaultValue="all"
+                      onChange={setSkillOriginFilter}
+                      options={[
+                        { id: 'all', label: '全部来源' },
+                        { id: 'platform', label: '平台官方维护' },
+                        { id: 'custom', label: '团队自建' },
+                        { id: 'community', label: '社区采购' },
+                      ]}
+                    />
+                  )}
+                </>
               ) : teamSection === 'collab_my' ? (
                 <>
                   <ToolbarDropdown
@@ -1336,6 +1483,25 @@ export function MyTeamView({
               ) : teamSection === 'collab_manage' ? null : (
                 <>
                   <ToolbarDropdown
+                    label="关系"
+                    value={principalRelationFilter}
+                    defaultValue="all"
+                    onChange={setPrincipalRelationFilter}
+                    options={[
+                      { id: 'all', label: '全部主理', hint: `${teamExperts.length}` },
+                      {
+                        id: 'project_collab',
+                        label: '项目合作',
+                        hint: `${expertRelationCounts.projectCollab}`,
+                      },
+                      {
+                        id: 'mutual_friend',
+                        label: '互关好友',
+                        hint: `${expertRelationCounts.mutualFriend}`,
+                      },
+                    ]}
+                  />
+                  <ToolbarDropdown
                     label="类目"
                     value={categoryFilter}
                     defaultValue="all"
@@ -1347,12 +1513,12 @@ export function MyTeamView({
                     }))}
                   />
                   <ToolbarDropdown
-                    label="空间"
+                    label="社区"
                     value={expertZoneFilter}
                     defaultValue="all"
                     onChange={setExpertZoneFilter}
                     options={[
-                      { id: 'all', label: '全部空间', hint: `${currentRelationExperts.length}` },
+                      { id: 'all', label: '全部社区', hint: `${currentRelationExperts.length}` },
                       ...zones.map((z) => ({
                         id: z.id,
                         label: z.name,
@@ -1403,7 +1569,7 @@ export function MyTeamView({
               <>
                 <button
                   type="button"
-                  onClick={() => setNodeDrawerMode('private')}
+                  onClick={() => setNodeMountDrawerOpen(true)}
                   className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
                 >
                   <Plus className="w-3.5 h-3.5" />
@@ -1411,21 +1577,86 @@ export function MyTeamView({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setNodeDrawerMode('cloud')}
+                  onClick={() => setTeamSection('nodes_purchase')}
                   className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
                 >
-                  <Cloud className="w-3.5 h-3.5" />
-                  <span>租用云端节点</span>
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>平台采购节点</span>
                 </button>
               </>
-            ) : teamSection === 'storage' ? (
+            ) : teamSection === 'nodes_purchase' ? (
               <button
                 type="button"
-                onClick={() => setVolumeDrawerOpen(true)}
-                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                onClick={() => {
+                  setTeamSection('nodes');
+                  setNodeMountDrawerOpen(true);
+                }}
+                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>购买 / 租用云存储</span>
+                <span>挂载自有设备</span>
+              </button>
+            ) : teamSection === 'storage' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setVolumeDrawerOpen(true)}
+                  className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>挂载自有存储</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeamSection('storage_purchase')}
+                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>平台采购存储</span>
+                </button>
+              </>
+            ) : teamSection === 'storage_purchase' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamSection('storage');
+                  setVolumeDrawerOpen(true);
+                }}
+                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>挂载自有存储</span>
+              </button>
+            ) : teamSection === 'skills' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setSkillCreateDrawerOpen(true)}
+                  className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>自建 Skill / MCP</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeamSection('skills_purchase')}
+                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                >
+                  <ShoppingBag className="w-3.5 h-3.5" />
+                  <span>平台采购 Skills</span>
+                </button>
+              </>
+            ) : teamSection === 'skills_purchase' ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTeamSection('skills');
+                  setSkillCreateDrawerOpen(true);
+                }}
+                className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 whitespace-nowrap cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>自建 Skill / MCP</span>
               </button>
             ) : teamSection === 'collab_my' ||
               teamSection === 'collab_manage' ||
@@ -1458,10 +1689,9 @@ export function MyTeamView({
             ) : (
               <>
                 <span className="hidden @[860px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
-                  <span>
-                    {teamSection === 'collaborators' ? '合作专家' : '互关好友'}{' '}
-                    {currentRelationExperts.length}
-                  </span>
+                  <span>合作 {expertRelationCounts.projectCollab}</span>
+                  <span className="text-slate-300" aria-hidden="true">·</span>
+                  <span>好友 {expertRelationCounts.mutualFriend}</span>
                   <span className="text-slate-300" aria-hidden="true">·</span>
                   <span className="text-emerald-700">当前项目已派驻 {assignedInCurrentCount}</span>
                 </span>
@@ -1471,14 +1701,16 @@ export function MyTeamView({
                   onClick={() => {
                     setDrawerOpen(false);
                     setInviteRelation(
-                      teamSection === 'friends' ? 'mutual_friend' : 'project_collab',
+                      principalRelationFilter === 'mutual_friend'
+                        ? 'mutual_friend'
+                        : 'project_collab',
                     );
                     setInviteDrawerOpen(true);
                   }}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <UserPlus className="w-3.5 h-3.5" />
-                  <span>{teamSection === 'friends' ? '添加好友' : '添加合作专家'}</span>
+                  <span>添加 Agent 主理</span>
                 </button>
               </>
             )
@@ -1494,16 +1726,16 @@ export function MyTeamView({
                 {[
                   { id: 'agents' as const, label: 'Agent 成员', count: `${teamRoster.length}`, icon: Cpu },
                   {
-                    id: 'collaborators' as const,
-                    label: '合作专家',
-                    count: `${expertRelationCounts.projectCollab}`,
+                    id: 'principals' as const,
+                    label: 'Agent 主理',
+                    count: `${teamExperts.length}`,
                     icon: Users,
                   },
                   {
-                    id: 'friends' as const,
-                    label: '我的好友',
-                    count: `${expertRelationCounts.mutualFriend}`,
-                    icon: UserCheck,
+                    id: 'collab_my' as const,
+                    label: 'Agent 社区',
+                    count: `${zones.length}`,
+                    icon: Globe,
                   },
                   {
                     id: 'nodes' as const,
@@ -1518,10 +1750,10 @@ export function MyTeamView({
                     icon: Database,
                   },
                   {
-                    id: 'collab_my' as const,
-                    label: '协作社区',
-                    count: `${zones.length}`,
-                    icon: Globe,
+                    id: 'skills' as const,
+                    label: 'Skills / MCP',
+                    count: `${ownedSpaceSkills.length}`,
+                    icon: Blocks,
                   },
                 ].map((item) => {
                   const Icon = item.icon;
@@ -1530,7 +1762,13 @@ export function MyTeamView({
                       ? teamSection === 'collab_my' ||
                         teamSection === 'collab_manage' ||
                         teamSection === 'collab_discover'
-                      : teamSection === item.id;
+                      : item.id === 'nodes'
+                        ? teamSection === 'nodes' || teamSection === 'nodes_purchase'
+                        : item.id === 'storage'
+                          ? teamSection === 'storage' || teamSection === 'storage_purchase'
+                          : item.id === 'skills'
+                            ? teamSection === 'skills' || teamSection === 'skills_purchase'
+                            : teamSection === item.id;
                   return (
                     <button
                       key={item.id}
@@ -1554,16 +1792,19 @@ export function MyTeamView({
               </div>
             </div>
 
-            {teamSection === 'nodes' ? (
+            {teamSection === 'nodes' || teamSection === 'nodes_purchase' ? (
               <SpaceNodesPanel
+                mode={teamSection === 'nodes_purchase' ? 'purchase' : 'list'}
                 nodes={computeNodes}
                 agents={allAgents}
                 storageVolumes={storageVolumes}
                 searchKeyword={searchKeyword}
                 osFilter={nodeOsFilter}
                 originFilter={nodeOriginFilter}
-                drawerMode={nodeDrawerMode}
-                onChangeDrawerMode={setNodeDrawerMode}
+                mountDrawerOpen={nodeMountDrawerOpen}
+                onChangeMountDrawerOpen={setNodeMountDrawerOpen}
+                onOpenPurchasePage={() => setTeamSection('nodes_purchase')}
+                onReturnToList={() => setTeamSection('nodes')}
                 onMountPrivateNode={onMountPrivateNode}
                 onProvisionCloudNode={onProvisionCloudNode}
                 onToggleNodeStatus={onToggleNodeStatus}
@@ -1575,18 +1816,45 @@ export function MyTeamView({
                 onJumpToStorage={() => setTeamSection('storage')}
                 onJumpToAgents={() => setTeamSection('agents')}
               />
-            ) : teamSection === 'storage' ? (
+            ) : teamSection === 'storage' || teamSection === 'storage_purchase' ? (
               <SpaceStoragePanel
+                mode={teamSection === 'storage_purchase' ? 'purchase' : 'list'}
                 volumes={storageVolumes}
                 nodes={computeNodes}
                 agents={allAgents}
                 workspaces={workspaces}
                 searchKeyword={searchKeyword}
                 billingFilter={volumeBillingFilter}
-                drawerOpen={volumeDrawerOpen}
-                onChangeDrawerOpen={setVolumeDrawerOpen}
+                mountDrawerOpen={volumeDrawerOpen}
+                onChangeMountDrawerOpen={setVolumeDrawerOpen}
+                onOpenPurchasePage={() => setTeamSection('storage_purchase')}
+                onReturnToList={() => setTeamSection('storage')}
                 onCreateVolume={onCreateStorageVolume}
                 onExpandVolume={onExpandStorageVolume}
+                onToggleNodeStorageMount={onToggleNodeStorageMount}
+              />
+            ) : teamSection === 'skills' || teamSection === 'skills_purchase' ? (
+              <SpaceSkillsPanel
+                mode={teamSection === 'skills_purchase' ? 'purchase' : 'list'}
+                skills={marketSkills}
+                purchasedSkillIds={purchasedSkillIds}
+                privateAgents={privateAgents}
+                zones={zones}
+                searchKeyword={searchKeyword}
+                categoryFilter={categoryFilter}
+                kindFilter={skillKindFilter}
+                originFilter={skillOriginFilter}
+                createDrawerOpen={skillCreateDrawerOpen}
+                onChangeCreateDrawerOpen={setSkillCreateDrawerOpen}
+                onOpenPurchasePage={() => setTeamSection('skills_purchase')}
+                onReturnToList={() => setTeamSection('skills')}
+                onAcquireSkill={(skillId, skillName, priceUsd) =>
+                  onAcquireSkill(skillId, skillName, priceUsd)
+                }
+                onCreateSpaceSkill={onCreateSpaceSkill}
+                onToggleZoneSkillDistribution={onToggleZoneSkillDistribution}
+                onJumpToAgents={() => setTeamSection('agents')}
+                onJumpToCommunityMarket={onJumpToMarket}
               />
             ) : teamSection === 'collab_my' ||
               teamSection === 'collab_manage' ||
@@ -1643,6 +1911,9 @@ export function MyTeamView({
                 onTogglePinPost={onTogglePinPost}
                 onDeletePost={onDeleteCommunityPost}
                 onCreatePost={onCreateCommunityPost}
+                marketSkills={marketSkills}
+                onToggleZoneSkillDistribution={onToggleZoneSkillDistribution}
+                onCreateSpaceSkill={onCreateSpaceSkill}
               />
             ) : teamSection === 'agents' ? (
               <>
@@ -1784,11 +2055,11 @@ export function MyTeamView({
                                   {agent.title}
                                 </p>
 
-                                <div className="mt-1.5 space-y-1 text-[11px] text-slate-500">
+                                <div className="mt-1.5 space-y-1.5 text-[11px] text-slate-500">
                                   <div className="truncate" title={agent.skills.join(' · ')}>
                                     {agent.ownerHumanName && !isPrivate && (
                                       <span className="text-slate-700 font-medium mr-1.5">
-                                        所属专家：{agent.ownerHumanName} ·
+                                        所属主理：{agent.ownerHumanName} ·
                                       </span>
                                     )}
                                     {agent.skills.join(' · ')}
@@ -1851,6 +2122,137 @@ export function MyTeamView({
                                             <Database className="w-3 h-3 text-indigo-500 shrink-0" />
                                             <span>共享存储：{boundVol.name}</span>
                                           </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Inline Skills / MCP Load & Unload Bar for Self-Built Agents */}
+                                  {isPrivate && (() => {
+                                    const mountedIds = agent.installedSkillIds || [];
+                                    const mountedSkills = mountedIds
+                                      .map((sid) => skillMap.get(sid))
+                                      .filter((s): s is MarketSkill => Boolean(s));
+                                    const isPickerOpen = skillPickerAgentId === agent.id;
+                                    const sortedAvailableSkills = [...ownedSpaceSkills].sort((a, b) => {
+                                      const matchA = a.category === agent.category ? 1 : 0;
+                                      const matchB = b.category === agent.category ? 1 : 0;
+                                      if (matchB !== matchA) return matchB - matchA;
+                                      const loadedA = mountedIds.includes(a.id) ? 1 : 0;
+                                      const loadedB = mountedIds.includes(b.id) ? 1 : 0;
+                                      return loadedB - loadedA;
+                                    });
+
+                                    return (
+                                      <div className="pt-1 space-y-1.5">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className="inline-flex items-center gap-1 text-slate-500 font-medium shrink-0">
+                                            <Blocks className="w-3 h-3 text-blue-600 shrink-0" />
+                                            <span>Skills / MCP：</span>
+                                          </span>
+
+                                          {mountedSkills.length > 0 ? (
+                                            mountedSkills.map((sk) => (
+                                              <span
+                                                key={sk.id}
+                                                className="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md border border-blue-200 bg-blue-50/60 text-blue-800 text-[11px] font-medium max-w-[200px]"
+                                              >
+                                                <span className="truncate">{sk.name}</span>
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    onToggleAgentSkillBinding(agent.id, sk.id)
+                                                  }
+                                                  title={`卸载 ${sk.name}`}
+                                                  aria-label={`卸载 ${sk.name}`}
+                                                  className="p-0.5 rounded hover:bg-blue-200/70 text-blue-700 cursor-pointer shrink-0"
+                                                >
+                                                  <X className="w-2.5 h-2.5" />
+                                                </button>
+                                              </span>
+                                            ))
+                                          ) : (
+                                            <span className="text-slate-400">未加载</span>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setSkillPickerAgentId((cur) =>
+                                                cur === agent.id ? null : agent.id,
+                                              )
+                                            }
+                                            className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                                              isPickerOpen
+                                                ? 'bg-slate-900 text-white border-slate-900'
+                                                : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:text-blue-700'
+                                            }`}
+                                          >
+                                            <Plus className="w-2.5 h-2.5" />
+                                            <span>{isPickerOpen ? '完成配置' : '加载 / 卸载'}</span>
+                                          </button>
+                                        </div>
+
+                                        {isPickerOpen && (
+                                          <div className="mt-1.5 pt-2 border-t border-slate-200/80 space-y-2">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                                              <span className="font-semibold text-slate-700">
+                                                点击从空间资源库加载或卸载（优先推荐「
+                                                {AGENT_CATEGORY_LABELS[agent.category]}」）：
+                                              </span>
+                                              <button
+                                                type="button"
+                                                onClick={() => setTeamSection('skills_purchase')}
+                                                className="font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                                              >
+                                                采购更多官方 Skills →
+                                              </button>
+                                            </div>
+                                            {sortedAvailableSkills.length === 0 ? (
+                                              <div className="text-[11px] text-slate-400">
+                                                空间资源库暂无可用 Skills / MCP，请先自建或采购入库。
+                                              </div>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1.5">
+                                                {sortedAvailableSkills.map((sk) => {
+                                                  const loaded = mountedIds.includes(sk.id);
+                                                  const isMatch = sk.category === agent.category;
+                                                  return (
+                                                    <button
+                                                      key={sk.id}
+                                                      type="button"
+                                                      onClick={() =>
+                                                        onToggleAgentSkillBinding(agent.id, sk.id)
+                                                      }
+                                                      className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-medium cursor-pointer transition-colors ${
+                                                        loaded
+                                                          ? 'bg-blue-600 text-white border-blue-600 hover:bg-blue-700'
+                                                          : isMatch
+                                                            ? 'bg-white text-slate-800 border-blue-200 hover:border-blue-400'
+                                                            : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300'
+                                                      }`}
+                                                    >
+                                                      <span className="font-mono text-[10px] opacity-80">
+                                                        {sk.kind === 'mcp' ? 'MCP' : 'SKILL'}
+                                                      </span>
+                                                      <span className="max-w-[160px] truncate">
+                                                        {sk.name}
+                                                      </span>
+                                                      {loaded ? (
+                                                        <Check className="w-3 h-3 shrink-0" />
+                                                      ) : isMatch ? (
+                                                        <span className="text-[10px] text-blue-600 font-semibold">
+                                                          推荐
+                                                        </span>
+                                                      ) : (
+                                                        <Plus className="w-3 h-3 shrink-0 opacity-60" />
+                                                      )}
+                                                    </button>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
+                                          </div>
                                         )}
                                       </div>
                                     );
@@ -2087,12 +2489,26 @@ export function MyTeamView({
                                         type="button"
                                         onClick={() => {
                                           setOpenActionMenuId(null);
+                                          setSkillPickerAgentId((cur) =>
+                                            cur === agent.id ? null : agent.id,
+                                          );
+                                        }}
+                                        className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer text-slate-700"
+                                      >
+                                        <Blocks className="w-3.5 h-3.5 shrink-0 text-blue-600" />
+                                        <span>加载 / 卸载 Skills / MCP</span>
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOpenActionMenuId(null);
                                           openEditDrawer(agent);
                                         }}
                                         className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer text-slate-700"
                                       >
                                         <Settings2 className="w-3.5 h-3.5 shrink-0 text-slate-500" />
-                                        <span>配置节点、模型与上架空间</span>
+                                        <span>配置节点、模型与上架社区</span>
                                       </button>
                                     </>
                                   ) : (
@@ -2148,43 +2564,34 @@ export function MyTeamView({
                 )}
               </>
             ) : (
-              /* ================= COLLABORATING EXPERTS & MUTUAL FRIENDS SECTION ================= */
+              /* ================= UNIFIED AGENT PRINCIPALS DIRECTORY (人类通讯录) ================= */
               <>
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs text-slate-500">
-                    {teamSection === 'collaborators' ? (
-                      <span>
-                        管理存在<strong className="text-slate-800">项目合作</strong>关系的专业人类专家，支持按专业类目与来源空间快速调度至「
-                        <strong className="text-slate-800">{workspace.name}</strong>」
-                      </span>
-                    ) : (
-                      <span>
-                        管理来自各社区空间的<strong className="text-slate-800">相互关注（互加好友）</strong>人脉，支持随时发起咨询或邀请加入项目「
-                        <strong className="text-slate-800">{workspace.name}</strong>」
-                      </span>
-                    )}
+                    <span>
+                      人类通讯录 · 统一管理<strong className="text-slate-800">项目合作</strong>与
+                      <strong className="text-slate-800">互关好友</strong>两类 Agent 主理人，可查看名下专业 Agent 或直接派驻至「
+                      <strong className="text-slate-800">{workspace.name}</strong>」
+                    </span>
                   </div>
                   <div className="text-xs font-mono tabular-nums text-slate-400 shrink-0">
-                    共 {displayedTeamExperts.length}{' '}
-                    {teamSection === 'friends' ? '位好友' : '位合作专家'}
+                    共 {displayedTeamExperts.length} 位主理
                   </div>
                 </div>
 
                 {displayedTeamExperts.length === 0 ? (
                   <div className="py-14 text-center border border-dashed border-slate-300 rounded-xl bg-white space-y-3">
-                    <p className="text-sm font-medium text-slate-700">
-                      {teamSection === 'friends'
-                        ? '当前筛选下暂无互关好友'
-                        : '当前筛选下暂无合作专家'}
-                    </p>
+                    <p className="text-sm font-medium text-slate-700">当前筛选下暂无 Agent 主理</p>
                     <div className="flex items-center justify-center gap-2">
-                      {(categoryFilter !== 'all' ||
+                      {(principalRelationFilter !== 'all' ||
+                        categoryFilter !== 'all' ||
                         expertZoneFilter !== 'all' ||
                         expertAssignFilter !== 'all' ||
                         searchKeyword.trim() !== '') && (
                         <button
                           type="button"
                           onClick={() => {
+                            setPrincipalRelationFilter('all');
                             setCategoryFilter('all');
                             setExpertZoneFilter('all');
                             setExpertAssignFilter('all');
@@ -2200,14 +2607,16 @@ export function MyTeamView({
                         onClick={() => {
                           setDrawerOpen(false);
                           setInviteRelation(
-                            teamSection === 'friends' ? 'mutual_friend' : 'project_collab',
+                            principalRelationFilter === 'mutual_friend'
+                              ? 'mutual_friend'
+                              : 'project_collab',
                           );
                           setInviteDrawerOpen(true);
                         }}
                         className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                       >
                         <UserPlus className="w-3.5 h-3.5" />
-                        <span>{teamSection === 'friends' ? '添加好友' : '添加合作专家'}</span>
+                        <span>添加 Agent 主理</span>
                       </button>
                     </div>
                   </div>
@@ -2215,8 +2624,8 @@ export function MyTeamView({
                   <div className="border border-slate-200 rounded-xl bg-white mb-16">
                     {/* Desktop Column Header */}
                     <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
-                      <div>{teamSection === 'friends' ? '好友与擅长方向' : '合作专家与擅长方向'}</div>
-                      <div>关系 / 来源空间</div>
+                      <div>Agent 主理与擅长方向</div>
+                      <div>关系 / 来源社区</div>
                       <div>合作项目</div>
                       <div>评级 / 履约</div>
                       <div className="text-right">操作</div>
@@ -2242,7 +2651,7 @@ export function MyTeamView({
                             key={expert.id}
                             className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
                           >
-                            {/* Col 1: Expert Identity, Specialty & Built-in Agents */}
+                            {/* Col 1: Principal Identity, Specialty & Built-in Agents */}
                             <div className="flex items-start gap-3.5 min-w-0">
                               <EntityAvatar
                                 kind="human"
@@ -2251,16 +2660,18 @@ export function MyTeamView({
                                 size="lg"
                               />
                               <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                                   <span className="text-sm font-bold text-slate-900">
                                     {expert.name}
                                   </span>
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium whitespace-nowrap">
+                                  <span className="text-slate-500">
                                     {AGENT_CATEGORY_LABELS[expert.category]}
                                   </span>
-                                  <span className="px-1.5 py-0.5 rounded bg-violet-50 border border-violet-200/80 text-violet-700 font-mono text-[10px] font-bold">
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="font-mono font-semibold text-violet-700">
                                     {expert.ratingTier || 'A+'}级
                                   </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
                                   <span className="text-slate-500 truncate">{expert.title}</span>
                                 </div>
 
@@ -2272,7 +2683,7 @@ export function MyTeamView({
                                 </div>
 
                                 <div className="mt-1.5 text-[11px] text-slate-500 truncate">
-                                  内建 {ownedAgents.length} 个专业 Agent：
+                                  名下 {ownedAgents.length} 个专业 Agent：
                                   {ownedAgents.length > 0
                                     ? ownedAgents.map((a) => displayEntityName(a.handle)).join('、')
                                     : '按需配置'}
@@ -2280,21 +2691,21 @@ export function MyTeamView({
                               </div>
                             </div>
 
-                            {/* Col 2: Relation & Source Space */}
+                            {/* Col 2: Relation & Source Community */}
                             <div className="flex items-center justify-between @[860px]:block text-xs">
-                              <span className="text-[11px] text-slate-400 @[860px]:hidden">关系 / 来源空间</span>
+                              <span className="text-[11px] text-slate-400 @[860px]:hidden">关系 / 来源社区</span>
                               <div>
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                <div
+                                  className={`text-xs font-semibold ${
                                     membership.relation === 'mutual_friend'
-                                      ? 'bg-emerald-50 text-emerald-700 border border-emerald-200/80'
-                                      : 'bg-blue-50 text-blue-700 border border-blue-200/80'
+                                      ? 'text-emerald-700'
+                                      : 'text-blue-700'
                                   }`}
                                 >
                                   {membership.relation === 'mutual_friend' ? '互关好友' : '项目合作'}
-                                </span>
-                                <div className="text-[11px] text-slate-500 mt-1 truncate">
-                                  空间：{sourceZoneName}
+                                </div>
+                                <div className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                  社区：{sourceZoneName}
                                 </div>
                               </div>
                             </div>
@@ -2308,12 +2719,16 @@ export function MyTeamView({
                                     <div className="font-medium text-slate-800 truncate">
                                       {assignedProjects.map((p) => p.name).join('、')}
                                     </div>
-                                    <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                                    <div className="text-[11px] text-slate-400 mt-0.5 font-mono tabular-nums">
                                       参与 {assignedProjects.length} 个项目
                                     </div>
                                   </>
                                 ) : (
-                                  <div className="text-slate-400">互关好友 · 暂未入项</div>
+                                  <div className="text-slate-400">
+                                    {membership.relation === 'mutual_friend'
+                                      ? '互关好友 · 暂未入项'
+                                      : '暂未派驻项目'}
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -2363,7 +2778,7 @@ export function MyTeamView({
                                     prev === `exp_${expert.id}` ? null : `exp_${expert.id}`,
                                   )
                                 }
-                                aria-label="专家更多操作"
+                                aria-label="主理更多操作"
                                 aria-expanded={isMenuOpen}
                                 className={`w-8 h-8 inline-flex items-center justify-center rounded-lg border transition-colors cursor-pointer shrink-0 ${
                                   isMenuOpen
@@ -2381,7 +2796,7 @@ export function MyTeamView({
                                   }`}
                                 >
                                   <div className="px-3 py-1 text-[10px] font-semibold text-slate-400">
-                                    专家关系管理
+                                    通讯录关系管理
                                   </div>
 
                                   <button
@@ -2398,53 +2813,49 @@ export function MyTeamView({
                                     className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer text-slate-700"
                                   >
                                     <UserCheck className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                      <span>
-                                        {membership.relation === 'mutual_friend'
-                                          ? '转为合作专家'
-                                          : '转入我的好友'}
-                                      </span>
-                                    </button>
+                                    <span>
+                                      {membership.relation === 'mutual_friend'
+                                        ? '标记为项目合作'
+                                        : '标记为互关好友'}
+                                    </span>
+                                  </button>
 
-                                    {primaryAgent && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          setOpenActionMenuId(null);
-                                          onStartNegotiation(primaryAgent.id);
-                                        }}
-                                        className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer text-slate-700"
-                                      >
-                                        <MessageCircle className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                                        <span>咨询</span>
-                                      </button>
-                                    )}
-
-                                    <div className="my-1 border-t border-slate-100" />
+                                  {primaryAgent && (
                                     <button
                                       type="button"
                                       onClick={() => {
                                         setOpenActionMenuId(null);
-                                        onRemoveTeamExpert(expert.id);
+                                        onStartNegotiation(primaryAgent.id);
                                       }}
-                                      className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-red-50 transition-colors cursor-pointer text-red-600"
+                                      className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 transition-colors cursor-pointer text-slate-700"
                                     >
-                                      <UserMinus className="w-3.5 h-3.5 shrink-0" />
-                                      <span>
-                                        {membership.relation === 'mutual_friend'
-                                          ? '移出我的好友'
-                                          : '移出合作专家'}
-                                      </span>
+                                      <MessageCircle className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                                      <span>咨询</span>
                                     </button>
-                                  </div>
-                                )}
-                              </div>
+                                  )}
+
+                                  <div className="my-1 border-t border-slate-100" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenActionMenuId(null);
+                                      onRemoveTeamExpert(expert.id);
+                                    }}
+                                    className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-red-50 transition-colors cursor-pointer text-red-600"
+                                  >
+                                    <UserMinus className="w-3.5 h-3.5 shrink-0" />
+                                    <span>移出主理通讯录</span>
+                                  </button>
+                                </div>
+                              )}
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  )}
-                </>
+                  </div>
+                )}
+              </>
               )}
             </div>
           </div>
@@ -2699,7 +3110,7 @@ export function MyTeamView({
                       {selectedSharedUsed >= selectedSharedNode.sharedSandboxQuota && (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 flex flex-wrap items-center justify-between gap-2">
                           <span>
-                            该社区共享节点的并发沙箱配额已满，请在「AGN空间 → 空间资源 → 协作社区 → 主理人管理」调大配额。
+                            该社区共享节点的并发沙箱配额已满，请在「AGN空间 → Agent 团队 → Agent 社区 → 主理人管理」调大配额。
                           </span>
                           <button
                             type="button"
@@ -2981,6 +3392,88 @@ export function MyTeamView({
                   </div>
                 </div>
 
+                {/* Space Resources: Load / Unload Skills / MCP for this Agent */}
+                <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-900">
+                      <Blocks className="w-3.5 h-3.5 text-blue-600" />
+                      <span>
+                        加载 / 卸载空间 Skills / MCP（已加载 {installedSkillIds.length}）
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDrawerOpen(false);
+                        setTeamSection('skills_purchase');
+                      }}
+                      className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                    >
+                      采购官方 Skills →
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    按「{AGENT_CATEGORY_LABELS[category]}」专长优先推荐空间资源库中已拥有或自建的 Skills / MCP，勾选加载、取消即卸载。
+                  </p>
+                  {ownedSpaceSkills.length === 0 ? (
+                    <div className="text-xs text-slate-400 py-1">
+                      空间库暂无可用 Skills / MCP，点击右上角前往购买平台官方能力包或新建自建包。
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 max-h-48 overflow-y-auto clean-scroll pr-0.5">
+                      {[...ownedSpaceSkills]
+                        .sort((a, b) => {
+                          const matchA = a.category === category ? 1 : 0;
+                          const matchB = b.category === category ? 1 : 0;
+                          return matchB - matchA;
+                        })
+                        .map((skill) => {
+                          const checked = installedSkillIds.includes(skill.id);
+                          const isDomainMatch = skill.category === category;
+                          return (
+                            <label
+                              key={skill.id}
+                              className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border cursor-pointer transition-colors ${
+                                checked
+                                  ? 'bg-blue-50/70 border-blue-300'
+                                  : 'bg-white border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() => toggleDrawerSpaceSkill(skill)}
+                                  className="rounded border-slate-300 text-blue-600 focus:ring-blue-600/20"
+                                />
+                                <span className="px-1 py-0.5 rounded bg-slate-100 text-[9px] font-mono font-semibold text-slate-600 shrink-0">
+                                  {skill.kind === 'mcp' ? 'MCP' : 'SKILL'}
+                                </span>
+                                <span className="text-xs font-semibold text-slate-900 truncate">
+                                  {skill.name}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {isDomainMatch && (
+                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded">
+                                    {AGENT_CATEGORY_LABELS[category]}推荐
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-slate-400">
+                                  {skill.origin === 'platform'
+                                    ? '平台官方'
+                                    : skill.origin === 'custom'
+                                      ? '自建'
+                                      : '社区'}
+                                </span>
+                              </div>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+
                 {/* Capability Tags */}
                 <div>
                   <span className="text-xs font-medium text-slate-700">能力标签</span>
@@ -3089,18 +3582,16 @@ export function MyTeamView({
           <div className="px-5 pt-4 pb-3 border-b border-slate-200 bg-slate-50/70 space-y-3 shrink-0">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h2 className="text-sm font-bold text-slate-900">
-                  {inviteRelation === 'mutual_friend' ? '添加互关好友' : '添加合作专家'}
-                </h2>
+                <h2 className="text-sm font-bold text-slate-900">添加 Agent 主理</h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  按来源空间筛选并加入「合作专家」或「我的好友」，支持同步派驻当前项目。
+                  按来源 Agent 社区筛选并收录至通讯录，标记为「项目合作」或「互关好友」，支持同步派驻当前项目。
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setInviteDrawerOpen(false)}
                 className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer"
-                aria-label="关闭添加专家抽屉"
+                aria-label="关闭添加主理抽屉"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -3110,10 +3601,10 @@ export function MyTeamView({
               <select
                 value={inviteZoneFilter}
                 onChange={(e) => setInviteZoneFilter(e.target.value)}
-                aria-label="筛选来源空间"
+                aria-label="筛选来源社区"
                 className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               >
-                <option value="all">全部空间</option>
+                <option value="all">全部社区</option>
                 {zones.map((z) => (
                   <option key={z.id} value={z.id}>
                     {z.name}
@@ -3127,8 +3618,8 @@ export function MyTeamView({
                 aria-label="选择关系类型"
                 className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               >
-                <option value="project_collab">加入合作专家</option>
-                <option value="mutual_friend">加入我的好友（互关）</option>
+                <option value="project_collab">关系：项目合作</option>
+                <option value="mutual_friend">关系：互关好友</option>
               </select>
             </div>
 

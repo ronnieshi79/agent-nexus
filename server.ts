@@ -356,11 +356,57 @@ ${history
         message = '',
         workspace,
         hiredAgents = [],
+        projectAssignments = [],
+        projectTaskTypes = [],
         recentMessages = [],
         existingTasks = [],
       } = req.body ?? {};
 
       const ai = getGeminiClient();
+
+      const stageNameMap: Record<string, string> = {
+        planning: '任务计划',
+        development: '任务执行',
+        testing: '任务验证',
+      };
+
+      const assignmentByAgentId = new Map<
+        string,
+        { stages?: string[]; roleNote?: string; handoffMode?: string }
+      >(
+        (projectAssignments || []).map(
+          (a: { agentId: string; stages?: string[]; roleNote?: string; handoffMode?: string }) => [
+            a.agentId,
+            a,
+          ],
+        ),
+      );
+
+      const agentMap = new Map<string, { handle: string; name: string }>(
+        (hiredAgents || []).map((a: { id: string; handle: string; name: string }) => [a.id, a]),
+      );
+
+      const templateLines = (projectTaskTypes || [])
+        .map(
+          (tpl: {
+            id: string;
+            name: string;
+            description?: string;
+            templateChecklist?: string;
+            creatorAgentIds?: string[];
+          }) => {
+            const creators = (tpl.creatorAgentIds || [])
+              .map((cid) => {
+                const ag = agentMap.get(cid);
+                return ag ? `${ag.handle}(id="${cid}")` : cid;
+              })
+              .join('、');
+            return `- 模板【${tpl.name}】：${tpl.description || ''}${
+              tpl.templateChecklist ? ` | 交付骨架：${tpl.templateChecklist}` : ''
+            } | 指定可对话创作 Agent：${creators || '任意已入队项目专家'}`;
+          },
+        )
+        .join('\n');
 
       const prompt = `
 你是 AgentNexus 项目群聊的协同编排引擎，负责扮演内置管家 @Nexa 以及本项目群中已入队的专家 Agent，用自然、专业、像真实精英团队一样对话回复雇主。
@@ -371,14 +417,24 @@ ${history
 - 项目目标：${workspace?.goal ?? ''}
 - 项目预算余额：$${Math.max(0, (workspace?.budgetCapUsd ?? 10000) - (workspace?.spentUsd ?? 0))}（已签约 $${workspace?.spentUsd ?? 0} / 总预算 $${workspace?.budgetCapUsd ?? 10000}）
 
-当前项目群已入队专家（只能由名单内专家或 @Nexa 发言）：
+当前项目群已入队专家及任务编排阶段（只能由名单内专家或 @Nexa 发言）：
 - id="butler" | @Nexa | Nexa 管家（协调分工、汇总进度、若缺角色提醒去私聊协商签约外部专家）
 ${hiredAgents
   .map(
-    (a: { id: string; handle: string; name: string; title: string; skills: string[] }) =>
-      `- id="${a.id}" | ${a.handle} | ${a.name} | 职责:${a.title} | 技能:${a.skills.join('、')}`,
+    (a: { id: string; handle: string; name: string; title: string; skills: string[] }) => {
+      const assign = assignmentByAgentId.get(a.id);
+      const stagesLabel =
+        assign?.stages && assign.stages.length > 0
+          ? assign.stages.map((s) => stageNameMap[s] || s).join('/')
+          : '通用协作';
+      const roleNote = assign?.roleNote || a.title;
+      return `- id="${a.id}" | ${a.handle} | ${a.name} | 编排阶段:${stagesLabel} | 项目职责:${roleNote} | 技能:${a.skills.join('、')}`;
+    },
   )
   .join('\n')}
+
+本项目任务卡片模板及指定创作 Agent 约束：
+${templateLines || '（使用默认工程任务模板，由已入队专家按职责响应）'}
 
 本项目已有工作卡片：
 ${existingTasks
@@ -398,8 +454,11 @@ ${recentMessages
 "${message}"
 
 编排规则：
-1. 生成 1 到 2 条自然、专业、简洁的中文群聊回复（每条 40~100 字），像真实团队同事在群里沟通一样自然，不要出现机械的“已耗费 $x”或 Token 字样。若雇主 @ 了某位已入群专家，务必由该专家率先回应。
-2. 如果雇主的消息包含明确的功能开发、测试、规划、审查或拆解诉求，请在 newTasks 中生成 1~2 张工作卡片（带清晰的 featureModule 如"A功能 · 多币种结算"或"B功能 · 退款风控"，以及 workType 必须是 planning / development / testing / review 之一）。如果只是询问进展，newTasks 可为空数组。
+1. 生成 1 到 2 条自然、专业、简洁的中文群聊回复（每条 40~100 字），像真实团队同事在群里沟通一样自然，不要出现机械的“已耗费 $x”或 Token 字样。若雇主 @ 了某位已入群专家或指定了卡片模板，务必优先由该专家或模板指定的创作 Agent 率先回应。
+2. 如果雇主的消息包含明确的功能开发、测试、规划、审查或拆解诉求，请在 newTasks 中生成 1~2 张工作卡片：
+   - featureModule 必须紧贴当前项目「${workspace?.name ?? '核心项目'}」的实际业务模块命名，严禁套用其他无关项目的模块名；
+   - workType 必须是 planning / development / testing / review 之一；
+   - assigneeId 必须严格遵循上方「任务卡片模板的指定创作 Agent」或「任务计划/执行」阶段的已入队专家。如果只是询问进展，newTasks 可为空数组。
 3. 若雇主提及尚未入群的角色，由 @Nexa 提醒前往「私聊协商」或「专家市场」按项目签约外部专家。
 `;
 

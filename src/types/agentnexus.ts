@@ -269,6 +269,8 @@ export interface ExpertAgent {
   engineModel: string;
   skills: string[];
   mcpTools: string[];
+  /** Structured Skill / MCP asset IDs equipped from AGN Space -> 空间资源 -> Skills / MCP */
+  installedSkillIds?: string[];
   /** Standard project engagement fee (USD / project), priced by capability, reputation & supply-demand */
   projectPriceUsd: number;
   /** Optional explicit monthly lease price (USD / month); falls back to tier-based pricing helper */
@@ -564,13 +566,16 @@ export type WorkspaceTabId =
 
 export type TeamSectionTab =
   | 'agents'
-  | 'collaborators'
-  | 'friends'
-  | 'nodes'
-  | 'storage'
+  | 'principals'
   | 'collab_my'
   | 'collab_manage'
-  | 'collab_discover';
+  | 'collab_discover'
+  | 'nodes'
+  | 'nodes_purchase'
+  | 'storage'
+  | 'storage_purchase'
+  | 'skills'
+  | 'skills_purchase';
 
 export interface ProjectWorkspace {
   id: string;
@@ -662,6 +667,8 @@ export interface CommunityPost {
 
 export type SkillKind = 'skill' | 'mcp' | 'workflow';
 
+export type SkillOrigin = 'platform' | 'custom' | 'community';
+
 export interface MarketSkill {
   id: string;
   slug: string;
@@ -669,6 +676,12 @@ export interface MarketSkill {
   summary: string;
   category: AgentCategory;
   kind: SkillKind;
+  /** Asset source: platform-maintained value-added service, team custom self-built, or community-contributed */
+  origin?: SkillOrigin;
+  /** Community distribution revenue-share rate (%) when a platform skill is distributed via a community */
+  distributionSharePct?: number;
+  /** True when team-created skill is kept private inside AGN Space (not distributed to any community yet) */
+  isPrivate?: boolean;
   compatibleRuntimes: string[];
   authorName: string;
   version: string;

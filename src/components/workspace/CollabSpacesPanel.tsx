@@ -21,14 +21,17 @@ import {
   X,
 } from 'lucide-react';
 import type {
+  AgentCategory,
   CommunityPost,
   CommunityPostType,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
   HumanExpert,
+  MarketSkill,
   NodeOsType,
   PrivateCommunityScope,
+  SkillKind,
   SpaceJoinApplication,
   SpaceMemberRole,
   SpaceSharedNode,
@@ -136,6 +139,18 @@ interface CollabSpacesPanelProps {
     pinned?: boolean;
     pinnedBy?: string;
   }) => void;
+  marketSkills?: MarketSkill[];
+  onToggleZoneSkillDistribution?: (zoneId: string, skillId: string) => void;
+  onCreateSpaceSkill?: (input: {
+    name: string;
+    summary: string;
+    kind: SkillKind;
+    category: AgentCategory;
+    priceUsd?: number;
+    compatibleRuntimes?: string[];
+    zoneIds?: string[];
+    bindAgentIds?: string[];
+  }) => string;
 }
 
 export function CollabSpacesPanel({
@@ -181,6 +196,9 @@ export function CollabSpacesPanel({
   onTogglePinPost,
   onDeletePost,
   onCreatePost,
+  marketSkills,
+  onToggleZoneSkillDistribution,
+  onCreateSpaceSkill,
 }: CollabSpacesPanelProps) {
   // Private community join inline state (invite code OR join application)
   const [joiningZoneId, setJoiningZoneId] = useState<string | null>(null);
@@ -395,6 +413,9 @@ export function CollabSpacesPanel({
               onTogglePinPost={onTogglePinPost}
               onDeletePost={onDeletePost}
               onCreatePost={onCreatePost}
+              marketSkills={marketSkills}
+              onToggleZoneSkillDistribution={onToggleZoneSkillDistribution}
+              onCreateSpaceSkill={onCreateSpaceSkill}
             />
           </div>
         ) : (

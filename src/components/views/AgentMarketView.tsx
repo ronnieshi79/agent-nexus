@@ -126,7 +126,12 @@ interface AgentMarketViewProps {
   onSendDm: (agentId: string, text: string) => Promise<void>;
   onStartNegotiation: (agentId: string) => void;
   onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
-  onAcquireSkill: (skillId: string, skillName?: string, priceUsd?: number) => void;
+  onAcquireSkill: (
+    skillId: string,
+    skillName?: string,
+    priceUsd?: number,
+    sourceZoneId?: string,
+  ) => void;
   onInviteTeamExpert: (input: {
     expertId: string;
     relation: ExpertRelationType;
@@ -616,11 +621,16 @@ export function AgentMarketView({
         ? [...target.mcpTools, mcpLabel]
         : target.mcpTools;
 
+    const updatedInstalledIds = Array.from(
+      new Set([...(target.installedSkillIds || []), skill.id]),
+    );
+
     onSavePrivateAgent(
       {
         ...target,
         skills: updatedSkills,
         mcpTools: updatedMcp,
+        installedSkillIds: updatedInstalledIds,
       },
       false,
     );
@@ -1553,9 +1563,17 @@ export function AgentMarketView({
                   filteredSkills.map((skill) => {
                     const isSelected =
                       activeDrawer?.type === 'skill' && activeDrawer.skillId === skill.id;
-                    const mountedCount = (mountedSkillMap[skill.id] || []).length;
+                    const mountedCount = Math.max(
+                      (mountedSkillMap[skill.id] || []).length,
+                      privateAgents.filter((a) => (a.installedSkillIds || []).includes(skill.id))
+                        .length,
+                    );
                     const isOwned = purchasedSkillIds.includes(skill.id);
                     const skillPricing = getSkillPurchasePricing(skill);
+                    const isPlatformDist =
+                      skill.origin === 'platform' && !activeZone.isPlatformDefault;
+                    const isPlatformOfficial =
+                      skill.origin === 'platform' && Boolean(activeZone.isPlatformDefault);
 
                     return (
                       <article
@@ -1575,6 +1593,23 @@ export function AgentMarketView({
                                 >
                                   {SKILL_KIND_LABELS[skill.kind]}
                                 </span>
+                                {isPlatformDist ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-semibold leading-none">
+                                    平台分销 · 官方维护
+                                  </span>
+                                ) : isPlatformOfficial ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-semibold leading-none">
+                                    平台官方维护
+                                  </span>
+                                ) : skill.origin === 'custom' ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold leading-none">
+                                    社区自建
+                                  </span>
+                                ) : (
+                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-semibold leading-none">
+                                    社区共创
+                                  </span>
+                                )}
                                 <span
                                   className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none ${
                                     skillPricing.ratingTier === 'S'
@@ -1660,7 +1695,12 @@ export function AgentMarketView({
                             <button
                               type="button"
                               onClick={() =>
-                                onAcquireSkill(skill.id, skill.name, skillPricing.priceUsd)
+                                onAcquireSkill(
+                                  skill.id,
+                                  skill.name,
+                                  skillPricing.priceUsd,
+                                  activeZone.id,
+                                )
                               }
                               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
                             >
@@ -2282,6 +2322,7 @@ export function AgentMarketView({
         const targetAgent = privateAgents.find((a) => a.id === selectedMountAgentId);
         const alreadyMountedOnTarget = targetAgent
           ? mountedTargets.includes(targetAgent.id) ||
+            (targetAgent.installedSkillIds || []).includes(drawerSkill.id) ||
             targetAgent.skills.includes(drawerSkill.name)
           : false;
         const skillPricing = getSkillPurchasePricing(drawerSkill);
@@ -2345,7 +2386,12 @@ export function AgentMarketView({
                   <button
                     type="button"
                     onClick={() =>
-                      onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd)
+                      onAcquireSkill(
+                        drawerSkill.id,
+                        drawerSkill.name,
+                        skillPricing.priceUsd,
+                        activeZone.id,
+                      )
                     }
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap shrink-0"
                   >
@@ -2447,7 +2493,12 @@ export function AgentMarketView({
                 <button
                   type="button"
                   onClick={() =>
-                    onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd)
+                    onAcquireSkill(
+                      drawerSkill.id,
+                      drawerSkill.name,
+                      skillPricing.priceUsd,
+                      activeZone.id,
+                    )
                   }
                   className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white inline-flex items-center justify-center gap-1.5 cursor-pointer"
                 >
@@ -2482,7 +2533,12 @@ export function AgentMarketView({
                     onClick={() => {
                       if (!targetAgent) return;
                       if (!isOwned) {
-                        onAcquireSkill(drawerSkill.id, drawerSkill.name, skillPricing.priceUsd);
+                        onAcquireSkill(
+                          drawerSkill.id,
+                          drawerSkill.name,
+                          skillPricing.priceUsd,
+                          activeZone.id,
+                        );
                       }
                       handleMountSkillToPrivateAgent(drawerSkill, targetAgent.id);
                     }}

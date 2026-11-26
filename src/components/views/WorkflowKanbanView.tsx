@@ -2034,9 +2034,31 @@ export function WorkflowKanbanView({
                   const quickDispatchAgent = effectiveQuickCreatorId
                     ? agentMap.get(effectiveQuickCreatorId)
                     : undefined;
+                  const isReadOnly = status === 'completed' || status === 'archived';
 
                   return (
                     <div className="space-y-4">
+                      {isReadOnly && (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+                          <div className="inline-flex items-center gap-2 min-w-0">
+                            <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                            <span>
+                              该项目已{status === 'completed' ? '结项完成' : '归档'}，看板任务流转、派发与阵容租赁已进入只读锁定状态。
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateProjectLifecycle(focusedProject.id, 'active')
+                            }
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            <span>重新激活项目</span>
+                          </button>
+                        </div>
+                      )}
+
                       {/* Part 1: Flat Single-Elevation Split Project Summary (No Nested Cards) */}
                       <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                         <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/80">
@@ -2154,7 +2176,7 @@ export function WorkflowKanbanView({
                                 <>
                                   <span className="text-slate-300" aria-hidden="true">·</span>
                                   <span className="text-slate-500 truncate">
-                                    合作专家：{assignedExperts.map((e) => e.name).join('、')}
+                                    Agent 主理：{assignedExperts.map((e) => e.name).join('、')}
                                   </span>
                                 </>
                               )}
@@ -2299,7 +2321,7 @@ export function WorkflowKanbanView({
                                 <div className="flex items-center justify-between gap-2">
                                   <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
                                     <Users className="w-3.5 h-3.5 text-emerald-600" />
-                                    <span>合作专家 ({assignedExperts.length})</span>
+                                    <span>Agent 主理 ({assignedExperts.length})</span>
                                   </h3>
                                   <button
                                     type="button"
@@ -2315,7 +2337,7 @@ export function WorkflowKanbanView({
                                 </div>
                                 {assignedExperts.length === 0 ? (
                                   <p className="text-xs text-slate-400">
-                                    暂未派驻合作专家，可从下方直接指派。
+                                    暂未派驻 Agent 主理，可从下方直接指派。
                                   </p>
                                 ) : (
                                   <div className="divide-y divide-slate-200/70 border border-slate-200/80 rounded-lg bg-white">
@@ -2354,22 +2376,24 @@ export function WorkflowKanbanView({
                                               </div>
                                             </div>
                                           </div>
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              onRemoveExpertFromWorkspace(exp.id, focusedProject.id)
-                                            }
-                                            title="移出该项目"
-                                            className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
-                                          >
-                                            <UserMinus className="w-3.5 h-3.5" />
-                                          </button>
+                                          {!isReadOnly && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onRemoveExpertFromWorkspace(exp.id, focusedProject.id)
+                                              }
+                                              title="移出该项目"
+                                              className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer shrink-0"
+                                            >
+                                              <UserMinus className="w-3.5 h-3.5" />
+                                            </button>
+                                          )}
                                         </div>
                                       );
                                     })}
                                   </div>
                                 )}
-                                {availableExperts.length > 0 && (
+                                {!isReadOnly && availableExperts.length > 0 && (
                                   <div className="pt-1 flex items-center gap-1.5">
                                     <select
                                       value={effectiveAssignId}
@@ -2469,10 +2493,11 @@ export function WorkflowKanbanView({
                                                     <button
                                                       key={p}
                                                       type="button"
+                                                      disabled={isReadOnly}
                                                       onClick={() =>
                                                         onLeaseAgent(ag.id, p, focusedProject.id)
                                                       }
-                                                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors ${
+                                                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold cursor-pointer transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
                                                         isCur
                                                           ? 'bg-indigo-600 text-white'
                                                           : 'bg-slate-50 border border-slate-200 text-slate-600 hover:border-slate-400'
@@ -2567,9 +2592,11 @@ export function WorkflowKanbanView({
 
                           <button
                             type="button"
+                            disabled={isReadOnly}
+                            title={isReadOnly ? '项目已锁定，请先重新激活' : '发起对话派发新任务'}
                             onClick={() => setShowQuickTaskForm((v) => !v)}
-                            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors ${
-                              showQuickTaskForm
+                            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
+                              showQuickTaskForm && !isReadOnly
                                 ? 'bg-blue-600 text-white'
                                 : 'border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700'
                             }`}
@@ -2580,7 +2607,7 @@ export function WorkflowKanbanView({
                         </div>
 
                         {/* AI Conversation-Driven Task Planning Bar (No Traditional Manual Form) */}
-                        {showQuickTaskForm && (
+                        {showQuickTaskForm && !isReadOnly && (
                           <form
                             onSubmit={(e) => {
                               e.preventDefault();
@@ -2839,6 +2866,7 @@ export function WorkflowKanbanView({
                                             {!isExecuting && (
                                               <select
                                                 value={task.status}
+                                                disabled={isReadOnly}
                                                 onChange={(e) =>
                                                   onUpdateStatus(
                                                     task.id,
@@ -2846,8 +2874,12 @@ export function WorkflowKanbanView({
                                                   )
                                                 }
                                                 aria-label={`切换任务「${task.title}」阶段`}
-                                                title="变更阶段将 1:1 实时同步至「任务编排」并交接对应阶段专业 Agent"
-                                                className="h-7 rounded-md border border-slate-200 bg-white hover:bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer shrink-0"
+                                                title={
+                                                  isReadOnly
+                                                    ? '项目已只读锁定，请先重新激活'
+                                                    : '变更阶段将 1:1 实时同步至「任务编排」并交接对应阶段专业 Agent'
+                                                }
+                                                className="h-7 rounded-md border border-slate-200 bg-white hover:bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                                               >
                                                 <option value="pending">任务计划</option>
                                                 <option value="in_progress">任务执行</option>
@@ -2859,9 +2891,9 @@ export function WorkflowKanbanView({
                                             {task.status === 'pending' && !isExecuting && (
                                               <button
                                                 type="button"
-                                                disabled={Boolean(executingTaskId)}
+                                                disabled={isReadOnly || Boolean(executingTaskId)}
                                                 onClick={() => onRunTask(task.id)}
-                                                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45"
+                                                className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                               >
                                                 <Play className="w-3 h-3" />
                                                 <span>开始执行</span>
@@ -2876,8 +2908,9 @@ export function WorkflowKanbanView({
                                               ) : (
                                                 <button
                                                   type="button"
+                                                  disabled={isReadOnly}
                                                   onClick={() => onUpdateStatus(task.id, 'review')}
-                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white whitespace-nowrap cursor-pointer"
+                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-amber-500 hover:bg-amber-600 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                                 >
                                                   <span>提交验证</span>
                                                 </button>
@@ -2887,17 +2920,19 @@ export function WorkflowKanbanView({
                                               <>
                                                 <button
                                                   type="button"
+                                                  disabled={isReadOnly}
                                                   onClick={() => onUpdateStatus(task.id, 'done')}
-                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
+                                                  className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-md text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                                 >
                                                   <CheckCircle2 className="w-3.5 h-3.5" />
                                                   <span>验收完成</span>
                                                 </button>
                                                 <button
                                                   type="button"
+                                                  disabled={isReadOnly}
                                                   onClick={() => onUpdateStatus(task.id, 'pending')}
                                                   title="退回任务计划"
-                                                  className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer shrink-0"
+                                                  className="p-1.5 rounded-md border border-slate-200 text-slate-600 hover:text-slate-900 hover:bg-slate-50 cursor-pointer shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                                                 >
                                                   <RotateCcw className="w-3.5 h-3.5" />
                                                 </button>
@@ -2938,6 +2973,7 @@ export function WorkflowKanbanView({
                   projectTaskTypes[activePipelineProject.id] || DEFAULT_PROJECT_TASK_TYPES
                 }
                 agents={agents}
+                agentLeases={agentLeases}
                 computeNodes={computeNodes}
                 spaceSharedNodes={spaceSharedNodes}
                 zones={zones}
@@ -2951,6 +2987,10 @@ export function WorkflowKanbanView({
                 onApplyTaskTypePresetPack={onApplyTaskTypePresetPack}
                 onStartTemplateConversation={onStartTemplateConversation}
                 onJumpToSpaceAgents={onJumpToTeam}
+                onJumpToMarket={onJumpToMarket}
+                onReactivateProject={() =>
+                  onUpdateProjectLifecycle(activePipelineProject.id, 'active')
+                }
               />
             </div>
           )}

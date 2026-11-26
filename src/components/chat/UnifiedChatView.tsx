@@ -97,6 +97,7 @@ interface UnifiedChatViewProps {
     featureModule?: string;
     syncToGroup?: boolean;
   }) => Promise<void>;
+  onReactivateProject?: (projectId: string) => void;
 }
 
 export function UnifiedChatView({
@@ -156,6 +157,7 @@ export function UnifiedChatView({
   onJumpToMountPrivate,
   onCreateProjectForLauncher,
   onLaunchNewTaskSession,
+  onReactivateProject,
 }: UnifiedChatViewProps) {
   const activeDmThread =
     activeChannel.type === 'dm'
@@ -236,6 +238,7 @@ export function UnifiedChatView({
           onJumpToMarket={onJumpToMarket}
           onJumpToKanban={() => onJumpToKanban(activeWorkspace.id)}
           onJumpToTeam={onJumpToTeam}
+          onReactivateProject={onReactivateProject}
         />
       )}
 
@@ -262,6 +265,7 @@ export function UnifiedChatView({
           onBackToGroup={onSelectProjectChat}
           onSelectTaskSession={onOpenTaskSession}
           onCreateAndOpenTaskSession={onCreateAndOpenTaskSession}
+          onReactivateProject={onReactivateProject}
         />
       )}
 

@@ -5,11 +5,14 @@ import {
   Database,
   GitBranch,
   Layers,
+  Lock,
   MessageSquarePlus,
   Pencil,
   Plus,
+  RotateCcw,
   Server,
   Sparkles,
+  Store,
   Tag,
   Trash2,
   UserMinus,
@@ -18,6 +21,7 @@ import {
 } from 'lucide-react';
 import type {
   ActiveWorkflowStage,
+  AgentLeaseRecord,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
@@ -52,6 +56,7 @@ interface ProjectOrchestrationPanelProps {
   assignments: ProjectAgentAssignment[];
   taskTypes: ProjectTaskType[];
   agents: ExpertAgent[];
+  agentLeases?: Record<string, AgentLeaseRecord>;
   computeNodes: ComputeNode[];
   spaceSharedNodes?: SpaceSharedNode[];
   zones?: CommunityZone[];
@@ -90,6 +95,8 @@ interface ProjectOrchestrationPanelProps {
     options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
   ) => void;
   onJumpToSpaceAgents: () => void;
+  onJumpToMarket?: () => void;
+  onReactivateProject?: () => void;
 }
 
 const STAGE_ACTIVE_BUTTON_CLS: Record<ActiveWorkflowStage, string> = {
@@ -103,6 +110,7 @@ export function ProjectOrchestrationPanel({
   assignments,
   taskTypes,
   agents,
+  agentLeases = {},
   computeNodes,
   spaceSharedNodes = [],
   zones = [],
@@ -116,8 +124,12 @@ export function ProjectOrchestrationPanel({
   onApplyTaskTypePresetPack,
   onStartTemplateConversation,
   onJumpToSpaceAgents,
+  onJumpToMarket,
+  onReactivateProject,
 }: ProjectOrchestrationPanelProps) {
   const effectiveTaskTypes = taskTypes.length > 0 ? taskTypes : DEFAULT_PROJECT_TASK_TYPES;
+  const isReadOnly =
+    project.lifecycleStatus === 'completed' || project.lifecycleStatus === 'archived';
 
   const [subTab, setSubTab] = useState<OrchestrationSubTab>('agents');
   const [selectedAddAgentId, setSelectedAddAgentId] = useState<string>('');
@@ -159,15 +171,24 @@ export function ProjectOrchestrationPanel({
     [agentMap, assignments],
   );
 
+  // Commercial gatekeeping: only private owned experts, already contracted project members,
+  // or actively leased experts can be added directly in Task Orchestration.
   const availableAgentsToAdd = useMemo(
-    () => agents.filter((a) => !assignedAgentIds.has(a.id)),
-    [agents, assignedAgentIds],
+    () =>
+      agents.filter(
+        (a) =>
+          !assignedAgentIds.has(a.id) &&
+          (a.ownership === 'private' ||
+            project.hiredAgentIds.includes(a.id) ||
+            Boolean(agentLeases[a.id])),
+      ),
+    [agentLeases, agents, assignedAgentIds, project.hiredAgentIds],
   );
   const availablePrivateAgents = useMemo(
     () => availableAgentsToAdd.filter((a) => a.ownership === 'private'),
     [availableAgentsToAdd],
   );
-  const availableMarketAgents = useMemo(
+  const availableContractedAgents = useMemo(
     () => availableAgentsToAdd.filter((a) => a.ownership === 'marketplace'),
     [availableAgentsToAdd],
   );
@@ -284,6 +305,27 @@ export function ProjectOrchestrationPanel({
 
   return (
     <div className="space-y-4">
+      {isReadOnly && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-amber-900">
+            <Lock className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+            <span className="font-semibold">
+              该项目已{project.lifecycleStatus === 'archived' ? '归档' : '完成'}，当前任务编排为只读锁定状态。
+            </span>
+          </div>
+          {onReactivateProject && (
+            <button
+              type="button"
+              onClick={onReactivateProject}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-white border border-amber-300 hover:bg-amber-100 text-[11px] font-semibold text-amber-900 cursor-pointer whitespace-nowrap"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>重新激活项目</span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Compact Orchestration Summary: Project Info + Embedded Concurrent Stage-Expert List */}
       <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="px-4 py-3 space-y-1">
@@ -402,45 +444,60 @@ export function ProjectOrchestrationPanel({
           {/* Contextual Right Controls */}
           <div className="py-2 flex flex-wrap items-center gap-2 shrink-0">
             {subTab === 'agents' ? (
-              availableAgentsToAdd.length > 0 ? (
-                <>
-                  <select
-                    value={effectiveAddAgentId}
-                    onChange={(e) => setSelectedAddAgentId(e.target.value)}
-                    aria-label="选择要加入项目的专家 Agent"
-                    className="h-8 max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    {availablePrivateAgents.length > 0 && (
-                      <optgroup label="自建专业 Agent（Agent 团队）">
-                        {availablePrivateAgents.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {formatAgentDisplayName(a.handle, a.runtimeAgent)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {availableMarketAgents.length > 0 && (
-                      <optgroup label="市场专家 Agent">
-                        {availableMarketAgents.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {formatAgentDisplayName(a.handle, a.runtimeAgent)}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+              <>
+                {availableAgentsToAdd.length > 0 ? (
+                  <>
+                    <select
+                      value={effectiveAddAgentId}
+                      disabled={isReadOnly}
+                      onChange={(e) => setSelectedAddAgentId(e.target.value)}
+                      aria-label="选择要加入项目的可用专家 Agent"
+                      className="h-8 max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 disabled:opacity-50"
+                    >
+                      {availablePrivateAgents.length > 0 && (
+                        <optgroup label="自建专业 Agent（自有免租）">
+                          {availablePrivateAgents.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {formatAgentDisplayName(a.handle, a.runtimeAgent)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {availableContractedAgents.length > 0 && (
+                        <optgroup label="已签约 / 已租用专家">
+                          {availableContractedAgents.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {formatAgentDisplayName(a.handle, a.runtimeAgent)}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+                    <button
+                      type="button"
+                      disabled={isReadOnly}
+                      onClick={handleAddExpert}
+                      className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>添加专家</span>
+                    </button>
+                  </>
+                ) : (
+                  <span className="text-[11px] text-slate-400">已授权专家均已编排入队</span>
+                )}
+                {onJumpToMarket && !isReadOnly && (
                   <button
                     type="button"
-                    onClick={handleAddExpert}
-                    className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                    onClick={onJumpToMarket}
+                    title="外部市场专家需先通过服务市场签约或租用后方可加入编排"
+                    className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>添加专家</span>
+                    <Store className="w-3.5 h-3.5 text-blue-600" />
+                    <span>招募外部专家</span>
                   </button>
-                </>
-              ) : (
-                <span className="text-[11px] text-slate-400">全部可用专家均已加入该项目</span>
-              )
+                )}
+              </>
             ) : (
               <>
                 <div className="inline-flex items-center gap-1 p-0.5 rounded-lg bg-slate-100 border border-slate-200/80">
@@ -454,9 +511,10 @@ export function ProjectOrchestrationPanel({
                       <button
                         key={pack.id}
                         type="button"
+                        disabled={isReadOnly}
                         title={`${pack.summary}（点击一键切换本项目卡片模板）`}
                         onClick={() => handleApplyPack(pack.id)}
-                        className={`h-7 px-2.5 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                        className={`h-7 px-2.5 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
                           isApplied
                             ? 'bg-emerald-600 text-white'
                             : 'bg-white hover:bg-slate-50 text-slate-700'
@@ -470,8 +528,9 @@ export function ProjectOrchestrationPanel({
 
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => setShowAddTypeForm((v) => !v)}
-                  className={`inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors ${
+                  className={`inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
                     showAddTypeForm
                       ? 'bg-slate-200 text-slate-800'
                       : 'bg-slate-900 hover:bg-slate-800 text-white'
@@ -570,19 +629,21 @@ export function ProjectOrchestrationPanel({
                                   <button
                                     key={st.stage}
                                     type="button"
-                                    disabled={isOnlyOne}
+                                    disabled={isReadOnly || isOnlyOne}
                                     onClick={() => handleToggleAgentStage(item, st.stage)}
                                     title={
-                                      isOnlyOne
-                                        ? '每位专家至少保留 1 个工作流位置'
-                                        : active
-                                          ? `点击取消「${st.label}」位置`
-                                          : `点击加入「${st.label}」位置`
+                                      isReadOnly
+                                        ? '项目已只读锁定'
+                                        : isOnlyOne
+                                          ? '每位专家至少保留 1 个工作流位置'
+                                          : active
+                                            ? `点击取消「${st.label}」位置`
+                                            : `点击加入「${st.label}」位置`
                                     }
-                                    className={`h-7 px-2 rounded-md border text-[11px] font-semibold transition-colors whitespace-nowrap ${
+                                    className={`h-7 px-2 rounded-md border text-[11px] font-semibold transition-colors whitespace-nowrap disabled:opacity-55 ${
                                       active
                                         ? `${STAGE_ACTIVE_BUTTON_CLS[st.stage]} ${
-                                            isOnlyOne ? 'cursor-default' : 'cursor-pointer'
+                                            isOnlyOne || isReadOnly ? 'cursor-default' : 'cursor-pointer'
                                           }`
                                         : 'bg-white border-slate-200 text-slate-500 hover:border-slate-400 hover:text-slate-800 cursor-pointer'
                                     }`}
@@ -598,6 +659,7 @@ export function ProjectOrchestrationPanel({
                             <input
                               type="text"
                               value={item.roleNote}
+                              disabled={isReadOnly}
                               onChange={(e) =>
                                 onUpdateAgentAssignment(project.id, item.agentId, {
                                   roleNote: e.target.value,
@@ -605,7 +667,7 @@ export function ProjectOrchestrationPanel({
                               }
                               aria-label={`${agent.handle} 在本项目的职责`}
                               placeholder="如：需求拆解与方案评审"
-                              className="w-full h-7 rounded-md border border-slate-200 bg-slate-50/70 px-2.5 text-[11.5px] text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                              className="w-full h-7 rounded-md border border-slate-200 bg-slate-50/70 px-2.5 text-[11.5px] text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 disabled:opacity-60"
                             />
                           </td>
 
@@ -620,12 +682,13 @@ export function ProjectOrchestrationPanel({
                                 <button
                                   key={mode.id}
                                   type="button"
+                                  disabled={isReadOnly}
                                   onClick={() =>
                                     onUpdateAgentAssignment(project.id, item.agentId, {
                                       handoffMode: mode.id,
                                     })
                                   }
-                                  className={`px-2 py-1 rounded text-[10.5px] font-semibold cursor-pointer transition-colors ${
+                                  className={`px-2 py-1 rounded text-[10.5px] font-semibold cursor-pointer transition-colors disabled:opacity-55 disabled:cursor-not-allowed ${
                                     item.handoffMode === mode.id
                                       ? 'bg-white text-slate-900 shadow-2xs'
                                       : 'text-slate-500 hover:text-slate-800'
@@ -640,12 +703,14 @@ export function ProjectOrchestrationPanel({
                           <td className="py-2.5 pl-2 pr-4 align-middle text-right whitespace-nowrap">
                             <button
                               type="button"
-                              disabled={assignments.length <= 1}
+                              disabled={isReadOnly || assignments.length <= 1}
                               onClick={() => onRemoveAgentAssignment(project.id, item.agentId)}
                               title={
-                                assignments.length <= 1
-                                  ? '项目至少保留 1 位专家 Agent'
-                                  : `将 ${agent.handle} 移出本项目`
+                                isReadOnly
+                                  ? '项目已只读锁定'
+                                  : assignments.length <= 1
+                                    ? '项目至少保留 1 位专家 Agent'
+                                    : `将 ${agent.handle} 移出本项目`
                               }
                               className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
                             >
@@ -936,35 +1001,41 @@ export function ProjectOrchestrationPanel({
                           <div className="inline-flex items-center gap-1">
                             <button
                               type="button"
+                              disabled={isReadOnly}
                               onClick={() => onStartTemplateConversation(project.id, item.id)}
                               title={
-                                creators.length > 0
-                                  ? `与 ${creators
-                                      .map((c) => formatAgentDisplayName(c.handle, c.runtimeAgent))
-                                      .join(' / ')} 对话创作「${item.name}」任务卡`
-                                  : `进入项目群对话创作「${item.name}」任务卡`
+                                isReadOnly
+                                  ? '项目已只读锁定'
+                                  : creators.length > 0
+                                    ? `与 ${creators
+                                        .map((c) => formatAgentDisplayName(c.handle, c.runtimeAgent))
+                                        .join(' / ')} 对话创作「${item.name}」任务卡`
+                                    : `进入项目群对话创作「${item.name}」任务卡`
                               }
-                              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[11px] font-semibold text-blue-700 cursor-pointer whitespace-nowrap"
+                              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-[11px] font-semibold text-blue-700 cursor-pointer whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
                             >
                               <MessageSquarePlus className="w-3.5 h-3.5" />
                               <span>对话创作</span>
                             </button>
                             <button
                               type="button"
+                              disabled={isReadOnly}
                               onClick={() => startEditType(item)}
-                              title="编辑卡片模板与指定 Agent"
-                              className="p-1.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                              title={isReadOnly ? '项目已只读锁定' : '编辑卡片模板与指定 Agent'}
+                              className="p-1.5 rounded text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer disabled:opacity-35 disabled:cursor-not-allowed"
                             >
                               <Pencil className="w-3.5 h-3.5" />
                             </button>
                             <button
                               type="button"
-                              disabled={effectiveTaskTypes.length <= 1}
+                              disabled={isReadOnly || effectiveTaskTypes.length <= 1}
                               onClick={() => onDeleteTaskType(project.id, item.id)}
                               title={
-                                effectiveTaskTypes.length <= 1
-                                  ? '至少保留 1 个任务卡片模板'
-                                  : `删除「${item.name}」模板`
+                                isReadOnly
+                                  ? '项目已只读锁定'
+                                  : effectiveTaskTypes.length <= 1
+                                    ? '至少保留 1 个任务卡片模板'
+                                    : `删除「${item.name}」模板`
                               }
                               className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
                             >

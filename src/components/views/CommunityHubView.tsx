@@ -59,7 +59,12 @@ interface CommunityHubViewProps {
   onSendDm: (agentId: string, text: string) => Promise<void>;
   onStartNegotiation: (agentId: string) => void;
   onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
-  onAcquireSkill: (skillId: string, skillName?: string, priceUsd?: number) => void;
+  onAcquireSkill: (
+    skillId: string,
+    skillName?: string,
+    priceUsd?: number,
+    sourceZoneId?: string,
+  ) => void;
   onInviteTeamExpert: (input: {
     expertId: string;
     relation: ExpertRelationType;

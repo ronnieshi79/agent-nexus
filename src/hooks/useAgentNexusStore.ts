@@ -120,6 +120,107 @@ function formatUsd(amount: number): string {
   return `$${Math.round(amount).toLocaleString('en-US')}`;
 }
 
+function isWorkspaceReadOnly(workspace?: ProjectWorkspace | null): boolean {
+  return (
+    workspace?.lifecycleStatus === 'completed' || workspace?.lifecycleStatus === 'archived'
+  );
+}
+
+function isAgentAuthorizedForProject(
+  workspace: ProjectWorkspace | undefined,
+  agent: ExpertAgent,
+  leases: Record<string, AgentLeaseRecord>,
+): boolean {
+  if (agent.ownership === 'private') return true;
+  if (workspace && workspace.hiredAgentIds.includes(agent.id)) return true;
+  if (Boolean(leases[agent.id])) return true;
+  return false;
+}
+
+function buildArtifactFromTask(
+  task: WorkflowTask,
+  artifactPath?: string,
+  summary?: string,
+  updatedAt?: string,
+): ProjectArtifact {
+  const resolvedPath = artifactPath?.trim() || task.deliverableArtifact || `artifacts/${task.id}.md`;
+  const resolvedSummary = summary?.trim() || task.deliverableSummary || task.description;
+  const resolvedTime = updatedAt || task.updatedAt || nowTimeStr();
+  return {
+    id: `art_task_${task.id}`,
+    projectId: task.sessionId,
+    title: `${task.title}（${resolvedPath}）`,
+    kind:
+      task.workType === 'planning'
+        ? 'prd'
+        : task.workType === 'review'
+          ? 'architecture'
+          : 'code_test',
+    ownership: 'yours',
+    summary: resolvedSummary,
+    content: `来源任务：#${task.id} ${task.title}\n产物路径：${resolvedPath}\n\n${resolvedSummary}`,
+    sourceType: 'task_session',
+    sourceTaskId: task.id,
+    authorName: task.assigneeHandle.replace(/^@/, ''),
+    authorType: 'agent',
+    version: 'v1.0',
+    updatedAt: resolvedTime,
+    tags: [task.featureModule || '任务交付', '任务自动生成'],
+  };
+}
+
+function mapStatusToActiveStage(status: TaskStatus): ActiveWorkflowStage | null {
+  if (status === 'pending') return 'planning';
+  if (status === 'in_progress') return 'development';
+  if (status === 'review') return 'testing';
+  return null;
+}
+
+function pickLoadBalancedStageAgent(
+  projectId: string,
+  targetStage: ActiveWorkflowStage,
+  currentAssigneeId: string | undefined,
+  assignments: ProjectAgentAssignment[],
+  allAgents: ExpertAgent[],
+  tasks: WorkflowTask[],
+  excludeAgentId?: string,
+): ExpertAgent | undefined {
+  const candidates = assignments
+    .filter(
+      (a) =>
+        a.stages.includes(targetStage) &&
+        a.agentId !== excludeAgentId &&
+        allAgents.some((ag) => ag.id === a.agentId),
+    )
+    .map((a) => allAgents.find((ag) => ag.id === a.agentId)!)
+    .filter(Boolean);
+
+  if (candidates.length === 0) return undefined;
+
+  // Keep current assignee if they are already stationed at this stage and not excluded
+  if (
+    currentAssigneeId &&
+    currentAssigneeId !== excludeAgentId &&
+    candidates.some((c) => c.id === currentAssigneeId)
+  ) {
+    return candidates.find((c) => c.id === currentAssigneeId);
+  }
+
+  // Load-balance across concurrent experts stationed at this stage by active task count
+  let best = candidates[0];
+  let bestLoad = Number.POSITIVE_INFINITY;
+  for (const ag of candidates) {
+    const load = tasks.filter(
+      (t) => t.sessionId === projectId && t.status !== 'done' && t.assigneeId === ag.id,
+    ).length;
+    if (load < bestLoad) {
+      bestLoad = load;
+      best = ag;
+    }
+  }
+  return best;
+}
+
 export interface CreateWorkCardInput {
   sessionId?: string;
   featureModule: string;
@@ -200,7 +301,10 @@ export function useAgentNexusStore() {
     useState<Record<string, AgentLeaseRecord>>(INITIAL_AGENT_LEASES);
   const [purchasedSkillIds, setPurchasedSkillIds] = useState<string[]>([
     'skill_ts_scaffold',
+    'skill_git_pr_guard',
+    'skill_playwright_suite',
     'skill_stripe_idempotency',
+    'skill_custom_internal_pay',
     'skill_robot_cloud_mcp',
   ]);
   const [teamExperts, setTeamExperts] = useState<TeamExpertMembership[]>(INITIAL_TEAM_EXPERTS);
@@ -229,7 +333,15 @@ export function useAgentNexusStore() {
         ...INITIAL_PROJECT_AGENT_ASSIGNMENTS,
       }),
   );
-  const [artifacts, setArtifacts] = useState<ProjectArtifact[]>(INITIAL_PROJECT_ARTIFACTS);
+  const [artifacts, setArtifacts] = useState<ProjectArtifact[]>(() => {
+    const existingTaskIds = new Set(
+      INITIAL_PROJECT_ARTIFACTS.map((a) => a.sourceTaskId).filter(Boolean),
+    );
+    const derived = INITIAL_TASKS.filter(
+      (t) => Boolean(t.deliverableArtifact) && !existingTaskIds.has(t.id),
+    ).map((t) => buildArtifactFromTask(t));
+    return [...INITIAL_PROJECT_ARTIFACTS, ...derived];
+  });
   const [marketSkills, setMarketSkills] = useState<MarketSkill[]>(INITIAL_MARKET_SKILLS);
   const [activeCommunityTab, setActiveCommunityTab] = useState<CommunityHubTab>('social_all');
 
@@ -489,16 +601,54 @@ export function useAgentNexusStore() {
     [account?.name, workspaces],
   );
 
+  const upsertTaskDeliverableArtifact = useCallback(
+    (task: WorkflowTask, artifactPath?: string, summary?: string, updatedAt?: string) => {
+      const resolvedPath = artifactPath?.trim() || task.deliverableArtifact;
+      if (!resolvedPath) return;
+      const nextArt = buildArtifactFromTask(task, resolvedPath, summary, updatedAt);
+      setArtifacts((prev) => {
+        const idx = prev.findIndex((a) => a.sourceTaskId === task.id || a.id === nextArt.id);
+        if (idx === -1) return [nextArt, ...prev];
+        const existing = prev[idx];
+        const updated: ProjectArtifact = {
+          ...existing,
+          title: nextArt.title,
+          summary: nextArt.summary,
+          content: nextArt.content,
+          authorName: nextArt.authorName,
+          updatedAt: nextArt.updatedAt,
+        };
+        const copy = [...prev];
+        copy[idx] = updated;
+        return copy;
+      });
+    },
+    [],
+  );
+
   const shareArtifactToProjectChat = useCallback(
     (artifactId: string, targetProjectId: string, note?: string) => {
-      const targetArt = artifacts.find((a) => a.id === artifactId);
       const targetProj = workspaces.find((w) => w.id === targetProjectId);
-      if (!targetArt || !targetProj) return;
+      if (!targetProj || isWorkspaceReadOnly(targetProj)) return;
+      let targetArt = artifacts.find((a) => a.id === artifactId);
+      if (!targetArt && artifactId.startsWith('art_task_')) {
+        const sourceTaskId = artifactId.replace(/^art_task_/, '');
+        const sourceTask = allTasks.find((t) => t.id === sourceTaskId);
+        if (sourceTask) {
+          targetArt = buildArtifactFromTask(sourceTask);
+          const materialized = targetArt;
+          setArtifacts((prev) =>
+            prev.some((a) => a.id === materialized.id) ? prev : [materialized, ...prev],
+          );
+        }
+      }
+      if (!targetArt) return;
       const ts = nowTimeStr();
       const senderName = account?.name || '林致远（我）';
+      const resolvedArt = targetArt;
       setArtifacts((prev) =>
         prev.map((a) =>
-          a.id === artifactId
+          a.id === resolvedArt.id
             ? {
                 ...a,
                 sharedToProjectIds: Array.from(
@@ -517,8 +667,8 @@ export function useAgentNexusStore() {
           senderId: 'employer',
           senderName,
           senderHandle: `@${senderName}`,
-          content: `📎 分享了 Artifact「${targetArt.title}」（${targetArt.version}）：${
-            note?.trim() || targetArt.summary
+          content: `📎 分享了 Artifact「${resolvedArt.title}」（${resolvedArt.version}）：${
+            note?.trim() || resolvedArt.summary
           }`,
           timestamp: ts,
         },
@@ -528,14 +678,14 @@ export function useAgentNexusStore() {
           id: `aud_art_share_${Date.now()}`,
           category: 'general',
           title: `已分享 Artifact 至项目群「${targetProj.name}」`,
-          detail: `产物：${targetArt.title}（${targetArt.version}）`,
+          detail: `产物：${resolvedArt.title}（${resolvedArt.version}）`,
           severity: 'success',
           timestamp: ts,
         },
         ...prev,
       ]);
     },
-    [account?.name, artifacts, workspaces],
+    [account?.name, allTasks, artifacts, workspaces],
   );
 
   const toggleStarArtifact = useCallback((artifactId: string) => {
@@ -574,7 +724,7 @@ export function useAgentNexusStore() {
           category: 'general',
           title: currentlyJoined ? `已退出私有社区：${target.name}` : `已加入私有社区：${target.name}`,
           detail: currentlyJoined
-            ? '已从服务市场与社区交流的可切换社区列表中移除，可随时在「AGN空间 → 空间资源 → 协作社区」重新加入。'
+            ? '已从服务市场与社区交流的可切换社区列表中移除，可随时在「AGN空间 → Agent 团队 → Agent 社区」重新加入。'
             : `社区类型：${target.typeLabel}；已同步开放至「AGN 社区」切换器。`,
           severity: currentlyJoined ? 'info' : 'success',
           timestamp: nowTimeStr(),
@@ -1118,6 +1268,11 @@ export function useAgentNexusStore() {
           ? boundNodeIds
           : computeNodes.filter((n) => n.status === 'online').slice(0, 1).map((n) => n.id);
       const resolvedVolumeId = storageVolumeId || storageVolumes[0]?.id;
+      const defaultInitialAgents = ['agent_pm_lin', 'agent_dev_us', 'agent_qa_peer'].filter((id) =>
+        agents.some((a) => a.id === id),
+      );
+      const initialRosterIds =
+        defaultInitialAgents.length > 0 ? defaultInitialAgents : agents.slice(0, 1).map((a) => a.id);
       const newWorkspace: ProjectWorkspace = {
         id: newId,
         name: cleanedName,
@@ -1129,67 +1284,41 @@ export function useAgentNexusStore() {
         sourceZoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
         budgetCapUsd: 8000,
-        spentUsd: 1200,
-        hiredAgentIds: ['agent_pm_lin'],
+        spentUsd: 0,
+        hiredAgentIds: initialRosterIds,
       };
       const ts = nowTimeStr();
-      setWorkspaces((prev) => [newWorkspace, ...prev]);
-      setProjectPipelines((prev) => ({
-        ...prev,
-        [newId]: [
+      const initialNewAssignments: ProjectAgentAssignment[] = (
+        [
           {
-            stage: 'planning',
-            roleTitle: '主产品架构师',
             agentId: 'agent_pm_lin',
+            stages: ['planning'],
+            roleNote: '任务规划与需求拆解',
             handoffMode: 'manual',
-            deliverableContract: 'PRD 规格书、功能范围与验收清单',
           },
           {
-            stage: 'development',
-            roleTitle: '核心研发工程师',
             agentId: 'agent_dev_us',
+            stages: ['development'],
+            roleNote: '主力方案落地与执行',
             handoffMode: 'auto',
-            deliverableContract: '核心功能代码、API 实现与构建产物',
           },
           {
-            stage: 'testing',
-            roleTitle: '质量验收工程师',
-            agentId: 'agent_qa_eu',
-            handoffMode: 'auto',
-            deliverableContract: '端到端自动化用例与回归验证报告',
-          },
-          {
-            stage: 'review',
-            roleTitle: '安全与架构审查官',
-            agentId: 'agent_review_my',
+            agentId: 'agent_qa_peer',
+            stages: ['testing'],
+            roleNote: '交付验证与回归把关',
             handoffMode: 'manual',
-            deliverableContract: '性能审计、安全复核与上线签字',
           },
-        ],
-      }));
-      const initialNewAssignments: ProjectAgentAssignment[] = [
-        {
-          agentId: 'agent_pm_lin',
-          stages: ['planning'],
-          roleNote: '任务规划与需求拆解',
-          handoffMode: 'manual',
-        },
-        {
-          agentId: 'agent_dev_us',
-          stages: ['development'],
-          roleNote: '主力方案落地与执行',
-          handoffMode: 'auto',
-        },
-        {
-          agentId: 'agent_qa_zero',
-          stages: ['testing'],
-          roleNote: '交付验证与回归把关',
-          handoffMode: 'manual',
-        },
-      ];
+        ] as ProjectAgentAssignment[]
+      ).filter((a) => agents.some((ag) => ag.id === a.agentId));
+
+      setWorkspaces((prev) => [newWorkspace, ...prev]);
       setProjectAgentAssignments((prev) => ({
         ...prev,
         [newId]: initialNewAssignments,
+      }));
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [newId]: syncSlotsFromAssignments(initialNewAssignments),
       }));
       setProjectTaskTypes((prev) => ({
         ...prev,
@@ -1218,7 +1347,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 节点与持久化存储，默认接入 @产品策划师。你可以在任务编排中定义任务卡片类型与各阶段专业 Agent。`,
+          content: `已创建项目群「${newWorkspace.name}」，已关联 Agent 节点与持久化存储，默认编排计划/执行/验证 3 位基础专家。你可以在「任务编排」中调整专家与卡片模板。`,
           timestamp: ts,
         },
       ]);
@@ -1227,7 +1356,7 @@ export function useAgentNexusStore() {
           id: `aud_${Date.now()}`,
           category: 'audit',
           title: `新建主管项目「${newWorkspace.name}」`,
-          detail: `已挂载 Agent 算力节点与共享存储卷，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}。`,
+          detail: `已挂载 Agent 算力节点与共享存储卷，项目总预算设定为 ${formatUsd(newWorkspace.budgetCapUsd)}，初始已用 $0。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -1235,7 +1364,7 @@ export function useAgentNexusStore() {
       ]);
       return newId;
     },
-    [computeNodes, storageVolumes],
+    [agents, computeNodes, storageVolumes],
   );
 
   const publishZoneProject = useCallback(
@@ -1253,17 +1382,50 @@ export function useAgentNexusStore() {
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_${Date.now().toString().slice(-5)}`;
       const newOppId = `zproj_${Date.now().toString().slice(-5)}`;
+      const resolvedNodes = computeNodes
+        .filter((n) => n.status === 'online')
+        .slice(0, 1)
+        .map((n) => n.id);
+      const resolvedVolumeId = storageVolumes[0]?.id;
+      const defaultRoster = ['agent_pm_lin', 'agent_dev_us', 'agent_qa_peer'].filter((id) =>
+        agents.some((a) => a.id === id),
+      );
+      const initialAssignments: ProjectAgentAssignment[] = (
+        [
+          {
+            agentId: 'agent_pm_lin',
+            stages: ['planning'],
+            roleNote: '项目范围拆解与需求规划',
+            handoffMode: 'manual',
+          },
+          {
+            agentId: 'agent_dev_us',
+            stages: ['development'],
+            roleNote: '核心研发与方案实现',
+            handoffMode: 'auto',
+          },
+          {
+            agentId: 'agent_qa_peer',
+            stages: ['testing'],
+            roleNote: '交付回归与质量验证',
+            handoffMode: 'manual',
+          },
+        ] as ProjectAgentAssignment[]
+      ).filter((a) => agents.some((ag) => ag.id === a.agentId));
 
       const newWorkspace: ProjectWorkspace = {
         id: newWorkspaceId,
         name: cleanedTitle,
         goal: input.summary.trim() || `已发布至「${zoneName}」招募社区专家团队协同交付`,
         role: 'leading',
+        lifecycleStatus: 'active',
+        boundNodeIds: resolvedNodes,
+        storageVolumeId: resolvedVolumeId,
         sourceZoneId: input.zoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
         budgetCapUsd: Math.max(1000, Math.round(input.budgetUsd)),
         spentUsd: 0,
-        hiredAgentIds: ['agent_pm_lin'],
+        hiredAgentIds: defaultRoster.length > 0 ? defaultRoster : ['agent_pm_lin'],
       };
 
       const newOpp: ZoneProjectOpportunity = {
@@ -1284,6 +1446,27 @@ export function useAgentNexusStore() {
       };
 
       setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [newWorkspaceId]: initialAssignments,
+      }));
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [newWorkspaceId]: syncSlotsFromAssignments(initialAssignments),
+      }));
+      setProjectTaskTypes((prev) => ({
+        ...prev,
+        [newWorkspaceId]: buildTaskTypesFromPack('engineering', initialAssignments),
+      }));
+      if (resolvedVolumeId) {
+        setStorageVolumes((prev) =>
+          prev.map((v) =>
+            v.id === resolvedVolumeId
+              ? { ...v, boundProjectIds: Array.from(new Set([...v.boundProjectIds, newWorkspaceId])) }
+              : v,
+          ),
+        );
+      }
       setZoneProjects((prev) => [newOpp, ...prev]);
       setCommunityPosts((prev) => [
         {
@@ -1317,7 +1500,7 @@ export function useAgentNexusStore() {
           senderId: 'butler',
           senderName: 'Nexa 助理',
           senderHandle: '@Nexa',
-          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天）。你可以前往「服务市场 → ${zoneName}」主动咨询专家与 Agent 报价。`,
+          content: `已将项目「${cleanedTitle}」发布至「${zoneName}」项目大厅（预算 ${formatUsd(newOpp.budgetUsd)} · 周期 ${newOpp.durationDays} 天），并已初始化项目看板、任务编排与默认工作流模板。`,
           timestamp: ts,
         },
       ]);
@@ -1326,7 +1509,7 @@ export function useAgentNexusStore() {
           id: `aud_pub_${Date.now()}`,
           category: 'order',
           title: `已向「${zoneName}」发布项目：${cleanedTitle}`,
-          detail: `项目预算 ${formatUsd(newOpp.budgetUsd)}，并已同步建立加密项目群聊。`,
+          detail: `项目预算 ${formatUsd(newOpp.budgetUsd)}，已同步建立项目工作台与初始任务编排。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -1335,7 +1518,7 @@ export function useAgentNexusStore() {
 
       return newWorkspaceId;
     },
-    [account, zones],
+    [account, agents, computeNodes, storageVolumes, zones],
   );
 
   const claimZoneProject = useCallback(
@@ -1345,23 +1528,47 @@ export function useAgentNexusStore() {
       const zoneName = zones.find((z) => z.id === opp.zoneId)?.name || 'Agent 社区';
       const ts = nowTimeStr();
       const newWorkspaceId = `ses_part_${Date.now().toString().slice(-5)}`;
-      const myPrivateIds = agents
-        .filter((a) => a.ownership === 'private')
-        .slice(0, 2)
-        .map((a) => a.id);
-      const assignedAgent =
-        agents.find((a) => a.id === myPrivateIds[0]) || agents[0];
+      const myPrivateAgents = agents.filter((a) => a.ownership === 'private').slice(0, 3);
+      const rosterAgents =
+        myPrivateAgents.length > 0
+          ? myPrivateAgents
+          : agents.filter((a) => a.id === 'agent_pm_lin').slice(0, 1);
+      const rosterIds = rosterAgents.map((a) => a.id);
+      const assignedAgent = rosterAgents[0] || agents[0];
+      const resolvedNodes = computeNodes
+        .filter((n) => n.status === 'online')
+        .slice(0, 1)
+        .map((n) => n.id);
+      const resolvedVolumeId = storageVolumes[0]?.id;
+
+      const initialAssignments: ProjectAgentAssignment[] = rosterAgents.map((ag, idx) => {
+        const defaultStages = getDefaultStagesForAgentCategory(ag.category);
+        // Ensure at least the first agent covers planning so kickoff works cleanly
+        const stages: ActiveWorkflowStage[] =
+          idx === 0 && !defaultStages.includes('planning')
+            ? ['planning', ...defaultStages]
+            : defaultStages;
+        return {
+          agentId: ag.id,
+          stages,
+          roleNote: ag.title,
+          handoffMode: stages.includes('development') ? 'auto' : 'manual',
+        };
+      });
 
       const newWorkspace: ProjectWorkspace = {
         id: newWorkspaceId,
         name: opp.title,
         goal: `承接「${zoneName}」社区共创项目：${opp.summary}`,
         role: 'participating',
+        lifecycleStatus: 'active',
+        boundNodeIds: resolvedNodes,
+        storageVolumeId: resolvedVolumeId,
         sourceZoneId: opp.zoneId,
         workspaceTier: '加密持久化工作区 (50GB)',
         budgetCapUsd: opp.budgetUsd,
         spentUsd: 0,
-        hiredAgentIds: myPrivateIds.length > 0 ? myPrivateIds : ['agent_pm_lin'],
+        hiredAgentIds: rosterIds.length > 0 ? rosterIds : ['agent_pm_lin'],
       };
 
       const kickoffTask: WorkflowTask = {
@@ -1380,6 +1587,27 @@ export function useAgentNexusStore() {
       };
 
       setWorkspaces((prev) => [newWorkspace, ...prev]);
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [newWorkspaceId]: initialAssignments,
+      }));
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [newWorkspaceId]: syncSlotsFromAssignments(initialAssignments),
+      }));
+      setProjectTaskTypes((prev) => ({
+        ...prev,
+        [newWorkspaceId]: buildTaskTypesFromPack('engineering', initialAssignments),
+      }));
+      if (resolvedVolumeId) {
+        setStorageVolumes((prev) =>
+          prev.map((v) =>
+            v.id === resolvedVolumeId
+              ? { ...v, boundProjectIds: Array.from(new Set([...v.boundProjectIds, newWorkspaceId])) }
+              : v,
+          ),
+        );
+      }
       setZoneProjects((prev) =>
         prev.map((p) =>
           p.id === oppId ? { ...p, status: 'claimed', linkedWorkspaceId: newWorkspaceId } : p,
@@ -1395,7 +1623,7 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已承接「${zoneName}」社区共创项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已进驻项目群并立项首张工作卡片。`,
+          content: `已承接「${zoneName}」社区共创项目「${opp.title}」（合同预算 ${formatUsd(opp.budgetUsd)}），我方 Agent 团队已完成任务编排进驻并立项首张工作卡片。`,
           timestamp: ts,
           linkedTaskIds: [kickoffTask.id],
         },
@@ -1405,7 +1633,7 @@ export function useAgentNexusStore() {
           id: `aud_claim_${Date.now()}`,
           category: 'order',
           title: `已承接「${zoneName}」项目：${opp.title}`,
-          detail: `已归入「工作台 → 我的项目（我参与）」，首张交付卡片已同步项目看板。`,
+          detail: `已归入「项目工作台 → 项目概要（我参与）」，首张交付卡片与任务编排已同步就绪。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -1414,7 +1642,7 @@ export function useAgentNexusStore() {
 
       return newWorkspaceId;
     },
-    [agents, zoneProjects, zones],
+    [agents, computeNodes, storageVolumes, zoneProjects, zones],
   );
 
   const createCommunityPost = useCallback(
@@ -1516,6 +1744,8 @@ export function useAgentNexusStore() {
         summary: cleanedSummary || '社区成员发布的标准化能力包，可直接挂载至 Agent 节点复用。',
         category: input.category,
         kind: input.kind,
+        origin: 'custom',
+        isPrivate: false,
         compatibleRuntimes: ['Claude Code', 'Codex', 'Gemini CLI', 'Qoder'],
         authorName: author,
         version: 'v1.0.0',
@@ -1529,12 +1759,13 @@ export function useAgentNexusStore() {
           input.kind === 'mcp' ? `anx mcp install ${slug}` : `anx skill add ${slug}`,
         highlights: [
           cleanedSummary || '开箱即用的标准化 Prompt / MCP 能力封装',
-          '由社区成员公开发布，自动同步至服务市场供按需复用',
+          '由团队自建并分发至 Agent 社区，同时保留在 AGN空间资产库供自建 Agent 加载',
         ],
         readmeSnippet: `---\nname: ${slugBase}\nkind: ${input.kind}\n---\n${cleanedSummary || cleanedName}`,
       };
 
       setMarketSkills((prev) => [newSkill, ...prev]);
+      setPurchasedSkillIds((prev) => (prev.includes(id) ? prev : [id, ...prev]));
       createCommunityPost({
         zoneId: input.zoneId,
         type: 'skill_share',
@@ -1628,6 +1859,8 @@ export function useAgentNexusStore() {
   const createWorkCard = useCallback(
     (input: CreateWorkCardInput) => {
       const targetSessionId = input.sessionId || activeWorkspace.id;
+      const targetProj = workspaces.find((w) => w.id === targetSessionId);
+      if (isWorkspaceReadOnly(targetProj)) return undefined;
       const assignee = agents.find((a) => a.id === input.assigneeId);
       const ts = nowTimeStr();
       const newTask: WorkflowTask = {
@@ -1662,12 +1895,14 @@ export function useAgentNexusStore() {
       ]);
       return newTask;
     },
-    [activeWorkspace.id, agents],
+    [activeWorkspace.id, agents, workspaces],
   );
 
   const createAndOpenTaskSession = useCallback(
     (input: CreateWorkCardInput) => {
       const targetSessionId = input.sessionId || activeWorkspace.id;
+      const targetProj = workspaces.find((w) => w.id === targetSessionId);
+      if (isWorkspaceReadOnly(targetProj)) return undefined;
       const assignee = agents.find((a) => a.id === input.assigneeId);
       const ts = nowTimeStr();
       const newTask: WorkflowTask = {
@@ -1734,7 +1969,7 @@ export function useAgentNexusStore() {
       setTaskSessionError(null);
       return newTask;
     },
-    [activeWorkspace.id, agents],
+    [activeWorkspace.id, agents, workspaces],
   );
 
   const launchNewTaskSessionFromPrompt = useCallback(
@@ -1752,7 +1987,17 @@ export function useAgentNexusStore() {
       const targetSessionId = input.sessionId || activeWorkspace.id;
       const targetWorkspace =
         workspaces.find((w) => w.id === targetSessionId) || activeWorkspace;
+      if (isWorkspaceReadOnly(targetWorkspace)) {
+        setTaskSessionError('该项目已完成或归档，请先在项目概要中重新激活后再派发新任务。');
+        return;
+      }
       const assignee = agents.find((a) => a.id === input.assigneeId) || agents[0];
+      if (assignee && !isAgentAuthorizedForProject(targetWorkspace, assignee, agentLeases)) {
+        setTaskSessionError(
+          `${assignee.handle} 尚未在本项目签约或租用，请先在「AGN 社区 → 服务市场」完成签约或租用。`,
+        );
+        return;
+      }
       const ts = nowTimeStr();
 
       // Derive clean concise task title from the first line of the prompt
@@ -1775,7 +2020,7 @@ export function useAgentNexusStore() {
         updatedAt: ts,
       };
 
-      // Ensure the selected expert agent is linked to the project workspace for seamless collaboration
+      // Sync authorized private/leased agent into workspace roster & orchestration if not yet linked
       if (assignee && !targetWorkspace.hiredAgentIds.includes(assignee.id)) {
         setWorkspaces((prev) =>
           prev.map((w) =>
@@ -1784,6 +2029,24 @@ export function useAgentNexusStore() {
               : w,
           ),
         );
+        const existingAssignments = projectAgentAssignments[targetSessionId] || [];
+        if (!existingAssignments.some((a) => a.agentId === assignee.id)) {
+          const stages = getDefaultStagesForAgentCategory(assignee.category);
+          const nextAssignments: ProjectAgentAssignment[] = [
+            ...existingAssignments,
+            {
+              agentId: assignee.id,
+              stages,
+              roleNote: assignee.title,
+              handoffMode: stages.includes('development') ? 'auto' : 'manual',
+            },
+          ];
+          setProjectAgentAssignments((prev) => ({ ...prev, [targetSessionId]: nextAssignments }));
+          setProjectPipelines((prev) => ({
+            ...prev,
+            [targetSessionId]: syncSlotsFromAssignments(nextAssignments, prev[targetSessionId]),
+          }));
+        }
       }
 
       const initialUserTurn: TaskSessionMessage = {
@@ -1862,19 +2125,42 @@ export function useAgentNexusStore() {
         if (shouldSyncMilestone) {
           const finalArtifact =
             result.artifactPath?.trim() || `artifacts/${newTask.id}_deliverable.md`;
-          setAllTasks((prev) =>
-            prev.map((t) =>
-              t.id === newTask.id
-                ? {
-                    ...t,
-                    status: 'review',
-                    deliverableSummary: result.reply,
-                    deliverableArtifact: finalArtifact,
-                    updatedAt: replyTs,
-                  }
-                : t,
-            ),
-          );
+          const assignments = projectAgentAssignments[targetSessionId] || [];
+          const completingAssignment = assignments.find((a) => a.agentId === newTask.assigneeId);
+          const isAutoHandoff = completingAssignment?.handoffMode === 'auto';
+          const verifierAgent = isAutoHandoff
+            ? pickLoadBalancedStageAgent(
+                targetSessionId,
+                'testing',
+                newTask.assigneeId,
+                assignments,
+                agents,
+                allTasks,
+              )
+            : undefined;
+          const nextAssigneeId = verifierAgent ? verifierAgent.id : newTask.assigneeId;
+          const nextAssigneeHandle = verifierAgent ? verifierAgent.handle : newTask.assigneeHandle;
+
+          const updatedTask: WorkflowTask = {
+            ...newTask,
+            status: 'review',
+            assigneeId: nextAssigneeId,
+            assigneeHandle: nextAssigneeHandle,
+            deliverableSummary: result.reply,
+            deliverableArtifact: finalArtifact,
+            updatedAt: replyTs,
+          };
+
+          setAllTasks((prev) => prev.map((t) => (t.id === newTask.id ? updatedTask : t)));
+          upsertTaskDeliverableArtifact(updatedTask, finalArtifact, result.reply, replyTs);
+        } else if (result.artifactPath?.trim()) {
+          const updatedTask: WorkflowTask = {
+            ...newTask,
+            deliverableArtifact: result.artifactPath.trim(),
+            updatedAt: replyTs,
+          };
+          setAllTasks((prev) => prev.map((t) => (t.id === newTask.id ? updatedTask : t)));
+          upsertTaskDeliverableArtifact(updatedTask, result.artifactPath.trim(), result.reply, replyTs);
         }
       } catch (err) {
         setTaskSessionError(
@@ -1884,7 +2170,15 @@ export function useAgentNexusStore() {
         setTaskSessionBusyId(null);
       }
     },
-    [activeWorkspace, agents, workspaces],
+    [
+      activeWorkspace,
+      agentLeases,
+      agents,
+      allTasks,
+      projectAgentAssignments,
+      upsertTaskDeliverableArtifact,
+      workspaces,
+    ],
   );
 
   const hireAgentIntoProject = useCallback(
@@ -1896,7 +2190,7 @@ export function useAgentNexusStore() {
       const targetProjectId = projectId || activeWorkspace.id;
       const targetProject = workspaces.find((w) => w.id === targetProjectId) || activeWorkspace;
       const target = agents.find((a) => a.id === agentId);
-      if (!target) return;
+      if (!target || isWorkspaceReadOnly(targetProject)) return;
 
       const contractedFee =
         target.ownership === 'private'
@@ -1934,6 +2228,29 @@ export function useAgentNexusStore() {
             ...prev,
           ]);
         }
+      }
+
+      // Sync hired expert directly into Task Orchestration (single source of truth)
+      const existingAssignments = projectAgentAssignments[targetProject.id] || [];
+      if (!existingAssignments.some((a) => a.agentId === agentId)) {
+        const stages = getDefaultStagesForAgentCategory(target.category);
+        const nextAssignments: ProjectAgentAssignment[] = [
+          ...existingAssignments,
+          {
+            agentId,
+            stages,
+            roleNote: initialCard?.scope?.trim() || target.title,
+            handoffMode: stages.includes('development') ? 'auto' : 'manual',
+          },
+        ];
+        setProjectAgentAssignments((prev) => ({
+          ...prev,
+          [targetProject.id]: nextAssignments,
+        }));
+        setProjectPipelines((prev) => ({
+          ...prev,
+          [targetProject.id]: syncSlotsFromAssignments(nextAssignments, prev[targetProject.id]),
+        }));
       }
 
       let createdTaskId: string | undefined;
@@ -1986,7 +2303,7 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已签约${sourceText} ${target.handle}（${modeText}${feeText}）加入项目群「${targetProject.name}」。`,
+          content: `已签约${sourceText} ${target.handle}（${modeText}${feeText}）加入项目群「${targetProject.name}」，并已同步至「任务编排」。`,
           timestamp: ts,
         },
         {
@@ -2011,7 +2328,7 @@ export function useAgentNexusStore() {
           id: `aud_hire_${Date.now()}`,
           category: 'order',
           title: `已签约 ${target.handle} 加入「${targetProject.name}」`,
-          detail: `${modeText}${feeText}；已按最小权限授予加密工作区挂载凭证。`,
+          detail: `${modeText}${feeText}；已按最小权限授予加密工作区挂载凭证并同步至任务编排。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -2021,7 +2338,7 @@ export function useAgentNexusStore() {
       setActiveSessionId(targetProject.id);
       setActiveChatChannel({ type: 'group', projectId: targetProject.id });
     },
-    [activeWorkspace, agents, workspaces],
+    [activeWorkspace, agents, projectAgentAssignments, workspaces],
   );
 
   const hireAgent = useCallback(
@@ -2036,8 +2353,11 @@ export function useAgentNexusStore() {
       const targetProjectId = projectId || activeWorkspace.id;
       const target = agents.find((a) => a.id === agentId);
       const proj = workspaces.find((w) => w.id === targetProjectId);
-      if (!target) return;
+      if (!target || isWorkspaceReadOnly(proj)) return;
       const ts = nowTimeStr();
+
+      const existingAssignments = projectAgentAssignments[targetProjectId] || [];
+      const nextAssignments = existingAssignments.filter((a) => a.agentId !== agentId);
 
       setWorkspaces((prev) =>
         prev.map((w) =>
@@ -2046,6 +2366,60 @@ export function useAgentNexusStore() {
             : w,
         ),
       );
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [targetProjectId]: nextAssignments,
+      }));
+      setProjectPipelines((prev) => ({
+        ...prev,
+        [targetProjectId]: syncSlotsFromAssignments(nextAssignments, prev[targetProjectId]),
+      }));
+      setProjectTaskTypes((prev) => {
+        const list = prev[targetProjectId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [targetProjectId]: list.map((tpl) => ({
+            ...tpl,
+            creatorAgentIds: (tpl.creatorAgentIds || []).filter((id) => id !== agentId),
+          })),
+        };
+      });
+
+      // Reassign unfinished tasks owned by the released agent so no ghost assignees remain on Kanban
+      const affectedTasks = allTasks.filter(
+        (t) => t.sessionId === targetProjectId && t.status !== 'done' && t.assigneeId === agentId,
+      );
+      if (affectedTasks.length > 0) {
+        const fallbackAgent = nextAssignments
+          .map((a) => agents.find((ag) => ag.id === a.agentId))
+          .find((ag): ag is ExpertAgent => Boolean(ag));
+
+        setAllTasks((prev) =>
+          prev.map((t) => {
+            if (t.sessionId !== targetProjectId || t.status === 'done' || t.assigneeId !== agentId) {
+              return t;
+            }
+            const stage = mapStatusToActiveStage(t.status) || 'development';
+            const replacement =
+              pickLoadBalancedStageAgent(
+                targetProjectId,
+                stage,
+                undefined,
+                nextAssignments,
+                agents,
+                prev,
+                agentId,
+              ) || fallbackAgent;
+            return {
+              ...t,
+              assigneeId: replacement ? replacement.id : 'butler',
+              assigneeHandle: replacement ? replacement.handle : '@Nexa',
+              updatedAt: ts,
+            };
+          }),
+        );
+      }
 
       setAllMessages((prev) => [
         ...prev,
@@ -2056,7 +2430,11 @@ export function useAgentNexusStore() {
           senderId: 'system',
           senderName: '系统协同同步',
           senderHandle: '系统通知',
-          content: `已将 ${target.handle} 移出该项目群，技能包与工作区访问权限已自动回收卸载。`,
+          content: `已将 ${target.handle} 移出该项目群与任务编排，权限已回收卸载${
+            affectedTasks.length > 0
+              ? `；名下 ${affectedTasks.length} 项未完成任务已自动转派给同阶段在岗专家`
+              : ''
+          }。`,
           timestamp: ts,
         },
       ]);
@@ -2066,14 +2444,16 @@ export function useAgentNexusStore() {
           id: `aud_rel_${Date.now()}`,
           category: 'audit',
           title: `权限自动回收：${target.handle}`,
-          detail: `已从「${proj?.name || '项目'}」卸载技能包并吊销工作区临时访问凭证。`,
+          detail: `已从「${proj?.name || '项目'}」卸载技能包、同步移出任务编排${
+            affectedTasks.length > 0 ? `并转派 ${affectedTasks.length} 项未完成任务` : ''
+          }。`,
           severity: 'info',
           timestamp: ts,
         },
         ...prev,
       ]);
     },
-    [activeWorkspace.id, agents, workspaces],
+    [activeWorkspace.id, agents, allTasks, projectAgentAssignments, workspaces],
   );
 
   const startOrOpenNegotiation = useCallback(
@@ -2341,6 +2721,7 @@ export function useAgentNexusStore() {
     (applicationId: string, decision: 'approved' | 'rejected') => {
       const app = spaceApplications.find((a) => a.id === applicationId);
       if (!app || app.status !== 'pending') return;
+      if (!managedZoneIdSet.has(app.zoneId)) return;
       const ts = nowTimeStr();
 
       setSpaceApplications((prev) =>
@@ -2375,6 +2756,9 @@ export function useAgentNexusStore() {
             };
           }),
         );
+        if (app.humanExpertId === 'human_me') {
+          setJoinedZoneIds((prev) => (prev.includes(app.zoneId) ? prev : [...prev, app.zoneId]));
+        }
       }
 
       const resolvedLabel = decision === 'approved' ? '已同意入驻' : '已拒绝';
@@ -2419,7 +2803,7 @@ export function useAgentNexusStore() {
         ...prev,
       ]);
     },
-    [spaceApplications],
+    [managedZoneIdSet, spaceApplications],
   );
 
   const sendAssistantMessage = useCallback(
@@ -2465,7 +2849,7 @@ export function useAgentNexusStore() {
             ? 'approval'
             : 'general';
 
-        const firstPendingApp = spaceApplications.find((a) => a.status === 'pending');
+        const firstPendingApp = managedSpaceApplications.find((a) => a.status === 'pending');
         const firstUnsettled = settlements.find((s) => s.status === 'unsettled');
         const firstActiveNeg = negotiations.find((n) => n.status !== 'hired');
 
@@ -2523,10 +2907,10 @@ export function useAgentNexusStore() {
     [
       allTasks,
       assistantMessages,
+      managedSpaceApplications,
       negotiations,
       privateAgents,
       settlements,
-      spaceApplications,
       workspaces,
     ],
   );
@@ -2615,6 +2999,10 @@ export function useAgentNexusStore() {
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      if (isWorkspaceReadOnly(activeWorkspace)) {
+        setAiError('该项目已完成或归档，请先重新激活项目后再发起群聊协作。');
+        return;
+      }
       setAiError(null);
 
       const userMsgId = `msg_user_${Date.now()}`;
@@ -2633,24 +3021,40 @@ export function useAgentNexusStore() {
       setAllMessages((prev) => [...prev, userMsg]);
       setIsAiBusy(true);
 
+      const curAssignments = projectAgentAssignments[activeWorkspace.id] || [];
+      const curTaskTypes = projectTaskTypes[activeWorkspace.id] || DEFAULT_PROJECT_TASK_TYPES;
+
       try {
         const result = await orchestrateGroupChat({
           message: trimmed,
           workspace: activeWorkspace,
           hiredAgents,
+          projectAssignments: curAssignments,
+          projectTaskTypes: curTaskTypes,
           recentMessages: nextSessionMessages,
           existingTasks: sessionTasks,
         });
 
         const ts = nowTimeStr();
         const validTypes = new Set<WorkCardType>(['planning', 'development', 'testing', 'review']);
+        const planningFallback = pickLoadBalancedStageAgent(
+          activeWorkspace.id,
+          'planning',
+          undefined,
+          curAssignments,
+          agents,
+          allTasks,
+        );
         const createdTasks: WorkflowTask[] = (result.newTasks || []).map((nt, idx) => {
-          const validAssignee = hiredAgents.find((a) => a.id === nt.assigneeId) || hiredAgents[0];
+          const validAssignee =
+            hiredAgents.find((a) => a.id === nt.assigneeId) ||
+            planningFallback ||
+            hiredAgents[0];
           const wType: WorkCardType = validTypes.has(nt.workType) ? nt.workType : 'development';
           return {
             id: `tsk_${Date.now().toString().slice(-4)}_${idx + 1}`,
             sessionId: activeWorkspace.id,
-            featureModule: nt.featureModule?.trim() || 'A功能 · 多币种结算',
+            featureModule: nt.featureModule?.trim() || `${activeWorkspace.name} · 核心模块`,
             workType: wType,
             title: nt.title,
             description: nt.description,
@@ -2690,15 +3094,25 @@ export function useAgentNexusStore() {
         setIsAiBusy(false);
       }
     },
-    [activeWorkspace, hiredAgents, sessionMessages, sessionTasks],
+    [
+      activeWorkspace,
+      agents,
+      allTasks,
+      hiredAgents,
+      projectAgentAssignments,
+      projectTaskTypes,
+      sessionMessages,
+      sessionTasks,
+    ],
   );
 
   const updateTaskStatus = useCallback(
     (taskId: string, nextStatus: TaskStatus) => {
       const target = allTasks.find((t) => t.id === taskId);
       if (!target || target.status === nextStatus) return;
-      const ts = nowTimeStr();
       const proj = workspaces.find((w) => w.id === target.sessionId);
+      if (isWorkspaceReadOnly(proj)) return;
+      const ts = nowTimeStr();
       const targetStage = STATUS_TO_STAGE[nextStatus];
       const stageMeta = getPipelineStageMetaByStatus(nextStatus);
       const assignments = projectAgentAssignments[target.sessionId] || [];
@@ -2706,14 +3120,20 @@ export function useAgentNexusStore() {
       const targetSlot = slots.find((s) => s.stage === targetStage);
 
       let targetStageAgent: ExpertAgent | undefined;
-      if (nextStatus === 'in_progress' || nextStatus === 'review') {
-        const activeTargetStage: ActiveWorkflowStage =
-          nextStatus === 'in_progress' ? 'development' : 'testing';
-        const stageExperts = assignments.filter((a) => a.stages.includes(activeTargetStage));
-        const currentAlreadyStationed = stageExperts.some((a) => a.agentId === target.assigneeId);
-        if (!currentAlreadyStationed) {
-          const pickedId = stageExperts[0]?.agentId || targetSlot?.agentId;
-          targetStageAgent = pickedId ? agents.find((a) => a.id === pickedId) : undefined;
+      const activeTargetStage = mapStatusToActiveStage(nextStatus);
+      if (activeTargetStage) {
+        const balanced = pickLoadBalancedStageAgent(
+          target.sessionId,
+          activeTargetStage,
+          target.assigneeId,
+          assignments,
+          agents,
+          allTasks,
+        );
+        if (balanced) {
+          targetStageAgent = balanced;
+        } else if (targetSlot?.agentId) {
+          targetStageAgent = agents.find((a) => a.id === targetSlot.agentId);
         }
       }
 
@@ -2723,18 +3143,15 @@ export function useAgentNexusStore() {
       const nextAssigneeId = shouldReassign ? targetStageAgent!.id : target.assigneeId;
       const nextAssigneeHandle = shouldReassign ? targetStageAgent!.handle : target.assigneeHandle;
 
-      const finalTasks = allTasks.map((t) =>
-        t.id === taskId
-          ? {
-              ...t,
-              status: nextStatus,
-              assigneeId: nextAssigneeId,
-              assigneeHandle: nextAssigneeHandle,
-              updatedAt: ts,
-            }
-          : t,
-      );
+      const updatedTask: WorkflowTask = {
+        ...target,
+        status: nextStatus,
+        assigneeId: nextAssigneeId,
+        assigneeHandle: nextAssigneeHandle,
+        updatedAt: ts,
+      };
 
+      const finalTasks = allTasks.map((t) => (t.id === taskId ? updatedTask : t));
       setAllTasks(finalTasks);
 
       if (shouldReassign && targetStageAgent) {
@@ -2748,6 +3165,14 @@ export function useAgentNexusStore() {
       }
 
       if (nextStatus === 'done') {
+        if (updatedTask.deliverableArtifact) {
+          upsertTaskDeliverableArtifact(
+            updatedTask,
+            updatedTask.deliverableArtifact,
+            updatedTask.deliverableSummary,
+            ts,
+          );
+        }
         setAllMessages((prev) => [
           ...prev,
           {
@@ -2797,7 +3222,7 @@ export function useAgentNexusStore() {
             category: 'audit',
             title: `任务流转至「${stageMeta.label}」`,
             detail: `${proj?.name || '项目'} · 「${target.title}」已进入「${TASK_STATUS_LABEL_MAP[nextStatus]}」${
-              shouldReassign ? `，已交接给阶段专业 Agent ${nextAssigneeHandle}` : ''
+              shouldReassign ? `，已按负载均衡交接给阶段专业 Agent ${nextAssigneeHandle}` : ''
             }，任务编排阶段进度已实时同步。`,
             severity: 'info',
             timestamp: ts,
@@ -2806,7 +3231,14 @@ export function useAgentNexusStore() {
         ]);
       }
     },
-    [agents, allTasks, projectAgentAssignments, projectPipelines, workspaces],
+    [
+      agents,
+      allTasks,
+      projectAgentAssignments,
+      projectPipelines,
+      upsertTaskDeliverableArtifact,
+      workspaces,
+    ],
   );
 
   const openTaskSession = useCallback(
@@ -3055,6 +3487,10 @@ export function useAgentNexusStore() {
 
       const assignedAgent = agents.find((a) => a.id === task.assigneeId);
       const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
+      if (isWorkspaceReadOnly(taskWorkspace)) {
+        setTaskSessionError('该项目已完成或归档，请先重新激活项目后再继续任务会话。');
+        return;
+      }
       const prevHistory = taskSessions[taskId] || [];
       const ts = nowTimeStr();
 
@@ -3135,23 +3571,46 @@ export function useAgentNexusStore() {
         if (shouldSyncMilestone) {
           const finalArtifact =
             result.artifactPath?.trim() || task.deliverableArtifact || `artifacts/${task.id}_deliverable.md`;
-          const milestoneText =
-            result.groupMilestoneSummary?.trim() ||
-            `已完成「${task.title}」本轮 Agent Session 迭代并提交待验证（产物：${finalArtifact}）。`;
+          const assignments = projectAgentAssignments[task.sessionId] || [];
+          const currentAssignment = assignments.find((a) => a.agentId === task.assigneeId);
+          const isAutoHandoff = currentAssignment?.handoffMode === 'auto';
+          const verifierAgent = isAutoHandoff
+            ? pickLoadBalancedStageAgent(
+                task.sessionId,
+                'testing',
+                task.assigneeId,
+                assignments,
+                agents,
+                allTasks,
+              )
+            : undefined;
+          const handedOff = Boolean(verifierAgent && verifierAgent.id !== task.assigneeId);
+          const nextAssigneeId = handedOff ? verifierAgent!.id : task.assigneeId;
+          const nextAssigneeHandle = handedOff ? verifierAgent!.handle : task.assigneeHandle;
 
-          setAllTasks((prev) =>
-            prev.map((t) =>
-              t.id === taskId
-                ? {
-                    ...t,
-                    status: t.status === 'done' ? 'done' : 'review',
-                    deliverableSummary: result.reply,
-                    deliverableArtifact: finalArtifact,
-                    updatedAt: replyTs,
-                  }
-                : t,
-            ),
-          );
+          const updatedTask: WorkflowTask = {
+            ...task,
+            status: task.status === 'done' ? 'done' : 'review',
+            assigneeId: nextAssigneeId,
+            assigneeHandle: nextAssigneeHandle,
+            deliverableSummary: result.reply,
+            deliverableArtifact: finalArtifact,
+            updatedAt: replyTs,
+          };
+
+          const handoffNote = handedOff
+            ? `（已按自动流转规则交接给验证专家 ${nextAssigneeHandle}）`
+            : isAutoHandoff
+              ? ''
+              : '（当前为「人工确认」交接模式，待雇主在看板确认后流转）';
+
+          const milestoneText =
+            (result.groupMilestoneSummary?.trim() ||
+              `已完成「${task.title}」本轮 Agent Session 迭代并提交待验证（产物：${finalArtifact}）。`) +
+            handoffNote;
+
+          setAllTasks((prev) => prev.map((t) => (t.id === taskId ? updatedTask : t)));
+          upsertTaskDeliverableArtifact(updatedTask, finalArtifact, result.reply, replyTs);
 
           setAllMessages((prev) => [
             ...prev,
@@ -3173,24 +3632,22 @@ export function useAgentNexusStore() {
               id: `aud_ts_${Date.now()}`,
               category: 'audit',
               title: `Agent 任务交付就绪待验证：${task.title}`,
-              detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已在 Session #${task.id} 完成迭代并回写群聊摘要。`,
+              detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已在 Session #${task.id} 完成迭代${
+                handedOff ? `并自动交接给 ${nextAssigneeHandle}` : ''
+              }，产物已沉淀至 Artifacts。`,
               severity: 'warning',
               timestamp: replyTs,
             },
             ...prev,
           ]);
         } else if (result.artifactPath?.trim()) {
-          setAllTasks((prev) =>
-            prev.map((t) =>
-              t.id === taskId
-                ? {
-                    ...t,
-                    deliverableArtifact: result.artifactPath.trim(),
-                    updatedAt: replyTs,
-                  }
-                : t,
-            ),
-          );
+          const updatedTask: WorkflowTask = {
+            ...task,
+            deliverableArtifact: result.artifactPath.trim(),
+            updatedAt: replyTs,
+          };
+          setAllTasks((prev) => prev.map((t) => (t.id === taskId ? updatedTask : t)));
+          upsertTaskDeliverableArtifact(updatedTask, result.artifactPath.trim(), result.reply, replyTs);
         }
       } catch (err) {
         setTaskSessionError(err instanceof Error ? err.message : 'Agent 任务 Session 调用失败');
@@ -3198,13 +3655,23 @@ export function useAgentNexusStore() {
         setTaskSessionBusyId(null);
       }
     },
-    [activeWorkspace, agents, allTasks, taskSessions, workspaces],
+    [
+      activeWorkspace,
+      agents,
+      allTasks,
+      projectAgentAssignments,
+      taskSessions,
+      upsertTaskDeliverableArtifact,
+      workspaces,
+    ],
   );
 
   const syncTaskSummaryToGroup = useCallback(
     (taskId: string, customNote?: string) => {
       const task = allTasks.find((t) => t.id === taskId);
       if (!task) return;
+      const proj = workspaces.find((w) => w.id === task.sessionId);
+      if (isWorkspaceReadOnly(proj)) return;
       const assignedAgent = agents.find((a) => a.id === task.assigneeId);
       const history = taskSessions[taskId] || [];
       const lastAgentTurn = [...history].reverse().find((m) => m.sender === 'agent');
@@ -3214,6 +3681,10 @@ export function useAgentNexusStore() {
         (lastAgentTurn
           ? lastAgentTurn.content.slice(0, 88) + (lastAgentTurn.content.length > 88 ? '...' : '')
           : `「${task.title}」已在 Agent Session 同步阶段进展。`);
+
+      if (task.deliverableArtifact) {
+        upsertTaskDeliverableArtifact(task, task.deliverableArtifact, summary, ts);
+      }
 
       setAllMessages((prev) => [
         ...prev,
@@ -3245,47 +3716,106 @@ export function useAgentNexusStore() {
         ],
       }));
     },
-    [agents, allTasks, taskSessions],
+    [agents, allTasks, taskSessions, upsertTaskDeliverableArtifact, workspaces],
   );
 
   const runAutonomousTask = useCallback(
     async (taskId: string) => {
       const task = allTasks.find((t) => t.id === taskId);
       if (!task) return;
+      const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
+      if (isWorkspaceReadOnly(taskWorkspace)) {
+        setAiError('该项目已完成或归档，请先重新激活项目后再执行任务。');
+        return;
+      }
       setAiError(null);
       setExecutingTaskId(taskId);
 
+      // Step 1: Ensure execution-stage load-balanced expert picks up the task when starting from pending
+      const assignments = projectAgentAssignments[task.sessionId] || [];
+      const execAgent =
+        task.status === 'pending'
+          ? pickLoadBalancedStageAgent(
+              task.sessionId,
+              'development',
+              task.assigneeId,
+              assignments,
+              agents,
+              allTasks,
+            ) || agents.find((a) => a.id === task.assigneeId)
+          : agents.find((a) => a.id === task.assigneeId);
+
+      const runningAssigneeId = execAgent?.id || task.assigneeId;
+      const runningAssigneeHandle = execAgent?.handle || task.assigneeHandle;
+
       setAllTasks((prev) =>
         prev.map((t) =>
-          t.id === taskId ? { ...t, status: 'in_progress', updatedAt: nowTimeStr() } : t,
+          t.id === taskId
+            ? {
+                ...t,
+                status: 'in_progress',
+                assigneeId: runningAssigneeId,
+                assigneeHandle: runningAssigneeHandle,
+                updatedAt: nowTimeStr(),
+              }
+            : t,
         ),
       );
 
-      const assignedAgent = agents.find((a) => a.id === task.assigneeId);
-      const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
-
       try {
         const result = await executeKanbanTask({
-          task,
-          agent: assignedAgent,
+          task: {
+            ...task,
+            status: 'in_progress',
+            assigneeId: runningAssigneeId,
+            assigneeHandle: runningAssigneeHandle,
+          },
+          agent: execAgent,
           workspace: taskWorkspace,
         });
 
         const ts = nowTimeStr();
+        const executorAssignment = assignments.find((a) => a.agentId === runningAssigneeId);
+        const isAutoHandoff = executorAssignment?.handoffMode !== 'manual';
+        const verifierAgent = isAutoHandoff
+          ? pickLoadBalancedStageAgent(
+              task.sessionId,
+              'testing',
+              runningAssigneeId,
+              assignments,
+              agents,
+              allTasks,
+            )
+          : undefined;
+        const handedOffToVerifier = Boolean(verifierAgent && verifierAgent.id !== runningAssigneeId);
+        const finalAssigneeId = handedOffToVerifier ? verifierAgent!.id : runningAssigneeId;
+        const finalAssigneeHandle = handedOffToVerifier
+          ? verifierAgent!.handle
+          : runningAssigneeHandle;
 
-        setAllTasks((prev) =>
-          prev.map((t) =>
-            t.id === taskId
-              ? {
-                  ...t,
-                  status: 'review',
-                  deliverableSummary: result.deliverableSummary,
-                  deliverableArtifact: result.deliverableArtifact,
-                  updatedAt: ts,
-                }
-              : t,
-          ),
+        const completedTask: WorkflowTask = {
+          ...task,
+          status: 'review',
+          assigneeId: finalAssigneeId,
+          assigneeHandle: finalAssigneeHandle,
+          deliverableSummary: result.deliverableSummary,
+          deliverableArtifact: result.deliverableArtifact,
+          updatedAt: ts,
+        };
+
+        setAllTasks((prev) => prev.map((t) => (t.id === taskId ? completedTask : t)));
+        upsertTaskDeliverableArtifact(
+          completedTask,
+          result.deliverableArtifact,
+          result.deliverableSummary,
+          ts,
         );
+
+        const handoffSuffix = handedOffToVerifier
+          ? `已按「自动流转」交接给验证专家 ${finalAssigneeHandle} 进行验证。`
+          : isAutoHandoff
+            ? '已流转至「任务验证」阶段。'
+            : '当前专家配置为「人工确认」交接模式，待雇主复核确认后交接下一阶段。';
 
         setTaskSessions((prev) => ({
           ...prev,
@@ -3297,7 +3827,7 @@ export function useAgentNexusStore() {
               id: `tsm_exec_${Date.now()}`,
               taskId,
               sender: 'agent',
-              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验证」并自动回写摘要至项目群。如需继续修改细节或追加边界测试，可直接在当前 Agent 任务 Session 向我提出。`,
+              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验证」，产物已自动沉淀至 Artifacts。${handoffSuffix}`,
               timestamp: ts,
               artifactPath: result.deliverableArtifact,
               suggestedActions: [
@@ -3315,7 +3845,9 @@ export function useAgentNexusStore() {
             id: `aud_exec_${Date.now()}`,
             category: 'audit',
             title: `新交付物待验证：${task.title}`,
-            detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已提交产物 ${result.deliverableArtifact}，请雇主复核验证。`,
+            detail: `${taskWorkspace.name} · ${runningAssigneeHandle} 已提交产物 ${result.deliverableArtifact}${
+              handedOffToVerifier ? `，并自动交接给 ${finalAssigneeHandle}` : ''
+            }。`,
             severity: 'warning',
             timestamp: ts,
           },
@@ -3328,10 +3860,10 @@ export function useAgentNexusStore() {
             id: `msg_exec_${Date.now()}`,
             sessionId: task.sessionId,
             senderType: 'agent',
-            senderId: assignedAgent?.id || 'butler',
-            senderName: assignedAgent?.name || 'Nexa 助理',
-            senderHandle: assignedAgent?.handle || task.assigneeHandle,
-            content: `${result.chatBroadcast}（产物已更新至 ${result.deliverableArtifact}）`,
+            senderId: execAgent?.id || 'butler',
+            senderName: execAgent?.name || 'Nexa 助理',
+            senderHandle: execAgent?.handle || runningAssigneeHandle,
+            content: `${result.chatBroadcast}（产物已归档至 Artifacts：${result.deliverableArtifact}；${handoffSuffix}）`,
             timestamp: ts,
             linkedTaskIds: [taskId],
           },
@@ -3345,7 +3877,14 @@ export function useAgentNexusStore() {
         setExecutingTaskId(null);
       }
     },
-    [activeWorkspace, agents, allTasks, workspaces],
+    [
+      activeWorkspace,
+      agents,
+      allTasks,
+      projectAgentAssignments,
+      upsertTaskDeliverableArtifact,
+      workspaces,
+    ],
   );
 
   const jumpToChatWithMention = useCallback((handle: string, projectId?: string) => {
@@ -3393,6 +3932,10 @@ export function useAgentNexusStore() {
     (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => {
       const target = agents.find((a) => a.id === agentId);
       if (!target) return;
+      const workspaceId = targetWorkspaceId || activeWorkspace.id;
+      const targetProj = workspaces.find((w) => w.id === workspaceId) || activeWorkspace;
+      if (isWorkspaceReadOnly(targetProj)) return;
+
       const pricing = getAgentLeasePricing({
         runtimeAgent: target.runtimeAgent,
         defaultModel: target.defaultModel,
@@ -3404,8 +3947,6 @@ export function useAgentNexusStore() {
       const priceUsd = pricing.getPriceForPeriod(period);
       const periodMeta = LEASE_PERIOD_META[period];
       const ts = nowTimeStr();
-      const workspaceId = targetWorkspaceId || activeWorkspace.id;
-      const targetProj = workspaces.find((w) => w.id === workspaceId) || activeWorkspace;
       const alreadyInProj = targetProj.hiredAgentIds.includes(agentId);
 
       setAgentLeases((prev) => ({
@@ -3420,71 +3961,350 @@ export function useAgentNexusStore() {
         },
       }));
 
-      if (!alreadyInProj) {
-        setWorkspaces((prev) =>
-          prev.map((w) =>
-            w.id === targetProj.id
-              ? {
-                  ...w,
-                  hiredAgentIds: [...w.hiredAgentIds, agentId],
-                  spentUsd: w.spentUsd + priceUsd,
-                }
-              : w,
-          ),
-        );
-        setAllMessages((prev) => [
-          ...prev,
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === targetProj.id
+            ? {
+                ...w,
+                hiredAgentIds: alreadyInProj ? w.hiredAgentIds : [...w.hiredAgentIds, agentId],
+                spentUsd: w.spentUsd + priceUsd,
+              }
+            : w,
+        ),
+      );
+
+      // Record lease payment into the unified settlement ledger so spentUsd & settlements always reconcile
+      if (priceUsd > 0) {
+        setSettlements((prev) => [
           {
-            id: `msg_lease_${Date.now()}`,
-            sessionId: targetProj.id,
-            senderType: 'system',
-            senderId: 'system',
-            senderName: '系统协同同步',
-            senderHandle: '系统通知',
-            content: `已按${periodMeta.label}（${formatUsd(priceUsd)}${periodMeta.unitSuffix}）租赁 ${target.handle} 并派驻项目群「${targetProj.name}」。`,
-            timestamp: ts,
+            id: `stl_lease_${Date.now().toString().slice(-4)}`,
+            projectId: targetProj.id,
+            projectName: targetProj.name,
+            agentHandle: target.handle,
+            milestoneLabel: `${alreadyInProj ? '续租' : '周期租用'}（${periodMeta.label} · ${periodMeta.days}天）`,
+            amountUsd: priceUsd,
+            status: 'settled',
+            createdAt: ts,
+            settledAt: ts,
           },
+          ...prev,
         ]);
       }
+
+      // Sync leased expert into Task Orchestration (single source of truth)
+      const existingAssignments = projectAgentAssignments[targetProj.id] || [];
+      if (!existingAssignments.some((a) => a.agentId === agentId)) {
+        const stages = getDefaultStagesForAgentCategory(target.category);
+        const nextAssignments: ProjectAgentAssignment[] = [
+          ...existingAssignments,
+          {
+            agentId,
+            stages,
+            roleNote: target.title,
+            handoffMode: stages.includes('development') ? 'auto' : 'manual',
+          },
+        ];
+        setProjectAgentAssignments((prev) => ({
+          ...prev,
+          [targetProj.id]: nextAssignments,
+        }));
+        setProjectPipelines((prev) => ({
+          ...prev,
+          [targetProj.id]: syncSlotsFromAssignments(nextAssignments, prev[targetProj.id]),
+        }));
+      }
+
+      setAllMessages((prev) => [
+        ...prev,
+        {
+          id: `msg_lease_${Date.now()}`,
+          sessionId: targetProj.id,
+          senderType: 'system',
+          senderId: 'system',
+          senderName: '系统协同同步',
+          senderHandle: '系统通知',
+          content: `已按${periodMeta.label}（${formatUsd(priceUsd)}${periodMeta.unitSuffix}）${
+            alreadyInProj ? '续租' : '租赁'
+          } ${target.handle} 并同步至项目群「${targetProj.name}」与「任务编排」（已入账结算台账）。`,
+          timestamp: ts,
+        },
+      ]);
 
       setAuditLogs((prev) => [
         {
           id: `aud_lease_${Date.now()}`,
           category: 'order',
-          title: `已租赁专业 Agent：${target.handle}（${periodMeta.label}）`,
-          detail: `租期费用 ${formatUsd(priceUsd)}${periodMeta.unitSuffix}，已关联项目「${targetProj.name}」。`,
+          title: `已${alreadyInProj ? '续租' : '租赁'}专业 Agent：${target.handle}（${periodMeta.label}）`,
+          detail: `租期费用 ${formatUsd(priceUsd)}${periodMeta.unitSuffix}，已关联项目「${targetProj.name}」并同步记入结算台账。`,
           severity: 'success',
           timestamp: ts,
         },
         ...prev,
       ]);
     },
-    [activeWorkspace, agents, workspaces],
+    [activeWorkspace, agents, projectAgentAssignments, workspaces],
   );
 
-  const acquireSkill = useCallback((skillId: string, skillName?: string, priceUsd = 0) => {
-    setPurchasedSkillIds((prev) => (prev.includes(skillId) ? prev : [skillId, ...prev]));
-    if (skillName) {
+  const acquireSkill = useCallback(
+    (skillId: string, skillName?: string, priceUsd = 0, sourceZoneId?: string) => {
+      const alreadyOwned = purchasedSkillIds.includes(skillId);
+      const targetSkill = marketSkills.find((s) => s.id === skillId);
+      const effectiveName = skillName || targetSkill?.name || skillId;
+      const sourceZone = sourceZoneId ? zones.find((z) => z.id === sourceZoneId) : undefined;
+      const isCommunityDistribution =
+        targetSkill?.origin === 'platform' &&
+        Boolean(sourceZone && !sourceZone.isPlatformDefault);
+      const sharePct = targetSkill?.distributionSharePct ?? 20;
+
+      setPurchasedSkillIds((prev) => (prev.includes(skillId) ? prev : [skillId, ...prev]));
+      if (!alreadyOwned) {
+        setMarketSkills((prev) =>
+          prev.map((s) => (s.id === skillId ? { ...s, installs: s.installs + 1 } : s)),
+        );
+      }
+
       const ts = nowTimeStr();
+      if (!alreadyOwned && priceUsd > 0) {
+        const milestoneLabel = isCommunityDistribution
+          ? `平台官方 Skill/MCP 买断（${sourceZone?.name}分销 · 分润 ${sharePct}%）`
+          : targetSkill?.origin === 'platform'
+            ? '平台官方 Skill / MCP 永久买断'
+            : '社区 Skill / MCP 永久买断授权';
+        setSettlements((prev) => [
+          {
+            id: `stl_skill_${Date.now().toString().slice(-4)}`,
+            projectId: activeWorkspace.id,
+            projectName: 'AGN 空间资产库',
+            agentHandle: `Skill · ${effectiveName}`,
+            milestoneLabel,
+            amountUsd: Math.round(priceUsd),
+            status: 'settled',
+            createdAt: ts,
+          },
+          ...prev,
+        ]);
+      }
+
       setAuditLogs((prev) => [
         {
           id: `aud_skill_buy_${Date.now()}`,
           category: 'order',
           title:
             priceUsd > 0
-              ? `已买断 Skill/MCP：${skillName}（${formatUsd(priceUsd)}）`
-              : `已免费获取 Skill/MCP：${skillName}`,
-          detail:
-            priceUsd > 0
-              ? '一次性买断永久授权生效，可在团队任意自建 Agent 中无限次装配与更新。'
-              : '免费开源授权生效，可直接装配至自建 Agent 或通过 CLI 安装。',
+              ? `已买断 Skill/MCP：${effectiveName}（${formatUsd(priceUsd)}）`
+              : `已免费获取 Skill/MCP：${effectiveName}`,
+          detail: isCommunityDistribution
+            ? `通过「${sourceZone?.name}」社区分销渠道购入平台官方资产（社区分润 ${sharePct}%），已入库「AGN空间 → 空间资源 → Skills / MCP」，可直接装配给自建 Agent。`
+            : priceUsd > 0
+              ? '一次性买断永久授权已入库「AGN空间 → 空间资源 → Skills / MCP」并记入结算台账，可在任意自建 Agent 中无限次装配。'
+              : '已加入「AGN空间 → 空间资源 → Skills / MCP」，可直接勾选装配至自建 Agent 成员。',
           severity: 'success',
           timestamp: ts,
         },
         ...prev,
       ]);
-    }
-  }, []);
+    },
+    [activeWorkspace.id, marketSkills, purchasedSkillIds, zones],
+  );
+
+  const createSpaceSkill = useCallback(
+    (input: {
+      name: string;
+      summary: string;
+      kind: SkillKind;
+      category: AgentCategory;
+      priceUsd?: number;
+      compatibleRuntimes?: string[];
+      zoneIds?: string[];
+      bindAgentIds?: string[];
+    }) => {
+      const cleanedName = input.name.trim();
+      if (!cleanedName) return '';
+      const id = `skill_custom_${Date.now().toString().slice(-6)}`;
+      const slugBase =
+        cleanedName
+          .toLowerCase()
+          .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 26) || 'team-skill';
+      const prefix =
+        input.kind === 'mcp' ? 'mcp' : input.kind === 'workflow' ? 'workflow' : 'team-skill';
+      const slug = `${prefix}/${slugBase}`;
+      const price = Math.max(0, Math.round(input.priceUsd ?? 0));
+      const targetZones = Array.from(new Set(input.zoneIds || []));
+      const author = account ? account.name : '林致远（我）';
+      const runtimes =
+        input.compatibleRuntimes && input.compatibleRuntimes.length > 0
+          ? input.compatibleRuntimes
+          : ['Claude Code', 'Codex', 'Cursor', 'Gemini CLI'];
+
+      const newSkill: MarketSkill = {
+        id,
+        slug,
+        name: cleanedName,
+        summary:
+          input.summary.trim() ||
+          '团队在 AGN空间自建封装的专属能力包，可在 Agent 成员管理中按需加载，并按需分发至 Agent 社区。',
+        category: input.category,
+        kind: input.kind,
+        origin: 'custom',
+        isPrivate: targetZones.length === 0,
+        compatibleRuntimes: runtimes,
+        authorName: author,
+        version: 'v1.0.0',
+        installs: Math.max(1, (input.bindAgentIds || []).length),
+        rating: 5.0,
+        ratingTier: 'A+',
+        priceUsd: price,
+        license: price === 0 ? '免费开源' : '付费买断',
+        zoneIds: targetZones,
+        installCommand:
+          input.kind === 'mcp' ? `anx mcp install ${slug}` : `anx skill add ${slug}`,
+        highlights: [
+          input.summary.trim() || '团队自建标准化能力规范与工具封装',
+          targetZones.length > 0
+            ? `已同步分发至 ${targetZones.length} 个 Agent 社区服务市场`
+            : '当前仅限 AGN空间内部私有使用，随时可一键上架至 Agent 社区',
+        ],
+        readmeSnippet: `---\nname: ${slugBase}\nkind: ${input.kind}\norigin: custom\n---\n${input.summary.trim() || cleanedName}`,
+      };
+
+      setMarketSkills((prev) => [newSkill, ...prev]);
+      setPurchasedSkillIds((prev) => (prev.includes(id) ? prev : [id, ...prev]));
+
+      const bindIds = Array.from(new Set(input.bindAgentIds || []));
+      if (bindIds.length > 0) {
+        setAgents((prev) =>
+          prev.map((ag) => {
+            if (!bindIds.includes(ag.id) || ag.ownership !== 'private') return ag;
+            const nextInstalled = Array.from(new Set([...(ag.installedSkillIds || []), id]));
+            const nextSkills =
+              input.kind === 'mcp'
+                ? ag.skills
+                : Array.from(new Set([...ag.skills, cleanedName]));
+            const nextMcps =
+              input.kind === 'mcp'
+                ? Array.from(new Set([...ag.mcpTools, cleanedName]))
+                : ag.mcpTools;
+            return {
+              ...ag,
+              installedSkillIds: nextInstalled,
+              skills: nextSkills,
+              mcpTools: nextMcps,
+            };
+          }),
+        );
+      }
+
+      const ts = nowTimeStr();
+      setAuditLogs((prev) => [
+        {
+          id: `aud_space_skill_${Date.now()}`,
+          category: 'audit',
+          title: `新建空间自建 ${input.kind === 'mcp' ? 'MCP' : 'Skill'}：${cleanedName}`,
+          detail: `${
+            bindIds.length > 0 ? `已立即装配至 ${bindIds.length} 位自建 Agent；` : ''
+          }${
+            targetZones.length > 0
+              ? `已同步上架分发至 ${targetZones.length} 个 Agent 社区。`
+              : '当前设为空间私有资产。'
+          }`,
+          severity: 'success',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+
+      return id;
+    },
+    [account],
+  );
+
+  const toggleAgentSkillBinding = useCallback(
+    (agentId: string, skillId: string) => {
+      const skill = marketSkills.find((s) => s.id === skillId);
+      const agent = agents.find((a) => a.id === agentId);
+      if (!skill || !agent || agent.ownership !== 'private') return;
+
+      const currentlyBound = (agent.installedSkillIds || []).includes(skillId);
+      setAgents((prev) =>
+        prev.map((ag) => {
+          if (ag.id !== agentId) return ag;
+          const prevIds = ag.installedSkillIds || [];
+          const nextIds = currentlyBound
+            ? prevIds.filter((id) => id !== skillId)
+            : Array.from(new Set([...prevIds, skillId]));
+          const nextSkills =
+            skill.kind === 'mcp'
+              ? ag.skills
+              : currentlyBound
+                ? ag.skills.filter((s) => s !== skill.name)
+                : Array.from(new Set([...ag.skills, skill.name]));
+          const nextMcps =
+            skill.kind === 'mcp'
+              ? currentlyBound
+                ? ag.mcpTools.filter((m) => m !== skill.name)
+                : Array.from(new Set([...ag.mcpTools, skill.name]))
+              : ag.mcpTools;
+          return {
+            ...ag,
+            installedSkillIds: nextIds,
+            skills: nextSkills.length > 0 ? nextSkills : ag.skills,
+            mcpTools: nextMcps.length > 0 ? nextMcps : ag.mcpTools,
+          };
+        }),
+      );
+    },
+    [agents, marketSkills],
+  );
+
+  const toggleZoneSkillDistribution = useCallback(
+    (zoneId: string, skillId: string) => {
+      const zone = zones.find((z) => z.id === zoneId);
+      const skill = marketSkills.find((s) => s.id === skillId);
+      if (!zone || !skill) return;
+
+      const isCurrentlyListed = skill.zoneIds.includes(zoneId);
+      const nextZoneIds = isCurrentlyListed
+        ? skill.zoneIds.filter((id) => id !== zoneId)
+        : Array.from(new Set([...skill.zoneIds, zoneId]));
+
+      setMarketSkills((prev) =>
+        prev.map((s) =>
+          s.id === skillId
+            ? {
+                ...s,
+                zoneIds: nextZoneIds,
+                isPrivate: s.origin === 'custom' ? nextZoneIds.length === 0 : s.isPrivate,
+              }
+            : s,
+        ),
+      );
+
+      const ts = nowTimeStr();
+      const isPlatform = skill.origin === 'platform';
+      setAuditLogs((prev) => [
+        {
+          id: `aud_skill_dist_${Date.now()}`,
+          category: 'audit',
+          title: isCurrentlyListed
+            ? `已从「${zone.name}」下架 ${skill.name}`
+            : isPlatform
+              ? `已引入平台官方资产分销至「${zone.name}」：${skill.name}`
+              : `已将自建 Skill/MCP 分发至「${zone.name}」：${skill.name}`,
+          detail: isCurrentlyListed
+            ? '该 Skill / MCP 已停止在当前社区服务市场展示。'
+            : isPlatform
+              ? `社区成员可在「${zone.name} → 服务市场」直接购买/获取，平台与社区按 ${skill.distributionSharePct ?? 20}% 分润结算。`
+              : `已同步上架「${zone.name} → 服务市场」，供社区成员获取与装配。`,
+          severity: 'info',
+          timestamp: ts,
+        },
+        ...prev,
+      ]);
+    },
+    [marketSkills, zones],
+  );
 
   const inviteTeamExpert = useCallback(
     (input: {
@@ -4302,38 +5122,53 @@ export function useAgentNexusStore() {
 
   const addProjectAgentAssignment = useCallback(
     (projectId: string, agentId: string, initialStages?: ActiveWorkflowStage[]) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
       const targetAgent = agents.find((a) => a.id === agentId);
       if (!targetAgent) return;
+
+      // Commercial gatekeeping: uncontracted external marketplace experts cannot bypass Market/Negotiation/Lease
+      if (!isAgentAuthorizedForProject(targetProj, targetAgent, agentLeases)) {
+        setAuditLogs((prev) => [
+          {
+            id: `aud_gate_${Date.now()}`,
+            category: 'order',
+            title: `编排拦截：${targetAgent.handle} 尚未签约或租用`,
+            detail: `外部市场专家需先在「AGN 社区 → 服务市场」完成签约或租用后，方可加入「${targetProj?.name || '项目'}」任务编排。`,
+            severity: 'warning',
+            timestamp: nowTimeStr(),
+          },
+          ...prev,
+        ]);
+        return;
+      }
+
+      const existing = projectAgentAssignments[projectId] || [];
+      if (existing.some((a) => a.agentId === agentId)) return;
+
       const stages =
         initialStages && initialStages.length > 0
           ? initialStages
           : getDefaultStagesForAgentCategory(targetAgent.category);
 
-      let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
-      setProjectAgentAssignments((prev) => {
-        const existing = prev[projectId] || [];
-        if (existing.some((a) => a.agentId === agentId)) {
-          nextAssignmentsSnapshot = existing;
-          return prev;
-        }
-        nextAssignmentsSnapshot = [
-          ...existing,
-          {
-            agentId,
-            stages,
-            roleNote: targetAgent.title,
-            handoffMode: stages.includes('development') ? 'auto' : 'manual',
-          },
-        ];
-        return {
-          ...prev,
-          [projectId]: nextAssignmentsSnapshot,
-        };
-      });
+      const nextAssignments: ProjectAgentAssignment[] = [
+        ...existing,
+        {
+          agentId,
+          stages,
+          roleNote: targetAgent.title,
+          handoffMode: stages.includes('development') ? 'auto' : 'manual',
+        },
+      ];
+
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [projectId]: nextAssignments,
+      }));
 
       setProjectPipelines((prev) => ({
         ...prev,
-        [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
+        [projectId]: syncSlotsFromAssignments(nextAssignments, prev[projectId]),
       }));
 
       setWorkspaces((prev) =>
@@ -4344,45 +5179,100 @@ export function useAgentNexusStore() {
         ),
       );
     },
-    [agents],
+    [agentLeases, agents, projectAgentAssignments, workspaces],
   );
 
-  const removeProjectAgentAssignment = useCallback((projectId: string, agentId: string) => {
-    let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
-    setProjectAgentAssignments((prev) => {
-      const existing = prev[projectId] || [];
-      nextAssignmentsSnapshot = existing.filter((a) => a.agentId !== agentId);
-      return {
+  const removeProjectAgentAssignment = useCallback(
+    (projectId: string, agentId: string) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
+      const existing = projectAgentAssignments[projectId] || [];
+      if (existing.length <= 1) return;
+      const nextAssignments = existing.filter((a) => a.agentId !== agentId);
+      const removedAgent = agents.find((a) => a.id === agentId);
+      const ts = nowTimeStr();
+
+      setProjectAgentAssignments((prev) => ({
         ...prev,
-        [projectId]: nextAssignmentsSnapshot,
-      };
-    });
+        [projectId]: nextAssignments,
+      }));
 
-    setProjectPipelines((prev) => ({
-      ...prev,
-      [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
-    }));
-
-    setWorkspaces((prev) =>
-      prev.map((w) =>
-        w.id === projectId
-          ? { ...w, hiredAgentIds: w.hiredAgentIds.filter((id) => id !== agentId) }
-          : w,
-      ),
-    );
-
-    setProjectTaskTypes((prev) => {
-      const list = prev[projectId];
-      if (!list) return prev;
-      return {
+      setProjectPipelines((prev) => ({
         ...prev,
-        [projectId]: list.map((tpl) => ({
-          ...tpl,
-          creatorAgentIds: (tpl.creatorAgentIds || []).filter((id) => id !== agentId),
-        })),
-      };
-    });
-  }, []);
+        [projectId]: syncSlotsFromAssignments(nextAssignments, prev[projectId]),
+      }));
+
+      setWorkspaces((prev) =>
+        prev.map((w) =>
+          w.id === projectId
+            ? { ...w, hiredAgentIds: w.hiredAgentIds.filter((id) => id !== agentId) }
+            : w,
+        ),
+      );
+
+      setProjectTaskTypes((prev) => {
+        const list = prev[projectId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [projectId]: list.map((tpl) => ({
+            ...tpl,
+            creatorAgentIds: (tpl.creatorAgentIds || []).filter((id) => id !== agentId),
+          })),
+        };
+      });
+
+      // Reassign unfinished tasks owned by the removed agent to a load-balanced active stage expert
+      const affectedTasks = allTasks.filter(
+        (t) => t.sessionId === projectId && t.status !== 'done' && t.assigneeId === agentId,
+      );
+      if (affectedTasks.length > 0) {
+        const fallbackAgent = nextAssignments
+          .map((a) => agents.find((ag) => ag.id === a.agentId))
+          .find((ag): ag is ExpertAgent => Boolean(ag));
+
+        setAllTasks((prev) =>
+          prev.map((t) => {
+            if (t.sessionId !== projectId || t.status === 'done' || t.assigneeId !== agentId) {
+              return t;
+            }
+            const stage = mapStatusToActiveStage(t.status) || 'development';
+            const replacement =
+              pickLoadBalancedStageAgent(
+                projectId,
+                stage,
+                undefined,
+                nextAssignments,
+                agents,
+                prev,
+                agentId,
+              ) || fallbackAgent;
+            return {
+              ...t,
+              assigneeId: replacement ? replacement.id : 'butler',
+              assigneeHandle: replacement ? replacement.handle : '@Nexa',
+              updatedAt: ts,
+            };
+          }),
+        );
+
+        setAllMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_rm_assign_${Date.now()}`,
+            sessionId: projectId,
+            senderType: 'system',
+            senderId: 'system',
+            senderName: '任务编排同步',
+            senderHandle: '任务编排',
+            content: `已将 ${removedAgent?.handle || agentId} 移出项目编排，其名下 ${affectedTasks.length} 项未完成任务已自动转派给同阶段在岗专家。`,
+            timestamp: ts,
+          },
+        ]);
+      }
+    },
+    [agents, allTasks, projectAgentAssignments, workspaces],
+  );
 
   const updateProjectAgentAssignment = useCallback(
     (
@@ -4390,24 +5280,24 @@ export function useAgentNexusStore() {
       agentId: string,
       patch: Partial<Omit<ProjectAgentAssignment, 'agentId'>>,
     ) => {
-      let nextAssignmentsSnapshot: ProjectAgentAssignment[] = [];
-      setProjectAgentAssignments((prev) => {
-        const existing = prev[projectId] || [];
-        nextAssignmentsSnapshot = existing.map((item) =>
-          item.agentId === agentId ? { ...item, ...patch } : item,
-        );
-        return {
-          ...prev,
-          [projectId]: nextAssignmentsSnapshot,
-        };
-      });
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
+      const existing = projectAgentAssignments[projectId] || [];
+      const nextAssignments = existing.map((item) =>
+        item.agentId === agentId ? { ...item, ...patch } : item,
+      );
+
+      setProjectAgentAssignments((prev) => ({
+        ...prev,
+        [projectId]: nextAssignments,
+      }));
 
       setProjectPipelines((prev) => ({
         ...prev,
-        [projectId]: syncSlotsFromAssignments(nextAssignmentsSnapshot, prev[projectId]),
+        [projectId]: syncSlotsFromAssignments(nextAssignments, prev[projectId]),
       }));
     },
-    [],
+    [projectAgentAssignments, workspaces],
   );
 
   const addProjectTaskType = useCallback(
@@ -4421,6 +5311,8 @@ export function useAgentNexusStore() {
         creatorAgentIds?: string[];
       },
     ) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
       const cleanName = input.name.trim();
       if (!cleanName) return;
       const creators = (input.creatorAgentIds || []).filter(Boolean);
@@ -4442,7 +5334,7 @@ export function useAgentNexusStore() {
         };
       });
     },
-    [],
+    [workspaces],
   );
 
   const updateProjectTaskType = useCallback(
@@ -4451,6 +5343,8 @@ export function useAgentNexusStore() {
       typeId: string,
       patch: Partial<Omit<ProjectTaskType, 'id'>>,
     ) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
       setProjectTaskTypes((prev) => {
         const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
         return {
@@ -4482,22 +5376,29 @@ export function useAgentNexusStore() {
         }
       }
     },
-    [],
+    [workspaces],
   );
 
-  const deleteProjectTaskType = useCallback((projectId: string, typeId: string) => {
-    setProjectTaskTypes((prev) => {
-      const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
-      if (existing.length <= 1) return prev;
-      return {
-        ...prev,
-        [projectId]: existing.filter((item) => item.id !== typeId),
-      };
-    });
-  }, []);
+  const deleteProjectTaskType = useCallback(
+    (projectId: string, typeId: string) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
+      setProjectTaskTypes((prev) => {
+        const existing = prev[projectId] || DEFAULT_PROJECT_TASK_TYPES.map((item) => ({ ...item }));
+        if (existing.length <= 1) return prev;
+        return {
+          ...prev,
+          [projectId]: existing.filter((item) => item.id !== typeId),
+        };
+      });
+    },
+    [workspaces],
+  );
 
   const applyTaskTypePresetPack = useCallback(
     (projectId: string, packId: TaskTemplatePackId) => {
+      const targetProj = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetProj)) return;
       const assignments = projectAgentAssignments[projectId] || [];
       const nextTypes = buildTaskTypesFromPack(packId, assignments);
       setProjectTaskTypes((prev) => ({
@@ -4505,7 +5406,7 @@ export function useAgentNexusStore() {
         [projectId]: nextTypes,
       }));
     },
-    [projectAgentAssignments],
+    [projectAgentAssignments, workspaces],
   );
 
   const startTemplateConversation = useCallback(
@@ -4514,6 +5415,11 @@ export function useAgentNexusStore() {
       taskTypeId: string,
       options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
     ) => {
+      const targetWorkspace = workspaces.find((w) => w.id === projectId);
+      if (isWorkspaceReadOnly(targetWorkspace)) {
+        setAiError('该项目已完成或归档，请先重新激活项目后再发起任务规划对话。');
+        return;
+      }
       const types = projectTaskTypes[projectId] || DEFAULT_PROJECT_TASK_TYPES;
       const tpl = types.find((t) => t.id === taskTypeId) || types[0];
       const creatorIds = tpl ? getTemplateCreatorIds(tpl) : [];
@@ -4544,7 +5450,6 @@ export function useAgentNexusStore() {
         return;
       }
 
-      const targetWorkspace = workspaces.find((w) => w.id === projectId);
       if (!targetWorkspace) {
         setChatDraftSeed(messageText);
         return;
@@ -4568,6 +5473,7 @@ export function useAgentNexusStore() {
       const projectHiredAgents = agents.filter((a) =>
         targetWorkspace.hiredAgentIds.includes(a.id),
       );
+      const curAssignments = projectAgentAssignments[targetWorkspace.id] || [];
       const recentProjectMessages = [
         ...allMessages.filter((m) => m.sessionId === targetWorkspace.id),
         userMsg,
@@ -4582,6 +5488,8 @@ export function useAgentNexusStore() {
           message: messageText,
           workspace: targetWorkspace,
           hiredAgents: projectHiredAgents,
+          projectAssignments: curAssignments,
+          projectTaskTypes: types,
           recentMessages: recentProjectMessages,
           existingTasks: existingProjectTasks,
         });
@@ -4939,6 +5847,9 @@ export function useAgentNexusStore() {
     syncPipelineAgentsToProject,
     leaseAgent,
     acquireSkill,
+    createSpaceSkill,
+    toggleAgentSkillBinding,
+    toggleZoneSkillDistribution,
     inviteTeamExpert,
     assignExpertToWorkspace,
     removeExpertFromWorkspace,

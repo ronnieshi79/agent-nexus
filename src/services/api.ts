@@ -5,6 +5,8 @@ import type {
   ExpertAgent,
   NegotiationThread,
   PlatformServiceCategory,
+  ProjectAgentAssignment,
+  ProjectTaskType,
   ProjectWorkspace,
   SettlementRecord,
   TaskSessionMessage,
@@ -107,6 +109,8 @@ export function orchestrateGroupChat(payload: {
   message: string;
   workspace: ProjectWorkspace;
   hiredAgents: ExpertAgent[];
+  projectAssignments?: ProjectAgentAssignment[];
+  projectTaskTypes?: ProjectTaskType[];
   recentMessages: ChatMessage[];
   existingTasks: WorkflowTask[];
 }): Promise<ChatOrchestrateResult> {

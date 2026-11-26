@@ -7,11 +7,13 @@ import {
   Copy,
   FileCode2,
   FolderKanban,
+  Lock,
   MessageSquare,
   PanelRightClose,
   PanelRightOpen,
   Play,
   Plus,
+  RotateCcw,
   Send,
   Share2,
   Sparkles,
@@ -57,6 +59,7 @@ interface TaskSessionPaneProps {
   onBackToGroup: (projectId: string) => void;
   onSelectTaskSession: (taskId: string) => void;
   onCreateAndOpenTaskSession: (input: CreateWorkCardInput) => void;
+  onReactivateProject?: (projectId: string) => void;
 }
 
 const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
@@ -88,7 +91,10 @@ export function TaskSessionPane({
   onBackToGroup,
   onSelectTaskSession,
   onCreateAndOpenTaskSession,
+  onReactivateProject,
 }: TaskSessionPaneProps) {
+  const isReadOnly =
+    workspace.lifecycleStatus === 'completed' || workspace.lifecycleStatus === 'archived';
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
   const [railTab, setRailTab] = useState<'agent_tasks' | 'project_tasks'>('agent_tasks');
@@ -138,7 +144,7 @@ export function TaskSessionPane({
 
   const submitTurn = async (textOverride?: string) => {
     const cleaned = (textOverride ?? draft).trim();
-    if (!cleaned || isBusy) return;
+    if (!cleaned || isBusy || isReadOnly) return;
     if (!textOverride) setDraft('');
     await onSendTurn(task.id, cleaned);
   };
@@ -499,9 +505,9 @@ export function TaskSessionPane({
                                 <button
                                   key={aIdx}
                                   type="button"
-                                  disabled={isBusy}
+                                  disabled={isBusy || isReadOnly}
                                   onClick={() => void submitTurn(action)}
-                                  className="text-left px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-xs font-medium text-blue-900 transition-colors cursor-pointer disabled:opacity-45"
+                                  className="text-left px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-xs font-medium text-blue-900 transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                                 >
                                   {action}
                                 </button>
@@ -541,18 +547,39 @@ export function TaskSessionPane({
         {/* Bottom Single-Agent Task Composer */}
         <div className="shrink-0 border-t border-slate-200 bg-white px-4 sm:px-8 py-3">
           <div className="max-w-3xl mx-auto space-y-2">
+            {isReadOnly && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+                <span className="inline-flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>
+                    所属项目已{workspace.lifecycleStatus === 'completed' ? '结项完成' : '归档'}，任务会话进入只读归档状态。
+                  </span>
+                </span>
+                {onReactivateProject && (
+                  <button
+                    type="button"
+                    onClick={() => onReactivateProject(workspace.id)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-semibold cursor-pointer whitespace-nowrap"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>重新激活项目</span>
+                  </button>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 {quickDirectives.map((q, idx) => (
                   <button
                     key={idx}
                     type="button"
-                    disabled={isBusy}
+                    disabled={isBusy || isReadOnly}
                     onClick={() => {
                       setDraft(q);
                       inputRef.current?.focus();
                     }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200/70 text-[11px] font-medium text-slate-700 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200/70 text-[11px] font-medium text-slate-700 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                   >
                     <Sparkles className="w-3 h-3 text-slate-400" />
                     <span>{q}</span>
@@ -564,9 +591,9 @@ export function TaskSessionPane({
                 {task.status === 'pending' && (
                   <button
                     type="button"
-                    disabled={isExecuting || isBusy}
+                    disabled={isExecuting || isBusy || isReadOnly}
                     onClick={() => void onRunTask(task.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <Play className="w-3 h-3" />
                     <span>{isExecuting ? '执行中...' : '一键自主执行'}</span>
@@ -576,8 +603,9 @@ export function TaskSessionPane({
                 {task.status === 'review' && (
                   <button
                     type="button"
+                    disabled={isReadOnly}
                     onClick={() => onApproveTask(task.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap"
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                   >
                     <CheckCircle2 className="w-3 h-3" />
                     <span>验证通过并回写群聊</span>
@@ -586,9 +614,14 @@ export function TaskSessionPane({
 
                 <button
                   type="button"
+                  disabled={isReadOnly}
                   onClick={() => onSyncSummaryToGroup(task.id)}
-                  title="将当前任务 Session 阶段结论以任务卡片形式同步到所属项目群"
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-medium text-slate-700 cursor-pointer whitespace-nowrap"
+                  title={
+                    isReadOnly
+                      ? '项目已只读锁定'
+                      : '将当前任务 Session 阶段结论以任务卡片形式同步到所属项目群'
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-medium text-slate-700 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
                 >
                   <Share2 className="w-3 h-3 text-slate-500" />
                   <span>同步结论到项目群</span>
@@ -598,7 +631,11 @@ export function TaskSessionPane({
 
             <form
               onSubmit={handleSubmit}
-              className="rounded-xl border border-slate-300 bg-slate-50/60 focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15 transition-all flex items-end gap-2 p-2"
+              className={`rounded-xl border border-slate-300 bg-slate-50/60 transition-all flex items-end gap-2 p-2 ${
+                isReadOnly
+                  ? 'opacity-65'
+                  : 'focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15'
+              }`}
             >
               <textarea
                 ref={inputRef}
@@ -606,14 +643,18 @@ export function TaskSessionPane({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
-                disabled={isBusy}
-                placeholder={`向 ${displayEntityName(agent?.handle || task.assigneeHandle)}${agent?.runtimeAgent ? ` (${agent.runtimeAgent})` : ''} 发送本任务指令、确认边界或要求修正...`}
-                className="flex-1 min-w-0 bg-transparent px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
+                disabled={isBusy || isReadOnly}
+                placeholder={
+                  isReadOnly
+                    ? '所属项目已结项/归档，当前仅支持只读查阅。重新激活项目后可继续指令协作。'
+                    : `向 ${displayEntityName(agent?.handle || task.assigneeHandle)}${agent?.runtimeAgent ? ` (${agent.runtimeAgent})` : ''} 发送本任务指令、确认边界或要求修正...`
+                }
+                className="flex-1 min-w-0 bg-transparent px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
               />
               <button
                 type="submit"
-                disabled={isBusy || !draft.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45"
+                disabled={isBusy || isReadOnly || !draft.trim()}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
               >
                 <Send className="w-3.5 h-3.5" />
                 <span>{isBusy ? '执行中...' : '发送指令'}</span>

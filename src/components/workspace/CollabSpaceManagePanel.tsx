@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import {
   ArrowLeft,
+  Blocks,
   Building2,
   Check,
   CheckCircle2,
@@ -26,6 +27,7 @@ import {
   Server,
   Shield,
   ShieldCheck,
+  Sparkles,
   Store,
   Trash2,
   UserCheck,
@@ -35,20 +37,23 @@ import {
   XCircle,
 } from 'lucide-react';
 import type {
+  AgentCategory,
   CommunityPost,
   CommunityPostType,
   CommunityZone,
   ComputeNode,
   ExpertAgent,
   HumanExpert,
+  MarketSkill,
   NodeOsType,
+  SkillKind,
   SpaceJoinApplication,
   SpaceMemberRole,
   SpaceSharedNode,
 } from '../../types/agentnexus';
 import { AgentIdentityName, EntityAvatar } from '../shared/EntityIdentity';
 
-type ManageTab = 'members' | 'nodes' | 'agents' | 'content';
+type ManageTab = 'members' | 'nodes' | 'agents' | 'skills' | 'content';
 type AddNodeSource = 'share_mine' | 'mount_private' | 'rent_cloud';
 
 const OS_META: Record<
@@ -139,6 +144,18 @@ interface CollabSpaceManagePanelProps {
     pinned?: boolean;
     pinnedBy?: string;
   }) => void;
+  marketSkills?: MarketSkill[];
+  onToggleZoneSkillDistribution?: (zoneId: string, skillId: string) => void;
+  onCreateSpaceSkill?: (input: {
+    name: string;
+    summary: string;
+    kind: SkillKind;
+    category: AgentCategory;
+    priceUsd?: number;
+    compatibleRuntimes?: string[];
+    zoneIds?: string[];
+    bindAgentIds?: string[];
+  }) => string;
 }
 
 export function CollabSpaceManagePanel({
@@ -167,6 +184,9 @@ export function CollabSpaceManagePanel({
   onTogglePinPost,
   onDeletePost,
   onCreatePost,
+  marketSkills = [],
+  onToggleZoneSkillDistribution,
+  onCreateSpaceSkill,
 }: CollabSpaceManagePanelProps) {
   const [activeTab, setActiveTab] = useState<ManageTab>('members');
   const [copiedCode, setCopiedCode] = useState(false);
@@ -203,6 +223,14 @@ export function CollabSpaceManagePanel({
   const [annContent, setAnnContent] = useState('');
   const [annPinned, setAnnPinned] = useState(true);
 
+  // Community Skills / MCP custom creation state
+  const [showNewSkillForm, setShowNewSkillForm] = useState(false);
+  const [newSkillName, setNewSkillName] = useState('');
+  const [newSkillKind, setNewSkillKind] = useState<SkillKind>('skill');
+  const [newSkillCategory, setNewSkillCategory] = useState<AgentCategory>('engineering');
+  const [newSkillPrice, setNewSkillPrice] = useState(0);
+  const [newSkillSummary, setNewSkillSummary] = useState('');
+
   const members = zone.members || [
     {
       id: `mem_owner_${zone.id}`,
@@ -235,6 +263,13 @@ export function CollabSpaceManagePanel({
   const onlineAgentCount = publishedAgents.filter((a) => !suspendedSet.has(a.id)).length;
   const offlineAgentCount = publishedAgents.length - onlineAgentCount;
   const publishableAgents = allAgents.filter((a) => !a.listedZoneIds.includes(zone.id));
+
+  const zoneSkills = marketSkills.filter((s) => s.zoneIds.includes(zone.id));
+  const zonePlatformSkillsCount = zoneSkills.filter((s) => s.origin === 'platform').length;
+  const zoneCustomSkillsCount = zoneSkills.length - zonePlatformSkillsCount;
+  const importablePlatformSkills = marketSkills.filter(
+    (s) => s.origin === 'platform' && !s.zoneIds.includes(zone.id),
+  );
 
   const zonePosts = communityPosts
     .filter((p) => p.zoneId === zone.id)
@@ -360,6 +395,23 @@ export function CollabSpaceManagePanel({
     setShowAnnouncementForm(false);
   };
 
+  const handleCreateCommunitySkill = (e: FormEvent) => {
+    e.preventDefault();
+    if (!onCreateSpaceSkill || !newSkillName.trim() || !newSkillSummary.trim()) return;
+    onCreateSpaceSkill({
+      name: newSkillName.trim(),
+      summary: newSkillSummary.trim(),
+      kind: newSkillKind,
+      category: newSkillCategory,
+      priceUsd: Math.max(0, Math.round(Number(newSkillPrice) || 0)),
+      zoneIds: [zone.id],
+    });
+    setNewSkillName('');
+    setNewSkillSummary('');
+    setNewSkillPrice(0);
+    setShowNewSkillForm(false);
+  };
+
   return (
     <div className="space-y-5">
       {/* Top Principal Console Header */}
@@ -458,6 +510,12 @@ export function CollabSpaceManagePanel({
                 label: '服务市场管理',
                 count: `${onlineAgentCount} 在线 / ${offlineAgentCount} 下线`,
                 icon: Cpu,
+              },
+              {
+                id: 'skills',
+                label: 'Skills / MCP 分销',
+                count: `${zonePlatformSkillsCount} 平台分销 · ${zoneCustomSkillsCount} 自建`,
+                icon: Blocks,
               },
               {
                 id: 'content',
@@ -1337,7 +1395,247 @@ export function CollabSpaceManagePanel({
         </div>
       )}
 
-      {/* ================= TAB 4: COMMUNITY CONTENT GOVERNANCE ================= */}
+      {/* ================= TAB 4: SKILLS / MCP DISTRIBUTION & CUSTOM SUPPLY ================= */}
+      {activeTab === 'skills' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="text-xs text-slate-600 leading-relaxed">
+              <span className="font-semibold text-slate-900">社区 Skills / MCP 双轨供给：</span>
+              可一键引入 <strong className="text-blue-700">AGN 平台官方维护</strong> 的高阶 Skill / MCP 在「{zone.name}」进行分销（成员购买后本社区自动获得 <span className="font-mono font-semibold text-emerald-700">20%</span> 渠道分润），也可发布社区自建专属能力包供成员装配。
+            </div>
+            {onCreateSpaceSkill && (
+              <button
+                type="button"
+                onClick={() => setShowNewSkillForm((v) => !v)}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>{showNewSkillForm ? '收起新建表单' : '新建社区自建 Skill / MCP'}</span>
+              </button>
+            )}
+          </div>
+
+          {showNewSkillForm && onCreateSpaceSkill && (
+            <form
+              onSubmit={handleCreateCommunitySkill}
+              className="bg-white rounded-xl border border-slate-200 p-4 space-y-3"
+            >
+              <div className="text-xs font-bold text-slate-900">
+                创建并上架社区专属自建 Skill / MCP 到「{zone.name}」
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={newSkillName}
+                  onChange={(e) => setNewSkillName(e.target.value)}
+                  placeholder="能力包名称（如：社区合规审计 Skill）*"
+                  className="sm:col-span-2 h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                />
+                <select
+                  value={newSkillKind}
+                  onChange={(e) => setNewSkillKind(e.target.value as SkillKind)}
+                  className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                >
+                  <option value="skill">类型：SKILL 规范包</option>
+                  <option value="mcp">类型：MCP 工具服务</option>
+                  <option value="workflow">类型：工作流模板包</option>
+                </select>
+                <select
+                  value={newSkillCategory}
+                  onChange={(e) => setNewSkillCategory(e.target.value as AgentCategory)}
+                  className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                >
+                  <option value="engineering">类目：研发开发</option>
+                  <option value="architecture">类目：架构审查</option>
+                  <option value="qa">类目：测试质量</option>
+                  <option value="product">类目：产品策划</option>
+                  <option value="design">类目：设计体验</option>
+                  <option value="media">类目：自媒体运营</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+                <input
+                  type="text"
+                  required
+                  value={newSkillSummary}
+                  onChange={(e) => setNewSkillSummary(e.target.value)}
+                  placeholder="能力简介与适用场景（供社区成员识别与装配）*"
+                  className="sm:col-span-3 h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-slate-500 whitespace-nowrap">买断价 $</span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={999}
+                    value={newSkillPrice}
+                    onChange={(e) => setNewSkillPrice(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowNewSkillForm(false)}
+                  className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="h-8 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
+                >
+                  创建并上架社区市场
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Currently Listed Skills / MCP in This Community */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-bold text-slate-900">
+                本社区已上架的 Skills / MCP（{zoneSkills.length}）
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono">
+                平台官方分销 {zonePlatformSkillsCount} · 自建/共创 {zoneCustomSkillsCount}
+              </span>
+            </div>
+
+            {zoneSkills.length === 0 ? (
+              <div className="py-10 text-center rounded-xl border border-dashed border-slate-300 bg-white text-xs text-slate-500">
+                本社区尚未上架任何 Skill / MCP，可从下方引入 AGN 平台官方能力包进行分销，或新建自建能力包。
+              </div>
+            ) : (
+              <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+                {zoneSkills.map((skill) => {
+                  const isPlatform = skill.origin === 'platform';
+                  const sharePct = skill.distributionSharePct ?? 20;
+                  return (
+                    <div
+                      key={skill.id}
+                      className="px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-slate-50/50 transition-colors"
+                    >
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-[10px] font-mono font-semibold text-slate-700">
+                            {skill.kind === 'mcp'
+                              ? 'MCP'
+                              : skill.kind === 'workflow'
+                                ? 'WORKFLOW'
+                                : 'SKILL'}
+                          </span>
+                          {isPlatform ? (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-semibold text-blue-700">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              <span>平台官方分销 · 分润 {sharePct}%</span>
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-[10px] font-semibold text-emerald-700">
+                              {skill.origin === 'custom' ? '团队自建' : '社区共创'}
+                            </span>
+                          )}
+                          <span className="text-xs font-bold text-slate-900">{skill.name}</span>
+                          <span className="text-[11px] font-mono text-slate-500">
+                            {(skill.priceUsd ?? 0) > 0 ? `$${skill.priceUsd}` : '免费'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 line-clamp-1">{skill.summary}</p>
+                        <div className="text-[11px] text-slate-400 font-mono">
+                          {skill.slug} · {skill.authorName} · {skill.installs} 安装
+                        </div>
+                      </div>
+
+                      {onToggleZoneSkillDistribution && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleZoneSkillDistribution(zone.id, skill.id)}
+                          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-200 bg-white hover:bg-red-50 hover:text-red-600 hover:border-red-200 text-[11px] font-semibold text-slate-600 cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{isPlatform ? '停止分销' : '下架移出'}</span>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Import AGN Platform Official Skills for Community Distribution */}
+          {onToggleZoneSkillDistribution && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-900">
+                  从 AGN 平台官方库引入分销（{importablePlatformSkills.length} 可引入）
+                </span>
+                <span className="text-[11px] text-blue-700 font-medium">
+                  官方统一维护更新 · 社区成交享 20% 渠道分润
+                </span>
+              </div>
+
+              {importablePlatformSkills.length === 0 ? (
+                <div className="py-6 text-center rounded-xl border border-slate-200 bg-slate-50/70 text-xs text-slate-500">
+                  全部 AGN 平台官方维护的 Skills / MCP 均已引入本社区分销。
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {importablePlatformSkills.map((skill) => {
+                    const sharePct = skill.distributionSharePct ?? 20;
+                    const price = skill.priceUsd ?? 0;
+                    const estCommission = Math.round((price * sharePct) / 100);
+                    return (
+                      <div
+                        key={skill.id}
+                        className="bg-white rounded-xl border border-slate-200 p-3.5 flex flex-col justify-between gap-2.5"
+                      >
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-[10px] font-semibold text-blue-700 shrink-0">
+                                平台官方
+                              </span>
+                              <span className="text-xs font-bold text-slate-900 truncate">
+                                {skill.name}
+                              </span>
+                            </div>
+                            <span className="text-xs font-mono font-bold text-slate-900 shrink-0">
+                              {price > 0 ? `$${price}` : '免费'}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                            {skill.summary}
+                          </p>
+                        </div>
+                        <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                          <span className="text-[11px] text-emerald-700 font-medium">
+                            {price > 0
+                              ? `分销每单分润 $${estCommission} (${sharePct}%)`
+                              : '官方免费标准包 · 提升社区活跃'}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onToggleZoneSkillDistribution(zone.id, skill.id)}
+                            className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>引入本社区分销</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ================= TAB 5: COMMUNITY CONTENT GOVERNANCE ================= */}
       {activeTab === 'content' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">

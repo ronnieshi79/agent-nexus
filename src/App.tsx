@@ -42,13 +42,16 @@ const TEAM_SECTION_META: Record<
   { group: string; label: string; parentTab?: TeamSectionTab }
 > = {
   agents: { group: 'Agent 团队', label: 'Agent 成员' },
-  collaborators: { group: 'Agent 团队', label: '合作专家' },
-  friends: { group: 'Agent 团队', label: '我的好友' },
+  principals: { group: 'Agent 团队', label: 'Agent 主理' },
+  collab_my: { group: 'Agent 团队', label: 'Agent 社区' },
+  collab_manage: { group: 'Agent 团队', label: '主理人管理', parentTab: 'collab_my' },
+  collab_discover: { group: 'Agent 团队', label: '发现社区', parentTab: 'collab_my' },
   nodes: { group: '空间资源', label: 'Agent 节点' },
+  nodes_purchase: { group: '空间资源', label: '平台采购', parentTab: 'nodes' },
   storage: { group: '空间资源', label: 'Agent 存储' },
-  collab_my: { group: '空间资源', label: '协作社区' },
-  collab_manage: { group: '空间资源', label: '主理人管理', parentTab: 'collab_my' },
-  collab_discover: { group: '空间资源', label: '发现社区', parentTab: 'collab_my' },
+  storage_purchase: { group: '空间资源', label: '平台采购', parentTab: 'storage' },
+  skills: { group: '空间资源', label: 'Skills / MCP' },
+  skills_purchase: { group: '空间资源', label: '平台采购', parentTab: 'skills' },
 };
 
 const COMMUNITY_TAB_META: Record<
@@ -139,7 +142,7 @@ export default function App() {
       ];
       if (meta.parentTab) {
         items.push({
-          label: '协作社区',
+          label: TEAM_SECTION_META[meta.parentTab].label,
           onClick: () => store.openTeamTab(meta.parentTab!),
         });
         items.push({
@@ -402,6 +405,9 @@ export default function App() {
                 })
               }
               onLaunchNewTaskSession={store.launchNewTaskSessionFromPrompt}
+              onReactivateProject={(projectId) =>
+                store.updateProjectLifecycle(projectId, 'active')
+              }
             />
           )}
 
@@ -536,6 +542,12 @@ export default function App() {
               onToggleSpaceAgentOnline={store.toggleSpaceAgentOnline}
               onPublishAgentToSpace={store.publishAgentToSpace}
               onRemoveAgentFromSpace={store.removeAgentFromSpace}
+              marketSkills={store.marketSkills}
+              purchasedSkillIds={store.purchasedSkillIds}
+              onAcquireSkill={store.acquireSkill}
+              onCreateSpaceSkill={store.createSpaceSkill}
+              onToggleAgentSkillBinding={store.toggleAgentSkillBinding}
+              onToggleZoneSkillDistribution={store.toggleZoneSkillDistribution}
             />
           )}
 

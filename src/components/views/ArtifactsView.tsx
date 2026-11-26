@@ -411,11 +411,23 @@ export function ArtifactsView({
     setCreateOpen(false);
   };
 
+  const activeWorkspacesForShare = useMemo(
+    () =>
+      workspaces.filter(
+        (w) => w.lifecycleStatus !== 'completed' && w.lifecycleStatus !== 'archived',
+      ),
+    [workspaces],
+  );
+
   const handleShareSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!previewArtifact || !shareProjectId) return;
-    onShareArtifactToChat(previewArtifact.id, shareProjectId, shareNote);
-    setShareSuccessProjectId(shareProjectId);
+    const resolvedTargetId =
+      activeWorkspacesForShare.some((w) => w.id === shareProjectId)
+        ? shareProjectId
+        : activeWorkspacesForShare[0]?.id || '';
+    if (!previewArtifact || !resolvedTargetId) return;
+    onShareArtifactToChat(previewArtifact.id, resolvedTargetId, shareNote);
+    setShareSuccessProjectId(resolvedTargetId);
     setShareNote('');
   };
 
@@ -819,7 +831,6 @@ export function ArtifactsView({
                     const kindMeta = KIND_META[art.kind];
                     const srcMeta = SOURCE_META[art.sourceType];
                     const proj = workspaceMap.get(art.projectId);
-                    const isDerived = art.id.startsWith('art_task_');
 
                     return (
                       <article
@@ -834,26 +845,24 @@ export function ArtifactsView({
                               <h3 className="text-sm font-bold text-slate-900 group-hover:text-blue-700 transition-colors line-clamp-1">
                                 {art.title}
                               </h3>
-                              {!isDerived && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onToggleStarArtifact(art.id);
-                                  }}
-                                  title={art.starred ? '取消标星' : '标星收藏'}
-                                  className={`p-1 rounded-md shrink-0 cursor-pointer transition-colors ${
-                                    art.starred
-                                      ? 'text-amber-500 hover:bg-amber-50'
-                                      : 'text-slate-300 hover:text-amber-500 hover:bg-slate-100'
-                                  }`}
-                                >
-                                  <Star
-                                    className="w-3.5 h-3.5"
-                                    fill={art.starred ? 'currentColor' : 'none'}
-                                  />
-                                </button>
-                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onToggleStarArtifact(art.id);
+                                }}
+                                title={art.starred ? '取消标星' : '标星收藏'}
+                                className={`p-1 rounded-md shrink-0 cursor-pointer transition-colors ${
+                                  art.starred
+                                    ? 'text-amber-500 hover:bg-amber-50'
+                                    : 'text-slate-300 hover:text-amber-500 hover:bg-slate-100'
+                                }`}
+                              >
+                                <Star
+                                  className="w-3.5 h-3.5"
+                                  fill={art.starred ? 'currentColor' : 'none'}
+                                />
+                              </button>
                             </div>
 
                             <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
@@ -914,7 +923,6 @@ export function ArtifactsView({
                     const srcMeta = SOURCE_META[art.sourceType];
                     const KindIcon = kindMeta.icon;
                     const proj = workspaceMap.get(art.projectId);
-                    const isDerived = art.id.startsWith('art_task_');
 
                     return (
                       <div
@@ -964,25 +972,23 @@ export function ArtifactsView({
                         </div>
 
                         <div className="flex items-center gap-1.5 shrink-0 self-end @[760px]:self-center">
-                          {!isDerived && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleStarArtifact(art.id);
-                              }}
-                              className={`p-1.5 rounded-lg border cursor-pointer ${
-                                art.starred
-                                  ? 'border-amber-200 bg-amber-50 text-amber-500'
-                                  : 'border-slate-200 bg-white text-slate-400 hover:text-amber-500'
-                              }`}
-                            >
-                              <Star
-                                className="w-3.5 h-3.5"
-                                fill={art.starred ? 'currentColor' : 'none'}
-                              />
-                            </button>
-                          )}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleStarArtifact(art.id);
+                            }}
+                            className={`p-1.5 rounded-lg border cursor-pointer ${
+                              art.starred
+                                ? 'border-amber-200 bg-amber-50 text-amber-500'
+                                : 'border-slate-200 bg-white text-slate-400 hover:text-amber-500'
+                            }`}
+                          >
+                            <Star
+                              className="w-3.5 h-3.5"
+                              fill={art.starred ? 'currentColor' : 'none'}
+                            />
+                          </button>
                           <button
                             type="button"
                             onClick={(e) => {
@@ -1212,16 +1218,25 @@ export function ArtifactsView({
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <select
-                    value={shareProjectId}
+                    value={
+                      activeWorkspacesForShare.some((w) => w.id === shareProjectId)
+                        ? shareProjectId
+                        : activeWorkspacesForShare[0]?.id || ''
+                    }
                     onChange={(e) => setShareProjectId(e.target.value)}
                     aria-label="选择目标项目群"
-                    className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    disabled={activeWorkspacesForShare.length === 0}
+                    className="bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20 disabled:opacity-50"
                   >
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        项目群：{w.name}
-                      </option>
-                    ))}
+                    {activeWorkspacesForShare.length === 0 ? (
+                      <option value="">暂无进行中项目群</option>
+                    ) : (
+                      activeWorkspacesForShare.map((w) => (
+                        <option key={w.id} value={w.id}>
+                          项目群：{w.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                   <input
                     type="text"
@@ -1234,7 +1249,8 @@ export function ArtifactsView({
                 <div className="flex justify-end">
                   <button
                     type="submit"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
+                    disabled={activeWorkspacesForShare.length === 0}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                   >
                     <Send className="w-3.5 h-3.5" />
                     <span>分享到该对话</span>
@@ -1260,36 +1276,32 @@ export function ArtifactsView({
                     <span>打开来源任务 #{previewArtifact.sourceTaskId}</span>
                   </button>
                 )}
-                {!previewArtifact.id.startsWith('art_task_') && (
-                  <button
-                    type="button"
-                    onClick={() => onToggleStarArtifact(previewArtifact.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-medium text-slate-700 cursor-pointer"
-                  >
-                    <Star
-                      className={`w-3.5 h-3.5 ${
-                        previewArtifact.starred ? 'text-amber-500' : 'text-slate-400'
-                      }`}
-                      fill={previewArtifact.starred ? 'currentColor' : 'none'}
-                    />
-                    <span>{previewArtifact.starred ? '已收藏' : '收藏'}</span>
-                  </button>
-                )}
-              </div>
-
-              {!previewArtifact.id.startsWith('art_task_') && (
                 <button
                   type="button"
-                  onClick={() => {
-                    onDeleteArtifact(previewArtifact.id);
-                    setPreviewId(null);
-                  }}
-                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 cursor-pointer"
+                  onClick={() => onToggleStarArtifact(previewArtifact.id)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-xs font-medium text-slate-700 cursor-pointer"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>删除</span>
+                  <Star
+                    className={`w-3.5 h-3.5 ${
+                      previewArtifact.starred ? 'text-amber-500' : 'text-slate-400'
+                    }`}
+                    fill={previewArtifact.starred ? 'currentColor' : 'none'}
+                  />
+                  <span>{previewArtifact.starred ? '已收藏' : '收藏'}</span>
                 </button>
-              )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteArtifact(previewArtifact.id);
+                  setPreviewId(null);
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>删除</span>
+              </button>
             </div>
           </aside>
         </div>
