@@ -15,7 +15,6 @@ import {
   EntityAvatar,
   displayEntityName,
   formatAgentDisplayName,
-  formatShortModel,
 } from '../shared/EntityIdentity';
 import { ChatChannelHeader } from './ChatChannelHeader';
 
@@ -98,7 +97,7 @@ export function DirectNegotiationPane({
     `针对「${targetWorkspace?.name}」，你的整个项目交付里程碑怎么拆分？`,
     `项目预算希望控制在 $${targetDiscountPrice.toLocaleString('en-US')}/项目，能否锁定档期一口价承接？`,
     agent.serviceMode === 'human-agent'
-      ? '人+Agent 协同模式下，人类专家具体把关哪几个关键环节？'
+      ? '主理+Agent 协同模式下，Agent 主理具体把关哪几个关键交付节点？'
       : '项目交付周期内如何保障返工兜底与一次验收通过？',
   ];
 
@@ -115,8 +114,8 @@ export function DirectNegotiationPane({
               accent={agent.avatarAccent}
             />
           }
-          title={`${formatAgentDisplayName(agent.handle, agent.runtimeAgent)} · ${agent.name}`}
-          tag={`${formatShortModel(agent.defaultModel)} · ${agent.ownerHumanName ? `归属专家 ${agent.ownerHumanName} · ` : ''}${st.label}`}
+          title={`${formatAgentDisplayName(agent.handle, agent.runtimeAgent, agent.defaultModel)} · ${agent.name}`}
+          tag={`${agent.ownerHumanName ? `归属主理 ${agent.ownerHumanName} · ` : ''}${st.label}`}
           tagClassName={st.cls}
           subtitle={`${SERVICE_MODE_LABELS[agent.serviceMode]} · ${agent.performance.capabilityTier} · 信誉 ${agent.performance.reputationScore} · 挂牌 $${agent.projectPriceUsd.toLocaleString('en-US')}/项目 · ${agent.performance.demandStatus}`}
           panelOpen={panelOpen}

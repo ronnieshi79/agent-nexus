@@ -45,7 +45,7 @@ export const PIPELINE_STAGE_META: PipelineStageMeta[] = [
     step: '02',
     label: '任务执行',
     shortLabel: '执行',
-    hint: '专业 Agent 按计划自主执行并产出交付物',
+    hint: '专家 Agent 按计划自主执行并产出交付物',
     accentCls: 'text-blue-700',
     badgeBgCls: 'bg-blue-50 text-blue-700 border-blue-200',
     dotCls: 'bg-blue-600',

@@ -44,7 +44,9 @@ import {
   AgentIdentityName,
   EntityAvatar,
   displayEntityName,
+  formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { RailBrandBackdrop } from '../shared/ViewToolbar';
 import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 
 interface SidebarProps {
@@ -507,7 +509,7 @@ export function Sidebar({
       id: 'community',
       label: 'AGN社区',
       icon: Compass,
-      tooltip: 'AGN社区 · 为 FDE / OPC Agent 协作而建',
+      tooltip: 'AGN社区 · FDE / OPC 专属的网络专业 Agent 团队',
     },
     {
       id: 'team',
@@ -563,14 +565,19 @@ export function Sidebar({
         <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
           <div className="flex items-center gap-1.5 min-w-0 truncate">
             {context !== 'agent' && (
-              <span className="inline-flex items-center gap-1 truncate text-slate-600 font-medium">
+              <span className="inline-flex items-center gap-1 min-w-0 truncate text-slate-600 font-medium">
                 <span
                   className="w-3.5 h-3.5 rounded text-[8px] font-bold text-white inline-flex items-center justify-center shrink-0"
                   style={{ backgroundColor: agent?.avatarAccent || '#334155' }}
                 >
                   {agent?.avatarCode?.slice(0, 1) || 'A'}
                 </span>
-                <span className="truncate">{displayEntityName(task.assigneeHandle)}</span>
+                <AgentIdentityName
+                  name={task.assigneeHandle}
+                  runtime={agent?.runtimeAgent}
+                  model={agent?.defaultModel}
+                  className="font-medium text-slate-600"
+                />
               </span>
             )}
             {context === 'flat' && proj && (
@@ -580,16 +587,6 @@ export function Sidebar({
             )}
             {context !== 'project' && proj && (
               <span className="truncate text-slate-500">{proj.name}</span>
-            )}
-            {context === 'project' && agent?.runtimeAgent && (
-              <>
-                <span className="text-slate-300 shrink-0" aria-hidden="true">
-                  ·
-                </span>
-                <span className="font-mono text-[10px] text-slate-400 shrink-0">
-                  {agent.runtimeAgent}
-                </span>
-              </>
             )}
           </div>
           <span
@@ -1025,9 +1022,9 @@ export function Sidebar({
               >
                 <UserPlus className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 <div className="min-w-0">
-                  <div className="font-medium text-slate-800">发起人类专家单聊</div>
+                  <div className="font-medium text-slate-800">发起 Agent 主理单聊</div>
                   <div className="text-[10.5px] text-slate-400 truncate">
-                    1v1 对齐需求与交付验收
+                    1v1 对接结果导向外包与验收
                   </div>
                 </div>
               </button>
@@ -1172,7 +1169,7 @@ export function Sidebar({
                       : 'text-slate-600'
                   }`}
                 >
-                  人类专家 ({availableDmHumans.length})
+                  Agent 主理 ({availableDmHumans.length})
                 </button>
                 <button
                   type="button"
@@ -1183,14 +1180,14 @@ export function Sidebar({
                       : 'text-slate-600'
                   }`}
                 >
-                  Agent ({availableDmAgents.length})
+                  专家 Agent ({availableDmAgents.length})
                 </button>
               </div>
 
               {dmPickerTab === 'human' ? (
                 availableDmHumans.length === 0 ? (
                   <div className="text-[11px] text-slate-500 py-1">
-                    所有在线人类专家均已建立单聊。
+                    所有在线 Agent 主理均已建立单聊。
                   </div>
                 ) : (
                   <div className="max-h-40 overflow-y-auto clean-scroll space-y-1">
@@ -1278,7 +1275,7 @@ export function Sidebar({
               >
                 {agents.map((a) => (
                   <option key={a.id} value={a.id}>
-                    Agent：{displayEntityName(a.handle)} ({a.runtimeAgent})
+                    Agent：{formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
                   </option>
                 ))}
               </select>
@@ -1447,7 +1444,7 @@ export function Sidebar({
                           kind="human"
                           code={expert.avatarInitials}
                           accent={expert.avatarAccent}
-                          title={`人类专家 · ${expert.name}`}
+                          title={`Agent 主理 · ${expert.name}`}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -1461,7 +1458,7 @@ export function Sidebar({
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
                           <span className="text-slate-500 truncate">{expert.title}</span>
-                          <span className="text-emerald-700 font-medium shrink-0">专家</span>
+                          <span className="text-emerald-700 font-medium shrink-0">主理</span>
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500 truncate">
                           {lastMsg?.content || '点击开始 1v1 沟通协作'}
@@ -1531,6 +1528,7 @@ export function Sidebar({
                 </button>
               );
             })}
+            <RailBrandBackdrop compact />
           </div>
         ) : (
           /* ================= MODE 2: 任务模式（类 Codex / Antigravity，可筛选/分组/不分组事件流） ================= */
@@ -1578,9 +1576,12 @@ export function Sidebar({
                             >
                               {group.agent?.avatarCode?.slice(0, 1) || 'A'}
                             </span>
-                            <span className="text-xs font-semibold text-slate-700 truncate">
-                              {displayEntityName(group.handle)}
-                            </span>
+                            <AgentIdentityName
+                              name={group.handle}
+                              runtime={group.agent?.runtimeAgent}
+                              model={group.agent?.defaultModel}
+                              className="text-xs font-semibold text-slate-700"
+                            />
                             <span className="text-[10px] font-mono tabular-nums text-slate-400 shrink-0">
                               {group.distinctProjects}项·{group.tasks.length}
                             </span>
@@ -1593,7 +1594,7 @@ export function Sidebar({
                                 projectId: group.tasks[0]?.sessionId,
                               })
                             }
-                            title={`为 ${displayEntityName(group.handle)} 新建任务`}
+                            title={`为 ${formatAgentDisplayName(group.handle, group.agent?.runtimeAgent, group.agent?.defaultModel)} 新建任务`}
                             className="p-0.5 rounded text-slate-400 hover:text-slate-900 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity cursor-pointer shrink-0"
                           >
                             <Plus className="w-3.5 h-3.5" />
@@ -1661,6 +1662,7 @@ export function Sidebar({
                   })}
                 </div>
               )}
+              <RailBrandBackdrop compact />
           </div>
         )}
       </div>

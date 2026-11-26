@@ -766,7 +766,7 @@ export function CollabSpaceManagePanel({
                         </span>
                         {memberAgentsCount > 0 && (
                           <span className="text-[11px] text-slate-500 font-mono">
-                            已上架 {memberAgentsCount} 个专业 Agent
+                            已上架 {memberAgentsCount} 个专家 Agent
                           </span>
                         )}
                       </div>
@@ -1269,7 +1269,7 @@ export function CollabSpaceManagePanel({
           <div className="bg-white rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row md:items-center justify-between gap-3">
             <div className="text-xs text-slate-600 leading-relaxed">
               <span className="font-semibold text-slate-900">社区服务市场管理：</span>
-              管理已上架到「{zone.name}」服务市场的专业 Agent。点击「下线停服」可立即暂停在本社区服务市场的曝光与接单，随时一键恢复上线或移出本社区。
+              管理已上架到「{zone.name}」服务市场的专家 Agent。点击「下线停服」可立即暂停在本社区服务市场的曝光与接单，随时一键恢复上线或移出本社区。
             </div>
 
             {publishableAgents.length > 0 && (
@@ -1277,7 +1277,7 @@ export function CollabSpaceManagePanel({
                 <select
                   value={agentToPublishId || publishableAgents[0]?.id || ''}
                   onChange={(e) => setAgentToPublishId(e.target.value)}
-                  aria-label="选择要上架到本社区服务市场的专业 Agent"
+                  aria-label="选择要上架到本社区服务市场的专家 Agent"
                   className="h-8 max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                 >
                   {publishableAgents.map((a) => (
@@ -1301,10 +1301,10 @@ export function CollabSpaceManagePanel({
           {publishedAgents.length === 0 ? (
             <div className="py-12 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-2">
               <p className="text-sm font-medium text-slate-700">
-                当前私有社区服务市场尚未上架任何专业 Agent
+                当前私有社区服务市场尚未上架任何专家 Agent
               </p>
               <p className="text-xs text-slate-400">
-                请在上方选择专业 Agent 上架到本社区，或在「Agent 成员」创建自建 Agent 时勾选上架本社区。
+                请在上方选择专家 Agent 上架到本社区，或在「Agent 成员」创建自建 Agent 时勾选上架本社区。
               </p>
             </div>
           ) : (

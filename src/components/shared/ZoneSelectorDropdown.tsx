@@ -13,8 +13,8 @@ interface ZoneSelectorDropdownProps {
   onToggleJoinZone?: (zoneId: string) => void;
   /** Optional quick link to Workspace -> Collaboration Spaces */
   onManageSpaces?: () => void;
-  /** Visual density variant: 'header' sits in TopHeader; 'rail' sits full-width inside left primary rail */
-  variant?: 'default' | 'header' | 'rail';
+  /** Visual density variant: 'topbar' sits centered in TopHeader; 'header' sits inline; 'rail' sits full-width inside left rail */
+  variant?: 'default' | 'header' | 'rail' | 'topbar';
 }
 
 export function ZoneSelectorDropdown({
@@ -145,6 +145,7 @@ export function ZoneSelectorDropdown({
 
   const isHeader = variant === 'header';
   const isRail = variant === 'rail';
+  const isTopbar = variant === 'topbar';
 
   return (
     <div ref={containerRef} className={`relative ${isRail ? 'block w-full' : 'inline-block shrink-0'}`}>
@@ -154,15 +155,21 @@ export function ZoneSelectorDropdown({
         aria-haspopup="listbox"
         aria-expanded={open}
         className={`flex items-center justify-between gap-2 rounded-lg border text-left transition-colors cursor-pointer ${
-          isRail ? 'w-full px-2.5 py-2' : 'inline-flex h-8 pl-1.5 pr-2'
+          isRail
+            ? 'w-full px-2.5 py-2'
+            : isTopbar
+              ? 'inline-flex h-9 pl-2 pr-2.5'
+              : 'inline-flex h-8 pl-1.5 pr-2'
         } ${
           open
             ? 'bg-white border-slate-900 ring-2 ring-slate-900/10'
             : isRail
               ? 'bg-slate-50/90 border-slate-200 hover:border-slate-300 hover:bg-slate-100/70'
-              : isHeader
-                ? 'bg-slate-50/80 border-slate-200/90 hover:border-slate-300 hover:bg-slate-100/70'
-                : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
+              : isTopbar
+                ? 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-slate-100/70'
+                : isHeader
+                  ? 'bg-slate-50/80 border-slate-200/90 hover:border-slate-300 hover:bg-slate-100/70'
+                  : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/70'
         }`}
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -176,8 +183,12 @@ export function ZoneSelectorDropdown({
           </span>
           <div className="min-w-0 flex-1">
             <div
-              className={`text-xs font-bold text-slate-900 truncate ${
-                isRail ? 'leading-tight' : 'whitespace-nowrap max-w-[140px] sm:max-w-[180px]'
+              className={`font-bold text-slate-900 truncate ${
+                isRail
+                  ? 'text-xs leading-tight'
+                  : isTopbar
+                    ? 'text-[13px] whitespace-nowrap max-w-[150px] sm:max-w-[240px]'
+                    : 'text-xs whitespace-nowrap max-w-[140px] sm:max-w-[180px]'
               }`}
             >
               {activeZone.name}
@@ -189,7 +200,13 @@ export function ZoneSelectorDropdown({
               </div>
             )}
           </div>
-          {!isHeader && !isRail && (
+          {isTopbar && (
+            <span className="hidden md:inline-flex items-center gap-1 text-[11px] text-slate-400 whitespace-nowrap shrink-0">
+              <span aria-hidden="true">·</span>
+              <span>{activeZone.typeLabel}</span>
+            </span>
+          )}
+          {!isHeader && !isRail && !isTopbar && (
             <span className="hidden sm:inline-flex items-center gap-0.5 text-[11px] text-slate-400 whitespace-nowrap">
               {renderKindIcon(activeZone, 'w-3 h-3 text-slate-400 shrink-0')}
               <span>{activeZone.typeLabel}</span>
@@ -206,7 +223,9 @@ export function ZoneSelectorDropdown({
       {open && (
         <div
           role="listbox"
-          className="absolute left-0 mt-1.5 w-[min(320px,calc(100vw-2rem))] bg-white rounded-xl border border-slate-200 shadow-lg p-1.5 z-50 space-y-1.5"
+          className={`absolute ${
+            isTopbar ? 'left-1/2 -translate-x-1/2' : 'left-0'
+          } mt-1.5 w-[min(340px,calc(100vw-2rem))] bg-white rounded-xl border border-slate-200 shadow-lg p-1.5 z-50 space-y-1.5`}
         >
           {officialZones.length > 0 && (
             <div className="space-y-0.5">

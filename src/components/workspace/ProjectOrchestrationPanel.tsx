@@ -377,6 +377,7 @@ export function ProjectOrchestrationPanel({
                         <AgentIdentityName
                           name={a.handle}
                           runtime={a.runtimeAgent}
+                          model={a.defaultModel}
                           className="text-xs font-medium text-slate-800"
                         />
                         {idx < stationedAgents.length - 1 && (
@@ -455,10 +456,10 @@ export function ProjectOrchestrationPanel({
                       className="h-8 max-w-[220px] rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 disabled:opacity-50"
                     >
                       {availablePrivateAgents.length > 0 && (
-                        <optgroup label="自建专业 Agent（自有免租）">
+                        <optgroup label="自建专家 Agent（自有免租）">
                           {availablePrivateAgents.map((a) => (
                             <option key={a.id} value={a.id}>
-                              {formatAgentDisplayName(a.handle, a.runtimeAgent)}
+                              {formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
                             </option>
                           ))}
                         </optgroup>
@@ -467,7 +468,7 @@ export function ProjectOrchestrationPanel({
                         <optgroup label="已签约 / 已租用专家">
                           {availableContractedAgents.map((a) => (
                             <option key={a.id} value={a.id}>
-                              {formatAgentDisplayName(a.handle, a.runtimeAgent)}
+                              {formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
                             </option>
                           ))}
                         </optgroup>
@@ -819,7 +820,9 @@ export function ProjectOrchestrationPanel({
                             }`}
                           >
                             {selected && <Check className="w-3 h-3" />}
-                            <span>{formatAgentDisplayName(ag.handle, ag.runtimeAgent)}</span>
+                            <span>
+                              {formatAgentDisplayName(ag.handle, ag.runtimeAgent, ag.defaultModel)}
+                            </span>
                           </button>
                         );
                       })
@@ -987,6 +990,7 @@ export function ProjectOrchestrationPanel({
                                   <AgentIdentityName
                                     name={ag.handle}
                                     runtime={ag.runtimeAgent}
+                                    model={ag.defaultModel}
                                     className="text-[11px] font-semibold text-slate-800"
                                   />
                                 </span>
@@ -1008,7 +1012,13 @@ export function ProjectOrchestrationPanel({
                                   ? '项目已只读锁定'
                                   : creators.length > 0
                                     ? `与 ${creators
-                                        .map((c) => formatAgentDisplayName(c.handle, c.runtimeAgent))
+                                        .map((c) =>
+                                          formatAgentDisplayName(
+                                            c.handle,
+                                            c.runtimeAgent,
+                                            c.defaultModel,
+                                          ),
+                                        )
                                         .join(' / ')} 对话创作「${item.name}」任务卡`
                                     : `进入项目群对话创作「${item.name}」任务卡`
                               }

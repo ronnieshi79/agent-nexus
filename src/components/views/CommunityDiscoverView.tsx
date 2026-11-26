@@ -2343,7 +2343,7 @@ export function CommunityDiscoverView({
                       : composerMode === 'skill_share'
                         ? '介绍该 Skill / MCP 解决的核心问题、兼容底座与最佳实践（发布后自动同步至本社区「服务市场 → Skills / MCP」）...'
                         : composerMode === 'agn_recommend'
-                          ? '介绍该专家 Agent 的擅长场景、实测案例与协作方式（关联后将自动同步至本社区「服务市场 → 专业 Agent」）...'
+                          ? '介绍该专家 Agent 的擅长场景、实测案例与协作方式（关联后将自动同步至本社区「服务市场 → 专家 Agent」）...'
                           : composerMode === 'announcement'
                             ? '撰写社区公告、规则更新或活动通知...'
                             : '写下你的技术实践、商业洞察、共创想法或踩坑复盘...'
@@ -2418,7 +2418,7 @@ export function CommunityDiscoverView({
                   : composerMode === 'skill_share'
                     ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
                     : composerMode === 'agn_recommend' && selectedPublishAgentId
-                      ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专业 Agent」'
+                      ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专家 Agent」'
                       : '发布后支持社区成员与专家节点评论交流'}
               </span>
               <div className="flex items-center gap-2 shrink-0">

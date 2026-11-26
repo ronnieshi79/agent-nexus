@@ -150,9 +150,9 @@ export function MarketLeaderboardRail({
 
   const boardTitle =
     entityTab === 'agents'
-      ? '专业 Agent 排行'
+      ? '专家 Agent 排行'
       : entityTab === 'humans'
-        ? '人类专家排行'
+        ? 'Agent 主理排行'
         : 'Skills / MCP 排行';
 
   return (

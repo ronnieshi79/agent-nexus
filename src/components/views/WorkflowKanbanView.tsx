@@ -578,7 +578,7 @@ export function WorkflowKanbanView({
       const taskType = resolveTaskType(t, projectTaskTypes[proj.id]);
       const agent = agentMap.get(t.assigneeId);
       const actor = agent
-        ? formatAgentDisplayName(agent.handle, agent.runtimeAgent)
+        ? formatAgentDisplayName(agent.handle, agent.runtimeAgent, agent.defaultModel)
         : displayEntityName(t.assigneeHandle);
 
       if (effectiveStatus === 'in_progress') {
@@ -643,7 +643,7 @@ export function WorkflowKanbanView({
         projectId: proj.id,
         stageLabel: '协同协商',
         stageTextCls: 'text-indigo-700',
-        title: `与 ${formatAgentDisplayName(ag.handle, ag.runtimeAgent)} 协商合作`,
+        title: `与 ${formatAgentDisplayName(ag.handle, ag.runtimeAgent, ag.defaultModel)} 协商合作`,
         detail: n.firstWorkCardTitle || n.scopeNote,
         timestamp: n.updatedAt,
         priorityWeight: 3,
@@ -1786,6 +1786,7 @@ export function WorkflowKanbanView({
                                         title={`点击进入看板查看 ${formatAgentDisplayName(
                                           row.agent.handle,
                                           row.agent.runtimeAgent,
+                                          row.agent.defaultModel,
                                         )} 的任务`}
                                         className="w-full flex items-center justify-between gap-2 py-1.5 text-left hover:bg-white rounded px-1.5 -mx-1.5 transition-colors cursor-pointer"
                                       >
@@ -2198,7 +2199,7 @@ export function WorkflowKanbanView({
 
                             {focusedAgentWorkloads.length === 0 ? (
                               <div className="px-4 py-6 text-center text-xs text-slate-400">
-                                暂未分配参与 Agent，可通过「管理阵容」或「任务编排」配置专业 Agent。
+                                暂未分配参与 Agent，可通过「管理阵容」或「任务编排」配置专家 Agent。
                               </div>
                             ) : (
                               <div className="overflow-x-auto max-h-[142px] overflow-y-auto clean-scroll">
@@ -2240,10 +2241,11 @@ export function WorkflowKanbanView({
                                                 size="xs"
                                                 showCornerMark={false}
                                               />
-                                              <span className="font-semibold text-slate-900 truncate max-w-[140px]">
+                                              <span className="font-semibold text-slate-900 truncate max-w-[180px]">
                                                 {formatAgentDisplayName(
                                                   item.agent.handle,
                                                   item.agent.runtimeAgent,
+                                                  item.agent.defaultModel,
                                                 )}
                                               </span>
                                             </div>
@@ -2430,7 +2432,7 @@ export function WorkflowKanbanView({
                                 <div className="flex items-center justify-between gap-2">
                                   <h3 className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
                                     <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                                    <span>专业 Agent ({projMembers.length})</span>
+                                    <span>专家 Agent ({projMembers.length})</span>
                                   </h3>
                                   <button
                                     type="button"
@@ -2542,7 +2544,11 @@ export function WorkflowKanbanView({
                                 { id: 'all', label: '全部 Agent' },
                                 ...focusedAssignableAgents.map((a) => ({
                                   id: a.id,
-                                  label: formatAgentDisplayName(a.handle, a.runtimeAgent),
+                                  label: formatAgentDisplayName(
+                                    a.handle,
+                                    a.runtimeAgent,
+                                    a.defaultModel,
+                                  ),
                                   hint: `${focusedProjectTasks.filter((t) => t.assigneeId === a.id).length}`,
                                 })),
                               ]}
@@ -2649,7 +2655,7 @@ export function WorkflowKanbanView({
                               >
                                 {quickFallbackCreators.map((ag) => (
                                   <option key={ag.id} value={ag.id}>
-                                    对话专家：{formatAgentDisplayName(ag.handle, ag.runtimeAgent)}
+                                    对话专家：{formatAgentDisplayName(ag.handle, ag.runtimeAgent, ag.defaultModel)}
                                   </option>
                                 ))}
                               </select>
@@ -2662,6 +2668,7 @@ export function WorkflowKanbanView({
                                     ? formatAgentDisplayName(
                                         quickDispatchAgent.handle,
                                         quickDispatchAgent.runtimeAgent,
+                                        quickDispatchAgent.defaultModel,
                                       )
                                     : '指定专家 Agent'
                                 } 描述需求目标，发起对话由 AI 生成任务计划卡...`}
@@ -2877,7 +2884,7 @@ export function WorkflowKanbanView({
                                                 title={
                                                   isReadOnly
                                                     ? '项目已只读锁定，请先重新激活'
-                                                    : '变更阶段将 1:1 实时同步至「任务编排」并交接对应阶段专业 Agent'
+                                                    : '变更阶段将 1:1 实时同步至「任务编排」并交接对应阶段专家 Agent'
                                                 }
                                                 className="h-7 rounded-md border border-slate-200 bg-white hover:bg-slate-50 px-1.5 text-[11px] font-semibold text-slate-700 focus:outline-none cursor-pointer shrink-0 disabled:opacity-45 disabled:cursor-not-allowed"
                                               >

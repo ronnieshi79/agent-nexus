@@ -49,6 +49,17 @@ export type PrivateCommunityScope = 'enterprise' | 'opc' | 'topic';
 
 export type LeasePeriod = 'week' | 'month' | 'quarter';
 
+export interface AgentSliceFirewallPolicy {
+  /** Restrict slice file/context access strictly to the assigned project workspace */
+  workspaceScopedOnly: boolean;
+  /** Outbound network firewall rule: allowlist APIs only or fully air-gapped sandbox */
+  networkPolicy: 'allowlist' | 'blocked';
+  /** Require human confirmation before high-risk write/push/deploy actions */
+  requireApprovalForWrite: boolean;
+  /** Tenant kill-switch to temporarily pause/freeze the isolated Agent slice */
+  slicePaused?: boolean;
+}
+
 export interface AgentLeaseRecord {
   agentId: string;
   period: LeasePeriod;
@@ -56,6 +67,9 @@ export interface AgentLeaseRecord {
   startedAt: string;
   expiresLabel: string;
   targetWorkspaceId?: string;
+  autoRenew?: boolean;
+  /** Tenant-managed isolation firewall & governance controls for the leased Agent slice */
+  firewallPolicy?: AgentSliceFirewallPolicy;
 }
 
 export type ExpertRelationType = 'project_collab' | 'mutual_friend';
@@ -456,15 +470,18 @@ export interface NodeCliEntry {
   cliTool: CliToolType;
   runtimeAgent: string;
   cliVersion: string;
-  defaultModel: string;
+  /** Deprecated on node level — model is selected per specialist Agent member */
+  defaultModel?: string;
   authMode: CliAuthMode;
-  /** Display identifier for OAuth account or masked API key reference */
+  /** Display identifier for OAuth account or masked API key reference (kept strictly local on host node) */
   credentialLabel: string;
   authStatus: 'connected' | 'unconfigured';
-  /** Concurrent CLI slots (auto-isolated internally by the node runtime) */
+  /** Concurrent CLI sandboxes isolated internally by the node runtime */
   concurrency: number;
   enabled: boolean;
 }
+
+export type NodeLeaseBillingCycle = 'monthly' | 'yearly';
 
 export interface ComputeNode {
   id: string;
@@ -480,8 +497,12 @@ export interface ComputeNode {
   storageUsedGb: number;
   status: ComputeNodeStatus;
   endpoint: string;
-  /** 0 for self-mounted personal/office hardware; monthly USD rental for cloud nodes */
+  /** 0 for self-mounted personal/office hardware; monthly USD rental for platform cloud nodes */
   monthlyCostUsd: number;
+  /** Optional yearly USD cost when leased annually from platform */
+  yearlyCostUsd?: number;
+  /** Active billing cycle for platform cloud nodes */
+  leaseBillingCycle?: NodeLeaseBillingCycle;
   mountedAt: string;
   description: string;
   /** Agent CLIs installed and configured on this node */

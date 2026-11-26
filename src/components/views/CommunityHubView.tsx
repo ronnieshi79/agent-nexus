@@ -3,6 +3,7 @@ import { Blocks, Briefcase, Cpu, Flame, Pin, Rocket, UserCheck } from 'lucide-re
 import type {
   AgentCategory,
   AgentLeaseRecord,
+  AgentSliceFirewallPolicy,
   CommunityHubTab,
   CommunityPost,
   CommunityPostType,
@@ -24,7 +25,6 @@ import {
   RailSectionLabel,
   WorkspacePrimaryRail,
 } from '../shared/ViewToolbar';
-import { ZoneSelectorDropdown } from '../shared/ZoneSelectorDropdown';
 import { AgentMarketView, type MarketEntityTab } from './AgentMarketView';
 import { CommunityDiscoverView, type SocialFeedScope } from './CommunityDiscoverView';
 
@@ -54,11 +54,15 @@ interface CommunityHubViewProps {
   followedEntityKeys: string[];
   zoneSeed: string | null;
   onSelectZone: (zoneId: string) => void;
-  onManageCollabSpaces: () => void;
   onClearDmError: () => void;
   onSendDm: (agentId: string, text: string) => Promise<void>;
   onStartNegotiation: (agentId: string) => void;
-  onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
+  onLeaseAgent: (
+    agentId: string,
+    period: LeasePeriod,
+    targetWorkspaceId?: string,
+    firewallPolicy?: Partial<AgentSliceFirewallPolicy>,
+  ) => void;
   onAcquireSkill: (
     skillId: string,
     skillName?: string,
@@ -149,7 +153,6 @@ export function CommunityHubView({
   followedEntityKeys,
   zoneSeed,
   onSelectZone,
-  onManageCollabSpaces,
   onClearDmError,
   onSendDm,
   onStartNegotiation,
@@ -243,15 +246,6 @@ export function CommunityHubView({
   const hasCommunityAccess =
     activeZone.kind === 'official' || joinedZoneIds.includes(activeZone.id);
 
-  const getZoneStat = (z: CommunityZone) => {
-    const suspended = new Set(z.suspendedAgentIds || []);
-    const agentCnt = allAgents.filter(
-      (a) => a.listedZoneIds.includes(z.id) && !suspended.has(a.id),
-    ).length;
-    const postCnt = communityPosts.filter((p) => p.zoneId === z.id).length;
-    return `${agentCnt} Agent · ${postCnt} 动态 · ${z.memberCount} 成员`;
-  };
-
   const socialItems: {
     id: CommunityHubTab;
     label: string;
@@ -298,14 +292,14 @@ export function CommunityHubView({
   }[] = [
     {
       id: 'service_agents',
-      label: '专业 Agent',
+      label: '专家 Agent',
       count: marketplaceAgents.length,
       icon: Cpu,
       tint: 'text-indigo-500',
     },
     {
       id: 'service_humans',
-      label: '人类专家',
+      label: 'Agent 主理',
       count: zoneHumansCount,
       icon: Briefcase,
       tint: 'text-emerald-600',
@@ -321,21 +315,8 @@ export function CommunityHubView({
 
   return (
     <div className="h-full flex min-h-0 bg-white relative @container/shell">
-      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Current Community Selector + Community Exchange + Service Market + Whitespace Slogan Backdrop */}
+      {/* FAR-LEFT PRIMARY NAVIGATION RAIL: Community Exchange + Service Market + Whitespace Slogan Backdrop */}
       <WorkspacePrimaryRail ariaLabel="AGN社区导航">
-        {/* Top First Section: Current Community Switcher */}
-        <div className="pb-3 border-b border-slate-100 space-y-1.5">
-          <RailSectionLabel>当前社区</RailSectionLabel>
-          <ZoneSelectorDropdown
-            variant="rail"
-            zones={zones}
-            activeZoneId={activeZone.id}
-            onSelectZone={onSelectZone}
-            onManageSpaces={onManageCollabSpaces}
-            getZoneStat={getZoneStat}
-          />
-        </div>
-
         {/* Group 1: Community Social & Exchange */}
         <div className="space-y-0.5">
           <RailSectionLabel>社区交流</RailSectionLabel>
@@ -392,37 +373,12 @@ export function CommunityHubView({
             );
           })}
         </div>
-
-        {/* Subtle Typographic Backdrop in Open Whitespace Below Service Market */}
-        <div
-          aria-hidden="true"
-          className="pt-10 px-2.5 select-none pointer-events-none"
-        >
-          <div className="font-display text-2xl font-black tracking-tight text-slate-200/70 leading-none">
-            AGN
-          </div>
-          <p className="mt-2 text-[11px] font-medium leading-relaxed text-slate-300/90 tracking-wide">
-            为 FDE / OPC
-            <br />
-            Agent 协作而生
-          </p>
-        </div>
       </WorkspacePrimaryRail>
 
       {/* RIGHT MAIN CONTENT: Narrow-Screen Selector Bar + Embedded Service or Social View */}
       <div className="flex-1 min-w-0 flex flex-col h-full min-h-0">
         {/* Compact Narrow-Screen Bar (< 760px) */}
-        <div className="@[760px]/shell:hidden shrink-0 border-b border-slate-200 bg-white px-4 py-2 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <ZoneSelectorDropdown
-              variant="header"
-              zones={zones}
-              activeZoneId={activeZone.id}
-              onSelectZone={onSelectZone}
-              onManageSpaces={onManageCollabSpaces}
-              getZoneStat={getZoneStat}
-            />
-          </div>
+        <div className="@[760px]/shell:hidden shrink-0 border-b border-slate-200 bg-white px-4 py-2">
           <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
             {[...socialItems, ...serviceItems].map((item) => {
               const Icon = item.icon;

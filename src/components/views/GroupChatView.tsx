@@ -32,7 +32,6 @@ import {
   EntityAvatar,
   displayEntityName,
   formatAgentDisplayName,
-  formatShortModel,
 } from '../shared/EntityIdentity';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
@@ -535,7 +534,7 @@ export function GroupChatView({
                   >
                     {hiredAgents.map((a) => (
                       <option key={a.id} value={a.id}>
-                        指派：{formatAgentDisplayName(a.handle, a.runtimeAgent)} ({formatShortModel(a.defaultModel)})
+                        指派：{formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
                       </option>
                     ))}
                   </select>

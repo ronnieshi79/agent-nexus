@@ -27,6 +27,7 @@ import {
 } from '../data/initialData';
 import {
   LEASE_PERIOD_META,
+  formatAgentDisplayName,
   getAgentLeasePricing,
 } from '../components/shared/EntityIdentity';
 import {
@@ -59,6 +60,7 @@ import type {
   AgentCategory,
   AgentLeaseRecord,
   AgentNexusAccount,
+  AgentSliceFirewallPolicy,
   ArtifactKind,
   ArtifactSourceType,
   AssistantMessage,
@@ -81,6 +83,7 @@ import type {
   NegotiationThread,
   NodeCliConfig,
   NodeCliEntry,
+  NodeLeaseBillingCycle,
   NodeOsType,
   PipelineHandoffMode,
   PlatformAuditLog,
@@ -362,7 +365,30 @@ export function useAgentNexusStore() {
   const [kanbanTabSeed, setKanbanTabSeed] = useState<WorkspaceTabId | null>(null);
   const [teamTabSeed, setTeamTabSeed] = useState<TeamSectionTab | null>(null);
   const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
-  const [account, setAccount] = useState<AgentNexusAccount | null>(null);
+  const ACCOUNT_STORAGE_KEY = 'agentnexus_account_session_v1';
+  const DEFAULT_ACCOUNT: AgentNexusAccount = {
+    id: 'usr_ronnie_01',
+    name: 'Ronnie',
+    email: 'Ronnie.Shi79@gmail.com',
+    planLabel: 'Pro 主理',
+    workspaceNodeId: 'anx-node-cn-01',
+    avatarInitials: 'RO',
+  };
+
+  const [account, setAccount] = useState<AgentNexusAccount | null>(() => {
+    if (typeof window === 'undefined') return DEFAULT_ACCOUNT;
+    try {
+      const saved = window.localStorage.getItem(ACCOUNT_STORAGE_KEY);
+      if (saved === '__LOGGED_OUT__') return null;
+      if (saved) {
+        const parsed = JSON.parse(saved) as AgentNexusAccount;
+        if (parsed && parsed.email) return parsed;
+      }
+    } catch {
+      // Fallback to default active account if storage is unavailable
+    }
+    return DEFAULT_ACCOUNT;
+  });
   const [authModalOpen, setAuthModalOpen] = useState(false);
 
   const loginAccount = useCallback((email: string, name?: string) => {
@@ -375,18 +401,29 @@ export function useAgentNexusStore() {
         .trim() ||
       'AgentNexus 用户';
     const initials = derivedName.slice(0, 2).toUpperCase();
-    setAccount({
+    const nextAccount: AgentNexusAccount = {
       id: `usr_${Date.now().toString().slice(-5)}`,
       name: derivedName,
       email: cleanEmail,
-      planLabel: 'Pro 节点专家',
+      planLabel: 'Pro 主理',
       workspaceNodeId: 'anx-node-cn-01',
       avatarInitials: initials,
-    });
+    };
+    setAccount(nextAccount);
+    try {
+      window.localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(nextAccount));
+    } catch {
+      // ignore storage errors
+    }
   }, []);
 
   const logoutAccount = useCallback(() => {
     setAccount(null);
+    try {
+      window.localStorage.setItem(ACCOUNT_STORAGE_KEY, '__LOGGED_OUT__');
+    } catch {
+      // ignore storage errors
+    }
   }, []);
 
   const joinedZones = useMemo(
@@ -1928,7 +1965,7 @@ export function useAgentNexusStore() {
             id: `tsm_init_${Date.now()}`,
             taskId: newTask.id,
             sender: 'agent',
-            content: `已挂载至目标项目工作区并开启专属任务 Session（#${newTask.id} · ${newTask.title}）。我是 ${assignee?.handle || newTask.assigneeHandle}（${assignee?.runtimeAgent || 'Agent'} · ${assignee?.defaultModel || 'Default'}），本会话将专注于该任务的多轮拆解、执行与产物迭代，关键里程碑会自动以任务卡片同步至所属项目群。请补充你的具体要求或直接点击快捷操作启动。`,
+            content: `已挂载至目标项目工作区并开启专属任务 Session（#${newTask.id} · ${newTask.title}）。我是 ${formatAgentDisplayName(assignee?.handle || newTask.assigneeHandle, assignee?.runtimeAgent, assignee?.defaultModel)}，本会话将专注于该任务的多轮拆解、执行与产物迭代，关键里程碑会自动以任务卡片同步至所属项目群。请补充你的具体要求或直接点击快捷操作启动。`,
             timestamp: ts,
             executionSteps: [
               `绑定项目上下文与任务卡 #${newTask.id}`,
@@ -3929,7 +3966,12 @@ export function useAgentNexusStore() {
   }, []);
 
   const leaseAgent = useCallback(
-    (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => {
+    (
+      agentId: string,
+      period: LeasePeriod,
+      targetWorkspaceId?: string,
+      firewallPolicy?: Partial<AgentSliceFirewallPolicy>,
+    ) => {
       const target = agents.find((a) => a.id === agentId);
       if (!target) return;
       const workspaceId = targetWorkspaceId || activeWorkspace.id;
@@ -3949,17 +3991,30 @@ export function useAgentNexusStore() {
       const ts = nowTimeStr();
       const alreadyInProj = targetProj.hiredAgentIds.includes(agentId);
 
-      setAgentLeases((prev) => ({
-        ...prev,
-        [agentId]: {
-          agentId,
-          period,
-          priceUsd,
-          startedAt: '刚刚',
-          expiresLabel: `${periodMeta.shortLabel} · 剩余 ${periodMeta.days} 天`,
-          autoRenew: true,
-        },
-      }));
+      setAgentLeases((prev) => {
+        const prevPolicy = prev[agentId]?.firewallPolicy;
+        const mergedPolicy: AgentSliceFirewallPolicy = {
+          workspaceScopedOnly:
+            firewallPolicy?.workspaceScopedOnly ?? prevPolicy?.workspaceScopedOnly ?? true,
+          networkPolicy: firewallPolicy?.networkPolicy ?? prevPolicy?.networkPolicy ?? 'allowlist',
+          requireApprovalForWrite:
+            firewallPolicy?.requireApprovalForWrite ?? prevPolicy?.requireApprovalForWrite ?? true,
+          slicePaused: firewallPolicy?.slicePaused ?? false,
+        };
+        return {
+          ...prev,
+          [agentId]: {
+            agentId,
+            period,
+            priceUsd,
+            startedAt: '刚刚',
+            expiresLabel: `${periodMeta.shortLabel} · 剩余 ${periodMeta.days} 天`,
+            targetWorkspaceId: targetProj.id,
+            autoRenew: true,
+            firewallPolicy: mergedPolicy,
+          },
+        };
+      });
 
       setWorkspaces((prev) =>
         prev.map((w) =>
@@ -4034,8 +4089,8 @@ export function useAgentNexusStore() {
         {
           id: `aud_lease_${Date.now()}`,
           category: 'order',
-          title: `已${alreadyInProj ? '续租' : '租赁'}专业 Agent：${target.handle}（${periodMeta.label}）`,
-          detail: `租期费用 ${formatUsd(priceUsd)}${periodMeta.unitSuffix}，已关联项目「${targetProj.name}」并同步记入结算台账。`,
+          title: `已${alreadyInProj ? '续租' : '租赁'}专家 Agent 隔离切片：${target.handle}（${periodMeta.label}）`,
+          detail: `租期费用 ${formatUsd(priceUsd)}${periodMeta.unitSuffix}，已开启安全防火墙并派驻项目「${targetProj.name}」（零账号交易，已记入结算台账）。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -4043,6 +4098,61 @@ export function useAgentNexusStore() {
       ]);
     },
     [activeWorkspace, agents, projectAgentAssignments, workspaces],
+  );
+
+  const updateAgentSliceFirewall = useCallback(
+    (agentId: string, patch: Partial<AgentSliceFirewallPolicy>) => {
+      const target = agents.find((a) => a.id === agentId);
+      const ts = nowTimeStr();
+      setAgentLeases((prev) => {
+        const existing = prev[agentId];
+        const prevPolicy: AgentSliceFirewallPolicy = existing?.firewallPolicy || {
+          workspaceScopedOnly: true,
+          networkPolicy: 'allowlist',
+          requireApprovalForWrite: true,
+          slicePaused: false,
+        };
+        const nextPolicy: AgentSliceFirewallPolicy = {
+          ...prevPolicy,
+          ...patch,
+        };
+        const baseRecord: AgentLeaseRecord = existing || {
+          agentId,
+          period: 'month',
+          priceUsd: target?.monthlyLeaseUsd || 199,
+          startedAt: '已生效',
+          expiresLabel: '按月切片 · 隔离运行中',
+        };
+        return {
+          ...prev,
+          [agentId]: {
+            ...baseRecord,
+            firewallPolicy: nextPolicy,
+          },
+        };
+      });
+
+      if (target) {
+        const stateSummary =
+          patch.slicePaused !== undefined
+            ? patch.slicePaused
+              ? '已熔断暂停隔离切片，阻断所有工具与会话调用'
+              : '已恢复隔离切片运行'
+            : '已更新租户隔离防火墙与权限边界策略';
+        setAuditLogs((prev) => [
+          {
+            id: `aud_fw_${Date.now()}`,
+            category: 'audit',
+            title: `切片防火墙变更：${target.handle}`,
+            detail: stateSummary,
+            severity: patch.slicePaused ? 'warning' : 'info',
+            timestamp: ts,
+          },
+          ...prev,
+        ]);
+      }
+    },
+    [agents],
   );
 
   const acquireSkill = useCallback(
@@ -4545,12 +4655,17 @@ export function useAgentNexusStore() {
       gpuSpec?: string;
       storageQuotaGb: number;
       monthlyCostUsd: number;
+      yearlyCostUsd?: number;
+      leaseBillingCycle?: NodeLeaseBillingCycle;
       description: string;
     }) => {
       const cleaned = input.name.trim();
       if (!cleaned) return '';
       const id = `node_cloud_${Date.now().toString().slice(-5)}`;
       const slug = id.replace('node_cloud_', '');
+      const monthly = Math.max(0, Math.round(input.monthlyCostUsd || 59));
+      const yearly = Math.max(0, Math.round(input.yearlyCostUsd ?? monthly * 10));
+      const cycle: NodeLeaseBillingCycle = input.leaseBillingCycle || 'monthly';
       const newNode: ComputeNode = {
         id,
         name: cleaned,
@@ -4565,11 +4680,13 @@ export function useAgentNexusStore() {
         storageUsedGb: 16,
         status: 'online',
         endpoint: `cloud://${input.os}-${slug}.agentnexus.io`,
-        monthlyCostUsd: Math.max(0, Math.round(input.monthlyCostUsd || 59)),
-        mountedAt: '刚刚租用',
+        monthlyCostUsd: monthly,
+        yearlyCostUsd: yearly,
+        leaseBillingCycle: cycle,
+        mountedAt: cycle === 'yearly' ? '刚刚按年租用' : '刚刚按月租用',
         description:
           input.description.trim() ||
-          `云端租用的 7×24 在线 ${input.osVersion} 节点，可在「Agent 配置」安装多路 Agent CLI。`,
+          `云端租用的 7×24 在线 ${input.osVersion} 裸机节点，可在列表配置多路 Agent CLI 与并发沙箱。`,
         installedClis: [],
         mountedStorageIds: [],
       };
@@ -4578,8 +4695,10 @@ export function useAgentNexusStore() {
         {
           id: `aud_cloud_${Date.now()}`,
           category: 'settlement',
-          title: `租用云端节点「${newNode.name}」`,
-          detail: `${newNode.osVersion} · ${newNode.region} · ${newNode.cpuCores}C/${newNode.memoryGb}GB · $${newNode.monthlyCostUsd}/月`,
+          title: `${cycle === 'yearly' ? '按年' : '按月'}租用云端节点「${newNode.name}」`,
+          detail: `${newNode.osVersion} · ${newNode.region} · ${newNode.cpuCores}C/${newNode.memoryGb}GB · ${
+            cycle === 'yearly' ? `$${yearly}/年` : `$${monthly}/月`
+          }`,
           severity: 'success',
           timestamp: nowTimeStr(),
         },
@@ -4700,7 +4819,6 @@ export function useAgentNexusStore() {
       input: {
         cliTool: CliToolType;
         runtimeAgent: string;
-        defaultModel: string;
         authMode: CliAuthMode;
         credentialLabel: string;
         concurrency: number;
@@ -4722,7 +4840,6 @@ export function useAgentNexusStore() {
         cliTool: input.cliTool,
         runtimeAgent: input.runtimeAgent,
         cliVersion: cliVersionMap[input.cliTool] || 'v1.0.0',
-        defaultModel: input.defaultModel,
         authMode: input.authMode,
         credentialLabel:
           cleanCred ||
@@ -4741,9 +4858,9 @@ export function useAgentNexusStore() {
           id: `aud_cli_add_${Date.now()}`,
           category: 'audit',
           title: `节点「${node.name}」新增 ${entry.runtimeAgent} CLI`,
-          detail: `默认模型 ${entry.defaultModel} · ${entry.concurrency} 路并发 · ${
+          detail: `${entry.concurrency} 路并发 · ${
             entry.authMode === 'account_oauth' ? '账号登录' : 'API Key'
-          }`,
+          }（模型由各 Agent 专家独立指定）`,
           severity: 'success',
           timestamp: nowTimeStr(),
         },
@@ -4776,18 +4893,16 @@ export function useAgentNexusStore() {
           };
         }),
       );
-      // Keep any AGN Team professional Agent bound to this CLI entry in sync
+      // Sync CLI auth & concurrency only; each Expert Agent keeps its own independent model choice
       setAgents((prev) =>
         prev.map((ag) => {
           if (ag.hostCliId !== cliId) return ag;
-          const nextModel = patch.defaultModel ?? ag.defaultModel;
           const nextConcurrency =
             patch.concurrency !== undefined
               ? Math.min(16, Math.max(1, Math.round(patch.concurrency)))
               : ag.cliConfig?.concurrency;
           return {
             ...ag,
-            defaultModel: nextModel,
             cliConfig: ag.cliConfig
               ? {
                   ...ag.cliConfig,
@@ -5822,6 +5937,7 @@ export function useAgentNexusStore() {
     provisionCloudNode,
     toggleNodeStatus,
     removeComputeNode,
+    updateAgentSliceFirewall,
     createStorageVolume,
     expandStorageVolume,
     addNodeCli,

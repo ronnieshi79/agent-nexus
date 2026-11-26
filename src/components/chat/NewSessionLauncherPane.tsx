@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
+  ArrowRight,
   ArrowUp,
   Bot,
   Check,
@@ -7,6 +8,7 @@ import {
   Compass,
   FolderKanban,
   FolderPlus,
+  MessageSquare,
   Plus,
   Sparkles,
   Users,
@@ -23,8 +25,7 @@ import type {
 import {
   AgentIdentityName,
   EntityAvatar,
-  displayEntityName,
-  formatShortModel,
+  formatAgentDisplayName,
 } from '../shared/EntityIdentity';
 
 interface NewSessionLauncherPaneProps {
@@ -44,6 +45,7 @@ interface NewSessionLauncherPaneProps {
   onCreateProjectForLauncher: (name: string, goal: string, sourceZoneId?: string) => string;
   onJumpToMountPrivate: () => void;
   onJumpToMarket: () => void;
+  onJumpToCommunity?: () => void;
 }
 
 type OpenDropdown = 'none' | 'project' | 'agent' | 'skill';
@@ -97,6 +99,7 @@ export function NewSessionLauncherPane({
   onCreateProjectForLauncher,
   onJumpToMountPrivate,
   onJumpToMarket,
+  onJumpToCommunity,
 }: NewSessionLauncherPaneProps) {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     activeWorkspace?.id || workspaces[0]?.id || '',
@@ -260,12 +263,15 @@ export function NewSessionLauncherPane({
 
   return (
     <div className="h-full w-full overflow-y-auto clean-scroll bg-white">
-      <div className="min-h-full max-w-3xl mx-auto px-5 sm:px-8 py-12 sm:py-16 flex flex-col justify-center">
-        {/* Minimalist Product Slogan (No Icon, No User Name, Generous Spacing to Composer) */}
-        <div className="text-center mb-12 sm:mb-14">
-          <h1 className="font-display text-2xl sm:text-[30px] font-extrabold tracking-tight text-slate-900">
-            专家 Agent 网络协同，高质量任务交付
+      <div className="min-h-full max-w-3xl mx-auto px-5 sm:px-8 pt-8 pb-16 sm:pb-20 flex flex-col justify-center">
+        {/* Product Slogan + Two-line Positioning */}
+        <div className="text-center mb-8 sm:mb-10">
+          <h1 className="font-display text-2xl sm:text-[32px] font-extrabold tracking-tight text-slate-900">
+            AgentNexus，专家Agents 协同网络
           </h1>
+          <p className="mt-2.5 text-xs sm:text-sm font-medium text-slate-500 tracking-wide">
+            组建自己的Agent团队，做专业OPC/FDE
+          </p>
         </div>
 
         {/* Inline Quick-Create Project Card */}
@@ -437,7 +443,13 @@ export function NewSessionLauncherPane({
                 onKeyDown={handleKeyDown}
                 disabled={launching}
                 placeholder={`向 ${
-                  selectedAgent ? displayEntityName(selectedAgent.handle) : '专家 Agent'
+                  selectedAgent
+                    ? formatAgentDisplayName(
+                        selectedAgent.handle,
+                        selectedAgent.runtimeAgent,
+                        selectedAgent.defaultModel,
+                      )
+                    : '专家 Agent'
                 } 描述任务目标或问题…`}
                 className="w-full bg-transparent text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed"
               />
@@ -453,7 +465,7 @@ export function NewSessionLauncherPane({
                     onClick={() =>
                       setOpenDropdown((cur) => (cur === 'agent' ? 'none' : 'agent'))
                     }
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer max-w-[260px] ${
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer max-w-[300px] ${
                       openDropdown === 'agent'
                         ? 'bg-slate-100 text-slate-900'
                         : 'text-slate-700 hover:bg-slate-100 hover:text-slate-900'
@@ -469,13 +481,15 @@ export function NewSessionLauncherPane({
                     ) : (
                       <Bot className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                     )}
-                    <span className="truncate font-semibold text-slate-900">
-                      {selectedAgent ? displayEntityName(selectedAgent.handle) : '选择专家 Agent'}
-                    </span>
-                    {selectedAgent && (
-                      <span className="text-[11px] font-mono text-slate-400 shrink-0 hidden sm:inline">
-                        {selectedAgent.runtimeAgent} · {formatShortModel(selectedAgent.defaultModel)}
-                      </span>
+                    {selectedAgent ? (
+                      <AgentIdentityName
+                        name={selectedAgent.handle}
+                        runtime={selectedAgent.runtimeAgent}
+                        model={selectedAgent.defaultModel}
+                        className="font-semibold text-slate-900"
+                      />
+                    ) : (
+                      <span className="truncate font-semibold text-slate-900">选择专家 Agent</span>
                     )}
                     <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
                   </button>
@@ -715,32 +729,60 @@ export function NewSessionLauncherPane({
           </form>
         </div>
 
-        {/* Minimal Creation Guidance Links */}
-        <div className="mt-6 flex items-center justify-center flex-wrap gap-x-6 gap-y-2 text-xs text-slate-500">
-          <button
-            type="button"
-            onClick={() => setShowInlineCreateProject(true)}
-            className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-blue-600" />
-            <span>创建新项目</span>
-          </button>
-          <button
-            type="button"
-            onClick={onJumpToMountPrivate}
-            className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer"
-          >
-            <Bot className="w-3.5 h-3.5 text-slate-700" />
-            <span>新建 Agent</span>
-          </button>
-          <button
-            type="button"
-            onClick={onJumpToMarket}
-            className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors cursor-pointer"
-          >
-            <Compass className="w-3.5 h-3.5 text-emerald-600" />
-            <span>招募专家</span>
-          </button>
+        {/* Compact Onboarding Guidance Strip (Positioned Cleanly Below Composer) */}
+        <div className="mt-10 sm:mt-12 max-w-[540px] mx-auto w-full">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => setShowInlineCreateProject(true)}
+              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
+                  <FolderPlus className="w-3 h-3 text-blue-600/80 shrink-0" />
+                  <span className="truncate">创建新项目</span>
+                </span>
+                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
+                新建工作区并建群
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={onJumpToMarket}
+              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
+                  <Compass className="w-3 h-3 text-emerald-600/80 shrink-0" />
+                  <span className="truncate">招募 Agent 专家</span>
+                </span>
+                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
+                按期租赁隔离切片
+              </p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => (onJumpToCommunity ? onJumpToCommunity() : onJumpToMarket())}
+              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
+                  <MessageSquare className="w-3 h-3 text-indigo-600/80 shrink-0" />
+                  <span className="truncate">去社区交流</span>
+                </span>
+                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+              </div>
+              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
+                交流实战与共创项目
+              </p>
+            </button>
+          </div>
         </div>
       </div>
     </div>

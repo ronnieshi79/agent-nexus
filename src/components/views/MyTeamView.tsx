@@ -16,6 +16,8 @@ import {
   Plus,
   Server,
   Settings2,
+  ShieldAlert,
+  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Terminal,
@@ -52,6 +54,7 @@ import {
 import type {
   AgentCategory,
   AgentLeaseRecord,
+  AgentSliceFirewallPolicy,
   CliAuthMode,
   CliToolType,
   CommunityPost,
@@ -64,6 +67,7 @@ import type {
   LeasePeriod,
   MarketSkill,
   NodeCliEntry,
+  NodeLeaseBillingCycle,
   NodeOsType,
   PrivateCommunityScope,
   ProjectWorkspace,
@@ -120,13 +124,24 @@ interface MyTeamViewProps {
   openMountDrawerSignal: number;
   teamSectionSeed?: TeamSectionTab | null;
   onClearTeamSectionSeed?: () => void;
+  managedZoneId?: string | null;
+  onSelectManagedZone?: (zoneId: string | null) => void;
   onBreadcrumbContextChange?: (ctx: {
     section: TeamSectionTab;
     managedZoneName?: string | null;
   }) => void;
   onHireAgent: (agentId: string) => void;
   onReleaseAgent: (agentId: string) => void;
-  onLeaseAgent: (agentId: string, period: LeasePeriod, targetWorkspaceId?: string) => void;
+  onLeaseAgent: (
+    agentId: string,
+    period: LeasePeriod,
+    targetWorkspaceId?: string,
+    firewallPolicy?: Partial<AgentSliceFirewallPolicy>,
+  ) => void;
+  onUpdateAgentSliceFirewall?: (
+    agentId: string,
+    patch: Partial<AgentSliceFirewallPolicy>,
+  ) => void;
   onInviteTeamExpert: (input: {
     expertId: string;
     relation: ExpertRelationType;
@@ -165,6 +180,8 @@ interface MyTeamViewProps {
     gpuSpec?: string;
     storageQuotaGb: number;
     monthlyCostUsd: number;
+    yearlyCostUsd?: number;
+    leaseBillingCycle?: NodeLeaseBillingCycle;
     description: string;
   }) => string;
   onToggleNodeStatus: (nodeId: string) => void;
@@ -174,7 +191,6 @@ interface MyTeamViewProps {
     input: {
       cliTool: CliToolType;
       runtimeAgent: string;
-      defaultModel: string;
       authMode: CliAuthMode;
       credentialLabel: string;
       concurrency: number;
@@ -337,10 +353,13 @@ export function MyTeamView({
   openMountDrawerSignal,
   teamSectionSeed,
   onClearTeamSectionSeed,
+  managedZoneId: controlledManagedZoneId,
+  onSelectManagedZone,
   onBreadcrumbContextChange,
   onHireAgent,
   onReleaseAgent,
   onLeaseAgent,
+  onUpdateAgentSliceFirewall,
   onInviteTeamExpert,
   onAssignExpertToWorkspace,
   onRemoveExpertFromWorkspace,
@@ -397,6 +416,7 @@ export function MyTeamView({
   const [searchKeyword, setSearchKeyword] = useState('');
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const [skillPickerAgentId, setSkillPickerAgentId] = useState<string | null>(null);
+  const [firewallPanelAgentId, setFirewallPanelAgentId] = useState<string | null>(null);
   const actionMenuContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Infrastructure Settings (Agent Nodes, Storage, Skills/MCP) state
@@ -413,12 +433,18 @@ export function MyTeamView({
   const [collabKindFilter, setCollabKindFilter] = useState<'all' | 'official' | 'private'>('all');
   const [collabRoleFilter, setCollabRoleFilter] = useState<'all' | 'managed' | 'joined'>('all');
   const [createZoneDrawerOpen, setCreateZoneDrawerOpen] = useState(false);
-  const [managedZoneId, setManagedZoneId] = useState<string | null>(
+  const [internalManagedZoneId, setInternalManagedZoneId] = useState<string | null>(
     () =>
       allZones.find(
         (z) => z.kind === 'private' && (z.createdByMe || z.isCurrentUserPrincipal),
       )?.id || null,
   );
+  const managedZoneId =
+    controlledManagedZoneId !== undefined ? controlledManagedZoneId : internalManagedZoneId;
+  const setManagedZoneId = (nextId: string | null) => {
+    setInternalManagedZoneId(nextId);
+    onSelectManagedZone?.(nextId);
+  };
 
   const onlineNodesCount = computeNodes.filter((n) => n.status === 'online').length;
   const ownedSpaceSkills = useMemo(() => {
@@ -496,11 +522,11 @@ export function MyTeamView({
   const [title, setTitle] = useState('自动化工作流执行与专项产出');
   const [category, setCategory] = useState<AgentCategory>('engineering');
   const [runtimeAgent, setRuntimeAgent] = useState<string>('Claude Code');
-  const [defaultModel, setDefaultModel] = useState<string>('Claude 4.5 Sonnet');
+  const [defaultModel, setDefaultModel] = useState<string>('Claude Opus 5.5');
   const [region, setRegion] = useState('本地 anx-worker 私有节点');
   const [projectPriceUsd, setProjectPriceUsd] = useState(1800);
   const [bio, setBio] = useState(
-    '基于 AGN空间已挂载/租用的 Agent 节点与 CLI 构建的自建专业 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
+    '基于 AGN空间已挂载/租用的 Agent 节点与 CLI 构建的自建专家 Agent，内部项目免费调用，闲时可勾选上架社区服务市场对外租赁。',
   );
   const [skills, setSkills] = useState<string[]>(['领域知识库检索', '自动化脚本执行', '产出质量自检']);
   const [mcpTools, setMcpTools] = useState<string[]>(['Git-PR', 'Sandbox-Runner']);
@@ -865,7 +891,9 @@ export function MyTeamView({
       if (defaultCli) {
         setHostCliId(defaultCli.id);
         setRuntimeAgent(defaultCli.runtimeAgent);
-        setDefaultModel(defaultCli.defaultModel);
+        if (!defaultModel) {
+          setDefaultModel(getRuntimePreset(defaultCli.runtimeAgent).defaultModel);
+        }
       } else {
         setHostCliId('');
       }
@@ -881,7 +909,9 @@ export function MyTeamView({
       setHostCliId('');
       const firstCli = shared.supportedClis[0] || 'Claude Code';
       setRuntimeAgent(firstCli);
-      setDefaultModel(getRuntimePreset(firstCli).models[0] || 'Claude 4.5 Sonnet');
+      if (!defaultModel) {
+        setDefaultModel(getRuntimePreset(firstCli).models[0] || 'Claude Opus 5.5');
+      }
       return;
     }
     setHostCliId('');
@@ -892,7 +922,6 @@ export function MyTeamView({
     const cli = selectedHostNode?.installedClis.find((c) => c.id === nextCliId);
     if (cli) {
       setRuntimeAgent(cli.runtimeAgent);
-      setDefaultModel(cli.defaultModel);
     }
   };
 
@@ -922,15 +951,16 @@ export function MyTeamView({
     setStorageVolumeId(
       preferredNode?.mountedStorageIds[0] || storageVolumes[0]?.id || '',
     );
+    const initialRuntime = preferredCli?.runtimeAgent || 'Claude Code';
     setHandle('@私有专项特工');
     setName('Kestrel · 领域专项私有 Agent');
     setTitle('自动化任务执行、内容生成与质量校验');
     setCategory('engineering');
-    setRuntimeAgent(preferredCli?.runtimeAgent || 'Claude Code');
-    setDefaultModel(preferredCli?.defaultModel || 'Claude 4.5 Sonnet');
+    setRuntimeAgent(initialRuntime);
+    setDefaultModel(getRuntimePreset(initialRuntime).defaultModel);
     setRegion(preferredNode?.name || '个人 Agent 节点');
     setProjectPriceUsd(1800);
-    setBio('基于 AGN空间已挂载/租用节点与 Agent CLI 构建的自建专业 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
+    setBio('基于 AGN空间节点 + CLI 底座 + 指定模型 + Skills 组装的自建专家 Agent。内部项目免租调用，按需勾选上架至市场对外租赁。');
     setSkills(['接口契约联调', '边界单测补全', '自动化产出校验']);
     setMcpTools(['Git-PR', 'Sandbox-Runner', 'TypeCheck-CLI']);
     setInstalledSkillIds([]);
@@ -963,7 +993,7 @@ export function MyTeamView({
     setTitle(agent.title);
     setCategory(agent.category);
     setRuntimeAgent(matchedCli?.runtimeAgent || agent.runtimeAgent);
-    setDefaultModel(matchedCli?.defaultModel || agent.defaultModel);
+    setDefaultModel(agent.defaultModel);
     setRegion(boundNode?.name || boundSharedNode?.name || agent.region);
     setProjectPriceUsd(agent.projectPriceUsd);
     setBio(agent.bio);
@@ -1058,7 +1088,7 @@ export function MyTeamView({
     const resolvedCli =
       resolvedNode?.installedClis.find((c) => c.id === hostCliId) || null;
     const effectiveRuntime = resolvedCli?.runtimeAgent || runtimeAgent;
-    const effectiveModel = resolvedCli?.defaultModel || defaultModel;
+    const effectiveModel = defaultModel;
     const effectiveStorageId = storageVolumeId || undefined;
     const resolvedRegionLabel = resolvedNode
       ? resolvedNode.name
@@ -1069,7 +1099,7 @@ export function MyTeamView({
     const nextAgent: ExpertAgent = {
       id: isNew ? `agent_priv_${Date.now().toString().slice(-4)}` : editingId,
       handle: normalizedHandle,
-      name: name.trim() || '自建专业 Agent',
+      name: name.trim() || '自建专家 Agent',
       title: title.trim() || '专业领域自主交付',
       category,
       region: resolvedRegionLabel,
@@ -1287,23 +1317,11 @@ export function MyTeamView({
               )}
 
               {teamSection === 'collab_manage' ? (
-                activeManagedZone ? (
-                  <ToolbarDropdown
-                    label="当前主理社区"
-                    value={activeManagedZone.id}
-                    defaultValue=""
-                    onChange={setManagedZoneId}
-                    options={managedZones.map((z) => ({
-                      id: z.id,
-                      label: z.name,
-                      hint: z.typeLabel,
-                    }))}
-                  />
-                ) : (
+                !activeManagedZone ? (
                   <span className="text-xs font-medium text-slate-500">
                     暂无你主理的私有社区，点击右侧创建
                   </span>
-                )
+                ) : null
               ) : (
                 <ToolbarSearch
                   value={searchKeyword}
@@ -1924,11 +1942,11 @@ export function MyTeamView({
                       <span>自有挂载的自建 Agent 成员，项目内免租调用，支持按需上架社区服务市场对外租赁</span>
                     )}
                     {ownershipTab === 'external' && (
-                      <span>按周 / 按月 / 按季度租赁的专业 Agent 成员，可随时续租或调度至各项目工作区</span>
+                      <span>按周 / 按月 / 按季度租赁的专家 Agent 成员，可随时续租或调度至各项目工作区</span>
                     )}
                     {ownershipTab === 'all' && (
                       <span>
-                        自建与租赁专业 Agent 成员（当前工作区：<strong className="text-slate-800">{workspace.name}</strong>）
+                        自建与租赁专家 Agent 成员（当前工作区：<strong className="text-slate-800">{workspace.name}</strong>）
                       </span>
                     )}
                   </div>
@@ -1975,7 +1993,7 @@ export function MyTeamView({
                   <div className="border border-slate-200 rounded-xl bg-white mb-16">
                     {/* Desktop Column Header */}
                     <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
-                      <div>专业 Agent</div>
+                      <div>专家 Agent</div>
                       <div>运行状态</div>
                       <div>任务 Session</div>
                       <div>评级 / 租期</div>
@@ -2252,6 +2270,129 @@ export function MyTeamView({
                                                 })}
                                               </div>
                                             )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    );
+                                  })()}
+
+                                  {/* Inline Isolation Firewall & Governance Bar for Leased External Expert Agent Slices */}
+                                  {!isPrivate && (() => {
+                                    const fw: AgentSliceFirewallPolicy =
+                                      agentLeases[agent.id]?.firewallPolicy || {
+                                        workspaceScopedOnly: true,
+                                        networkPolicy: 'allowlist',
+                                        requireApprovalForWrite: true,
+                                        slicePaused: false,
+                                      };
+                                    const isFwOpen = firewallPanelAgentId === agent.id;
+                                    return (
+                                      <div className="pt-1 space-y-1.5">
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                                          <span
+                                            className={`inline-flex items-center gap-1 font-medium ${
+                                              fw.slicePaused ? 'text-amber-700' : 'text-emerald-700'
+                                            }`}
+                                          >
+                                            {fw.slicePaused ? (
+                                              <ShieldAlert className="w-3 h-3 shrink-0" />
+                                            ) : (
+                                              <ShieldCheck className="w-3 h-3 shrink-0" />
+                                            )}
+                                            <span>
+                                              {fw.slicePaused
+                                                ? '隔离切片已熔断暂停'
+                                                : '隔离切片防火墙生效'}
+                                            </span>
+                                          </span>
+                                          <span className="text-slate-300" aria-hidden="true">·</span>
+                                          <span className="text-slate-500">
+                                            {fw.workspaceScopedOnly ? '工作区隔离' : '跨项目读取'}
+                                            {' · '}
+                                            {fw.networkPolicy === 'blocked' ? '断网沙箱' : '白名单出口'}
+                                            {fw.requireApprovalForWrite ? ' · 高危审批' : ''}
+                                          </span>
+                                          {onUpdateAgentSliceFirewall && (
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setFirewallPanelAgentId((cur) =>
+                                                  cur === agent.id ? null : agent.id,
+                                                )
+                                              }
+                                              className={`inline-flex items-center gap-0.5 px-2 py-0.5 rounded-md border text-[11px] font-semibold cursor-pointer transition-colors whitespace-nowrap ${
+                                                isFwOpen
+                                                  ? 'bg-slate-900 text-white border-slate-900'
+                                                  : 'bg-white text-slate-700 border-slate-200 hover:border-blue-300 hover:text-blue-700'
+                                              }`}
+                                            >
+                                              <Settings2 className="w-2.5 h-2.5" />
+                                              <span>{isFwOpen ? '收起治理' : '管理防火墙'}</span>
+                                            </button>
+                                          )}
+                                        </div>
+
+                                        {isFwOpen && onUpdateAgentSliceFirewall && (
+                                          <div className="mt-1.5 pt-2 border-t border-slate-200/80 flex flex-wrap items-center gap-2 text-[11px]">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onUpdateAgentSliceFirewall(agent.id, {
+                                                  workspaceScopedOnly: !fw.workspaceScopedOnly,
+                                                })
+                                              }
+                                              className={`px-2 py-1 rounded-md border font-medium cursor-pointer transition-colors ${
+                                                fw.workspaceScopedOnly
+                                                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                              }`}
+                                            >
+                                              工作区边界隔离：{fw.workspaceScopedOnly ? '已开启' : '未开启'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onUpdateAgentSliceFirewall(agent.id, {
+                                                  networkPolicy:
+                                                    fw.networkPolicy === 'allowlist'
+                                                      ? 'blocked'
+                                                      : 'allowlist',
+                                                })
+                                              }
+                                              className="px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-medium cursor-pointer transition-colors"
+                                            >
+                                              外网策略：{fw.networkPolicy === 'blocked' ? '断网沙箱' : '白名单 API'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onUpdateAgentSliceFirewall(agent.id, {
+                                                  requireApprovalForWrite: !fw.requireApprovalForWrite,
+                                                })
+                                              }
+                                              className={`px-2 py-1 rounded-md border font-medium cursor-pointer transition-colors ${
+                                                fw.requireApprovalForWrite
+                                                  ? 'bg-blue-50 border-blue-200 text-blue-800'
+                                                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                                              }`}
+                                            >
+                                              高危操作审批：{fw.requireApprovalForWrite ? '强制确认' : '自动放行'}
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                onUpdateAgentSliceFirewall(agent.id, {
+                                                  slicePaused: !fw.slicePaused,
+                                                })
+                                              }
+                                              className={`px-2 py-1 rounded-md border font-semibold cursor-pointer transition-colors ${
+                                                fw.slicePaused
+                                                  ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+                                                  : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
+                                              }`}
+                                            >
+                                              {fw.slicePaused ? '恢复切片运行' : '熔断暂停切片'}
+                                            </button>
                                           </div>
                                         )}
                                       </div>
@@ -2569,8 +2710,8 @@ export function MyTeamView({
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs text-slate-500">
                     <span>
-                      人类通讯录 · 统一管理<strong className="text-slate-800">项目合作</strong>与
-                      <strong className="text-slate-800">互关好友</strong>两类 Agent 主理人，可查看名下专业 Agent 或直接派驻至「
+                      人类通讯录 · 统一管理<strong className="text-slate-800">外包合作</strong>与
+                      <strong className="text-slate-800">互关好友</strong>两类 Agent 主理（由主理人通过与多个 Agent 对话驱动任务、面向结果交付），可查看旗下专家 Agent 或邀请进入「
                       <strong className="text-slate-800">{workspace.name}</strong>」
                     </span>
                   </div>
@@ -2683,7 +2824,7 @@ export function MyTeamView({
                                 </div>
 
                                 <div className="mt-1.5 text-[11px] text-slate-500 truncate">
-                                  名下 {ownedAgents.length} 个专业 Agent：
+                                  旗下 {ownedAgents.length} 个专家 Agent：
                                   {ownedAgents.length > 0
                                     ? ownedAgents.map((a) => displayEntityName(a.handle)).join('、')
                                     : '按需配置'}
@@ -2873,7 +3014,7 @@ export function MyTeamView({
                       : '添加 Agent 成员'}
                   </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  基于已挂载/租用的 Agent 节点与 CLI 配置自建专业 Agent，或引入市场租赁 Agent。
+                  基于已挂载/租用的 Agent 节点与 CLI 切片配置自建专家 Agent，或引入市场租赁专家 Agent。
                 </p>
               </div>
               <button
@@ -2897,7 +3038,7 @@ export function MyTeamView({
                       : 'text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  配置自建专业 Agent
+                  配置自建专家 Agent
                 </button>
                 <button
                   type="button"
@@ -3185,7 +3326,7 @@ export function MyTeamView({
                               const disabledOption = remaining <= 0 && cli.id !== hostCliId;
                               return (
                                 <option key={cli.id} value={cli.id} disabled={disabledOption}>
-                                  {cli.runtimeAgent} CLI · {cli.defaultModel} · 沙箱 {used}/
+                                  {cli.runtimeAgent} CLI · 凭证 {cli.credentialLabel} · 沙箱 {used}/
                                   {cli.concurrency}（{remaining > 0 ? `余 ${remaining} 席位` : '已满'}）
                                 </option>
                               );
@@ -3197,7 +3338,7 @@ export function MyTeamView({
                       {selectedHostCli && selectedCliFull && (
                         <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-900 flex items-center justify-between gap-2">
                           <span>
-                            该 CLI 并发沙箱已满（{selectedCliUsed}/{selectedHostCli.concurrency}），无法再绑定新的专业 Agent。
+                            该 CLI 并发沙箱已满（{selectedCliUsed}/{selectedHostCli.concurrency}），无法再绑定新的专家 Agent。
                           </span>
                           <button
                             type="button"
@@ -3235,12 +3376,15 @@ export function MyTeamView({
                       </label>
 
                       {selectedHostCli && !selectedCliFull && (
-                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-slate-600 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-600 pt-0.5">
                           <span className="inline-flex items-center gap-1 font-semibold text-slate-800">
                             <Terminal className="w-3 h-3 text-blue-600" />
-                            <span>{selectedHostCli.runtimeAgent}</span>
+                            <span>{selectedHostCli.runtimeAgent} CLI</span>
                           </span>
-                          <span className="font-mono">{selectedHostCli.defaultModel}</span>
+                          <span className="text-slate-300" aria-hidden="true">·</span>
+                          <span className="font-mono text-slate-500">
+                            {selectedHostCli.credentialLabel}
+                          </span>
                           <span className="text-slate-300" aria-hidden="true">·</span>
                           <span className="font-mono text-emerald-700 font-semibold">
                             并发沙箱 {selectedCliUsed}/{selectedHostCli.concurrency}（余{' '}
@@ -3252,9 +3396,21 @@ export function MyTeamView({
                   )}
                 </div>
 
+                {/* Concise Formula Summary: Expert = Node + CLI Base + Model + Skills */}
+                <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 px-0.5">
+                  <span className="font-semibold text-slate-700">专家配方：</span>
+                  <span>{selectedHostNode?.name || region || '未选节点'}</span>
+                  <span aria-hidden="true">+</span>
+                  <span className="font-semibold text-slate-800">{runtimeAgent}</span>
+                  <span aria-hidden="true">+</span>
+                  <span className="font-mono font-semibold text-blue-700">{defaultModel}</span>
+                  <span aria-hidden="true">+</span>
+                  <span>{installedSkillIds.length} 项 Skills</span>
+                </div>
+
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block">
-                    <span className="text-xs font-medium text-slate-700">专业 Agent 名称</span>
+                    <span className="text-xs font-medium text-slate-700">专家 Agent 名称</span>
                     <input
                       type="text"
                       value={handle}
@@ -3281,44 +3437,50 @@ export function MyTeamView({
                   </label>
 
                   {!selectedHostCli && (
-                    <>
-                      <label className="block">
-                        <span className="text-xs font-medium text-slate-700">本体 Agent 引擎</span>
-                        <select
-                          value={runtimeAgent}
-                          onChange={(e) => {
-                            const nextRuntime = e.target.value;
-                            setRuntimeAgent(nextRuntime);
-                            setDefaultModel(getRuntimePreset(nextRuntime).defaultModel);
-                          }}
-                          className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                        >
-                          {AGENT_RUNTIME_PRESETS.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-
-                      <label className="block">
-                        <span className="text-xs font-medium text-slate-700">默认底层模型</span>
-                        <select
-                          value={defaultModel}
-                          onChange={(e) => setDefaultModel(e.target.value)}
-                          className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                        >
-                          {Array.from(
-                            new Set([defaultModel, ...getRuntimePreset(runtimeAgent).models]),
-                          ).map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </>
+                    <label className="block">
+                      <span className="text-xs font-medium text-slate-700">Agent CLI 底座</span>
+                      <select
+                        value={runtimeAgent}
+                        onChange={(e) => setRuntimeAgent(e.target.value)}
+                        className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                      >
+                        {AGENT_RUNTIME_PRESETS.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   )}
+
+                  <label className={`block ${selectedHostCli ? 'col-span-2' : ''}`}>
+                    <span className="text-xs font-medium text-slate-700">
+                      专家指定模型（独立于节点，同 CLI 可自由配旗舰或高速模型）
+                    </span>
+                    <select
+                      value={defaultModel}
+                      onChange={(e) => setDefaultModel(e.target.value)}
+                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    >
+                      {Array.from(
+                        new Set([
+                          defaultModel,
+                          'Claude Opus 5.5',
+                          'Claude Sonnet 5.5',
+                          'GPT-6.2',
+                          'Gemini 4 Neon',
+                          'Gemini 4 Flash',
+                          'DeepSeek-R2',
+                          'Qwen3-Coder-Max',
+                          ...getRuntimePreset(runtimeAgent).models,
+                        ]),
+                      ).map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
 
                   <label className="block col-span-2">
                     <span className="text-xs font-medium text-slate-700">核心能力定位</span>

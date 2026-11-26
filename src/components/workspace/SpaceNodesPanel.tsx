@@ -24,10 +24,10 @@ import type {
   ComputeNode,
   ExpertAgent,
   NodeCliEntry,
+  NodeLeaseBillingCycle,
   NodeOsType,
   StorageVolume,
 } from '../../types/agentnexus';
-import { getRuntimePreset } from '../shared/EntityIdentity';
 
 const OS_META: Record<
   NodeOsType,
@@ -60,7 +60,6 @@ export const CLI_TOOL_PRESETS: {
   id: CliToolType;
   label: string;
   runtimeAgent: string;
-  defaultModel: string;
   cliCmd: string;
   defaultCredPlaceholder: string;
 }[] = [
@@ -68,7 +67,6 @@ export const CLI_TOOL_PRESETS: {
     id: 'claude_code',
     label: 'Claude Code (CC)',
     runtimeAgent: 'Claude Code',
-    defaultModel: 'Claude 4.5 Sonnet',
     cliCmd: 'claude --headless',
     defaultCredPlaceholder: 'Anthropic 账号或 API Key 标签（如 sk-ant-••••8f2a）',
   },
@@ -76,7 +74,6 @@ export const CLI_TOOL_PRESETS: {
     id: 'antigravity',
     label: 'Antigravity CLI',
     runtimeAgent: 'Antigravity',
-    defaultModel: 'Gemini 3.1 Pro',
     cliCmd: 'antigravity-cli serve',
     defaultCredPlaceholder: 'Antigravity OAuth 账号或 Key 标签',
   },
@@ -84,7 +81,6 @@ export const CLI_TOOL_PRESETS: {
     id: 'codex',
     label: 'Codex CLI',
     runtimeAgent: 'Codex',
-    defaultModel: 'GPT-5.4-Codex',
     cliCmd: 'codex --full-auto',
     defaultCredPlaceholder: 'OpenAI 账号或 API Key 标签（如 sk-proj-••••3c91）',
   },
@@ -92,7 +88,6 @@ export const CLI_TOOL_PRESETS: {
     id: 'gemini_cli',
     label: 'Gemini CLI',
     runtimeAgent: 'Gemini CLI',
-    defaultModel: 'Gemini 3.1 Pro',
     cliCmd: 'gemini --yolo',
     defaultCredPlaceholder: 'Google 账号或凭证标签',
   },
@@ -100,7 +95,6 @@ export const CLI_TOOL_PRESETS: {
     id: 'qoder',
     label: 'Qoder CLI',
     runtimeAgent: 'Qoder',
-    defaultModel: 'Qwen3-Coder-Max',
     cliCmd: 'qoder-cli daemon',
     defaultCredPlaceholder: 'Qoder 账号或凭证标签',
   },
@@ -204,6 +198,8 @@ interface SpaceNodesPanelProps {
     gpuSpec?: string;
     storageQuotaGb: number;
     monthlyCostUsd: number;
+    yearlyCostUsd?: number;
+    leaseBillingCycle?: NodeLeaseBillingCycle;
     description: string;
   }) => string;
   onToggleNodeStatus: (nodeId: string) => void;
@@ -213,7 +209,6 @@ interface SpaceNodesPanelProps {
     input: {
       cliTool: CliToolType;
       runtimeAgent: string;
-      defaultModel: string;
       authMode: CliAuthMode;
       credentialLabel: string;
       concurrency: number;
@@ -266,6 +261,7 @@ export function SpaceNodesPanel({
   // Secondary Procurement Page (Platform Cloud Node) config state
   const [cloudRegion, setCloudRegion] = useState('华东-上海云区');
   const [cloudNamePrefix, setCloudNamePrefix] = useState('');
+  const [billingCycle, setBillingCycle] = useState<NodeLeaseBillingCycle>('monthly');
 
   // Inline CLI Auth Editor state (keyed by `${nodeId}:${cliId}`)
   const [editingAuthKey, setEditingAuthKey] = useState<string | null>(null);
@@ -275,14 +271,12 @@ export function SpaceNodesPanel({
   // Add CLI Drawer state
   const [cliDrawerNodeId, setCliDrawerNodeId] = useState<string | null>(null);
   const [cliTool, setCliTool] = useState<CliToolType>('claude_code');
-  const [cliDefaultModel, setCliDefaultModel] = useState<string>('Claude 4.5 Sonnet');
   const [cliAuthMode, setCliAuthMode] = useState<CliAuthMode>('api_key');
   const [cliCredLabel, setCliCredLabel] = useState('');
   const [cliConcurrency, setCliConcurrency] = useState<number>(4);
 
   const selectedCliPreset =
     CLI_TOOL_PRESETS.find((c) => c.id === cliTool) || CLI_TOOL_PRESETS[0];
-  const runtimePreset = getRuntimePreset(selectedCliPreset.runtimeAgent);
   const cliDrawerNode = cliDrawerNodeId
     ? nodes.find((n) => n.id === cliDrawerNodeId) || null
     : null;
@@ -297,7 +291,6 @@ export function SpaceNodesPanel({
       return (
         cli.runtimeAgent.toLowerCase().includes(q) ||
         (preset?.label || '').toLowerCase().includes(q) ||
-        cli.defaultModel.toLowerCase().includes(q) ||
         cli.credentialLabel.toLowerCase().includes(q)
       );
     });
@@ -372,6 +365,7 @@ export function SpaceNodesPanel({
     const effectiveName = cloudNamePrefix.trim()
       ? `${cloudNamePrefix.trim()} · ${OS_META[plan.os].short}`
       : `${plan.label} · ${cloudRegion.slice(0, 5)}`;
+    const yearlyPrice = Math.round(plan.monthlyCostUsd * 10);
     onProvisionCloudNode({
       name: effectiveName,
       os: plan.os,
@@ -382,6 +376,8 @@ export function SpaceNodesPanel({
       gpuSpec: plan.gpuSpec,
       storageQuotaGb: plan.storageQuotaGb,
       monthlyCostUsd: plan.monthlyCostUsd,
+      yearlyCostUsd: yearlyPrice,
+      leaseBillingCycle: billingCycle,
       description: plan.tagline,
     });
     setCloudNamePrefix('');
@@ -411,7 +407,6 @@ export function SpaceNodesPanel({
     onAddNodeCli(cliDrawerNodeId, {
       cliTool,
       runtimeAgent: selectedCliPreset.runtimeAgent,
-      defaultModel: cliDefaultModel,
       authMode: cliAuthMode,
       credentialLabel: cliCredLabel,
       concurrency: cliConcurrency,
@@ -425,15 +420,39 @@ export function SpaceNodesPanel({
     return (
       <div className="space-y-4">
         {/* Concise Context & Inline Procurement Options */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="text-xs text-slate-600">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-1">
             <strong className="text-slate-900">AGN 平台云端算力节点采购</strong>
-            <span className="mx-1.5 text-slate-300" aria-hidden="true">·</span>
-            <span>24/7 在线托管，按月计费随时退租，采购后自动上线并可在列表配置多路 Agent CLI</span>
+            <span className="text-slate-300" aria-hidden="true">·</span>
+            <span>专属私有算力底座，上线后自行安装 CLI 与凭证（账号仅存本节点绝不外泄），按需封装为专家 Agent 隔离切片对外服务</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => setBillingCycle('monthly')}
+                className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
+                  billingCycle === 'monthly'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                按月租用
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingCycle('yearly')}
+                className={`px-2.5 py-1 rounded-md font-semibold cursor-pointer transition-colors ${
+                  billingCycle === 'yearly'
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                按年租用 · 省 17%
+              </button>
+            </div>
             <label className="inline-flex items-center gap-1.5 text-xs text-slate-600">
-              <span className="whitespace-nowrap">部署地域</span>
+              <span className="whitespace-nowrap">地域</span>
               <select
                 value={cloudRegion}
                 onChange={(e) => setCloudRegion(e.target.value)}
@@ -449,8 +468,8 @@ export function SpaceNodesPanel({
               type="text"
               value={cloudNamePrefix}
               onChange={(e) => setCloudNamePrefix(e.target.value)}
-              placeholder="自定义节点名称前缀（可选）"
-              className="h-8 w-44 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none"
+              placeholder="自定义节点前缀（可选）"
+              className="h-8 w-40 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none"
             />
           </div>
         </div>
@@ -465,13 +484,16 @@ export function SpaceNodesPanel({
             <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(280px,360px)_minmax(0,1fr)_180px] @[860px]:items-center @[860px]:gap-6 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
               <div>平台节点概要</div>
               <div>硬件规格与适用说明</div>
-              <div className="text-right">费用与采购</div>
+              <div className="text-right">租金与采购</div>
             </div>
 
             <div className="divide-y divide-slate-200">
               {filteredPlans.map((plan) => {
                 const osMeta = OS_META[plan.os];
                 const OsIcon = osMeta.icon;
+                const yearlyPrice = Math.round(plan.monthlyCostUsd * 10);
+                const displayPrice =
+                  billingCycle === 'yearly' ? yearlyPrice : plan.monthlyCostUsd;
                 return (
                   <div
                     key={plan.id}
@@ -510,9 +532,16 @@ export function SpaceNodesPanel({
                     <div className="flex @[860px]:flex-col @[860px]:items-end items-center justify-between gap-2 shrink-0">
                       <div className="font-mono tabular-nums text-right">
                         <span className="text-base font-bold text-slate-900">
-                          ${plan.monthlyCostUsd}
+                          ${displayPrice}
                         </span>
-                        <span className="text-xs text-slate-500"> / 月</span>
+                        <span className="text-xs text-slate-500">
+                          {billingCycle === 'yearly' ? ' / 年' : ' / 月'}
+                        </span>
+                        {billingCycle === 'yearly' && (
+                          <div className="text-[11px] text-emerald-700 font-sans">
+                            折合 ${Math.round(yearlyPrice / 12)}/月
+                          </div>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -520,7 +549,7 @@ export function SpaceNodesPanel({
                         className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
                       >
                         <ShoppingBag className="w-3.5 h-3.5" />
-                        <span>立即采购上线</span>
+                        <span>{billingCycle === 'yearly' ? '按年租用上线' : '按月租用上线'}</span>
                       </button>
                     </div>
                   </div>
@@ -637,7 +666,9 @@ export function SpaceNodesPanel({
                           <span aria-hidden="true">·</span>
                           <span>
                             {node.origin === 'cloud'
-                              ? `平台采购 $${node.monthlyCostUsd}/月`
+                              ? node.leaseBillingCycle === 'yearly'
+                                ? `平台云节点 $${node.yearlyCostUsd ?? node.monthlyCostUsd * 10}/年`
+                                : `平台云节点 $${node.monthlyCostUsd}/月`
                               : '自有设备挂载'}
                           </span>
                           <span aria-hidden="true">·</span>
@@ -665,32 +696,34 @@ export function SpaceNodesPanel({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 pl-12">
-                      <button
-                        type="button"
-                        onClick={() => onToggleNodeStatus(node.id)}
-                        className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
-                      >
-                        {isOnline ? (
-                          <>
-                            <PauseCircle className="w-3.5 h-3.5 text-amber-600" />
-                            <span>休眠</span>
-                          </>
-                        ) : (
-                          <>
-                            <PlayCircle className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>上线</span>
-                          </>
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onRemoveNode(node.id)}
-                        className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer whitespace-nowrap"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span>{node.origin === 'cloud' ? '退租' : '解绑'}</span>
-                      </button>
+                    <div className="space-y-2 pl-12">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => onToggleNodeStatus(node.id)}
+                          className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
+                        >
+                          {isOnline ? (
+                            <>
+                              <PauseCircle className="w-3.5 h-3.5 text-amber-600" />
+                              <span>休眠</span>
+                            </>
+                          ) : (
+                            <>
+                              <PlayCircle className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>上线</span>
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onRemoveNode(node.id)}
+                          className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] font-medium text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer whitespace-nowrap"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>{node.origin === 'cloud' ? '退租' : '解绑'}</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -768,7 +801,6 @@ export function SpaceNodesPanel({
                           const preset =
                             CLI_TOOL_PRESETS.find((p) => p.id === cli.cliTool) ||
                             CLI_TOOL_PRESETS[0];
-                          const rtPreset = getRuntimePreset(cli.runtimeAgent);
                           const authKey = `${node.id}:${cli.id}`;
                           const isEditingAuth = editingAuthKey === authKey;
                           const boundAgents = agents.filter(
@@ -811,14 +843,14 @@ export function SpaceNodesPanel({
                                         : openInlineAuthEditor(node.id, cli)
                                     }
                                     className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-blue-700 cursor-pointer"
-                                    title="点击修改 CLI 账号或 API Key"
+                                    title="点击修改 CLI 账号或 API Key（凭证仅保存在本节点内，绝不对外共享）"
                                   >
                                     {cli.authMode === 'account_oauth' ? (
                                       <UserCheck className="w-3 h-3 text-emerald-600" />
                                     ) : (
                                       <KeyRound className="w-3 h-3 text-amber-600" />
                                     )}
-                                    <span className="font-mono max-w-[140px] truncate">
+                                    <span className="font-mono max-w-[160px] truncate">
                                       {cli.credentialLabel}
                                     </span>
                                     <span className="text-blue-600 font-medium">
@@ -827,32 +859,13 @@ export function SpaceNodesPanel({
                                   </button>
                                 </div>
 
-                                {/* Inline Config Controls: Model + Concurrency Stepper + Pause + Delete */}
+                                {/* Inline Config Controls: Concurrency Stepper + Pause + Delete */}
                                 <div className="flex flex-wrap items-center gap-1.5 shrink-0">
-                                  <select
-                                    value={cli.defaultModel}
-                                    onChange={(e) =>
-                                      onUpdateNodeCli(node.id, cli.id, {
-                                        defaultModel: e.target.value,
-                                      })
-                                    }
-                                    aria-label={`${preset.label} 默认模型`}
-                                    className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-mono text-slate-800 focus:outline-none"
-                                  >
-                                    {Array.from(
-                                      new Set([...rtPreset.models, cli.defaultModel]),
-                                    ).map((m) => (
-                                      <option key={m} value={m}>
-                                        {m}
-                                      </option>
-                                    ))}
-                                  </select>
-
                                   <div
                                     className="inline-flex items-center gap-1 h-7 px-1.5 rounded-md border border-slate-200 bg-white text-[11px]"
-                                    title="并发沙箱上限（可绑定专业 Agent 数量）"
+                                    title="并发隔离沙箱上限（对外仅以专家 Agent 隔离切片方式提供服务）"
                                   >
-                                    <span className="text-slate-400">沙箱</span>
+                                    <span className="text-slate-400">并发沙箱</span>
                                     <button
                                       type="button"
                                       disabled={atFloor}
@@ -909,16 +922,20 @@ export function SpaceNodesPanel({
                                 </div>
                               </div>
 
-                              {/* Secondary Line: Bound Agents Summary */}
+                              {/* Secondary Line: Bound Agents (showing each agent's own model) */}
                               <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500 pl-5">
                                 <span className="truncate">
-                                  已绑 Agent：
+                                  已承载专家：
                                   {boundAgents.length > 0 ? (
                                     <span className="font-medium text-slate-700">
-                                      {boundAgents.map((a) => a.handle).join('、')}
+                                      {boundAgents
+                                        .map((a) => `${a.handle} (${a.defaultModel})`)
+                                        .join('、')}
                                     </span>
                                   ) : (
-                                    <span className="text-slate-400">暂无（空闲可用）</span>
+                                    <span className="text-slate-400">
+                                      暂无（空闲可用，模型由各 Agent 专家独立指定）
+                                    </span>
                                   )}
                                 </span>
                                 <button
@@ -926,7 +943,7 @@ export function SpaceNodesPanel({
                                   onClick={onJumpToAgents}
                                   className="text-slate-500 hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap shrink-0"
                                 >
-                                  管理 Agent 成员 →
+                                  配专家模型与 Skills →
                                 </button>
                               </div>
 
@@ -1209,7 +1226,7 @@ export function SpaceNodesPanel({
               className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
             >
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">选择要安装的 Agent CLI</label>
+                <label className="text-xs font-semibold text-slate-700">选择要安装的 Agent CLI 底座</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {CLI_TOOL_PRESETS.map((preset) => {
                     const active = cliTool === preset.id;
@@ -1217,10 +1234,7 @@ export function SpaceNodesPanel({
                       <button
                         key={preset.id}
                         type="button"
-                        onClick={() => {
-                          setCliTool(preset.id);
-                          setCliDefaultModel(preset.defaultModel);
-                        }}
+                        onClick={() => setCliTool(preset.id)}
                         className={`p-2.5 rounded-lg border text-left cursor-pointer transition-colors ${
                           active
                             ? 'bg-slate-900 text-white border-slate-900'
@@ -1237,40 +1251,26 @@ export function SpaceNodesPanel({
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">默认模型</label>
-                  <select
-                    value={cliDefaultModel}
-                    onChange={(e) => setCliDefaultModel(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  >
-                    {Array.from(new Set([...runtimePreset.models, cliDefaultModel])).map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">
+                  并发沙箱数（可承载的 Agent 专家上限）
+                </label>
+                <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50">
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    value={cliConcurrency}
+                    onChange={(e) => setCliConcurrency(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <span className="font-mono tabular-nums text-xs font-bold text-slate-900 w-14 text-right">
+                    {cliConcurrency} 沙箱
+                  </span>
                 </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">
-                    并发沙箱数（专业 Agent 上限）
-                  </label>
-                  <div className="flex items-center gap-2 h-9 px-2.5 rounded-lg border border-slate-200 bg-slate-50">
-                    <input
-                      type="range"
-                      min={1}
-                      max={12}
-                      value={cliConcurrency}
-                      onChange={(e) => setCliConcurrency(Number(e.target.value))}
-                      className="flex-1"
-                    />
-                    <span className="font-mono tabular-nums text-xs font-bold text-slate-900 w-12 text-right">
-                      {cliConcurrency} 沙箱
-                    </span>
-                  </div>
-                </div>
+                <p className="text-[11px] text-slate-500">
+                  节点仅管 CLI 底座、登录账号与并发额度；不同专家可共用同一 CLI 自由搭配 Opus / DeepSeek Flash 等模型。
+                </p>
               </div>
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">

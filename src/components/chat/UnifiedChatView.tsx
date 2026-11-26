@@ -85,6 +85,7 @@ interface UnifiedChatViewProps {
   onSettleAll: () => void;
   onResolveSpaceApplication: (applicationId: string, decision: 'approved' | 'rejected') => void;
   onJumpToMarket: () => void;
+  onJumpToCommunity?: () => void;
   onJumpToKanban: (projectId?: string) => void;
   onJumpToTeam: () => void;
   onJumpToMountPrivate: () => void;
@@ -152,6 +153,7 @@ export function UnifiedChatView({
   onSettleAll,
   onResolveSpaceApplication,
   onJumpToMarket,
+  onJumpToCommunity,
   onJumpToKanban,
   onJumpToTeam,
   onJumpToMountPrivate,
@@ -210,6 +212,7 @@ export function UnifiedChatView({
           onCreateProjectForLauncher={onCreateProjectForLauncher}
           onJumpToMountPrivate={onJumpToMountPrivate}
           onJumpToMarket={onJumpToMarket}
+          onJumpToCommunity={onJumpToCommunity}
         />
       )}
 

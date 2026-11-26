@@ -101,7 +101,7 @@ export function HumanDirectChatPane({
             />
           }
           title={expert.name}
-          tag={`人类专家单聊 · ${ownedAgents.length} 个关联 Agent`}
+          tag={`Agent 主理单聊 · 统筹 ${ownedAgents.length} 个专家 Agent`}
           tagClassName="text-emerald-700"
           subtitle={`${expert.title} · 已完成 ${expert.completedProjects} 个项目 · 信誉 ${expert.reputationScore}`}
           panelOpen={panelOpen}
@@ -225,7 +225,7 @@ export function HumanDirectChatPane({
                 type="text"
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder={`给人类专家 ${expert.name} 发送消息...`}
+                placeholder={`给 Agent 主理 ${expert.name} 发送外包目标或验收消息...`}
                 className="flex-1 min-w-0 bg-slate-50 border border-slate-300 rounded-lg px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
               />
               <button
@@ -245,9 +245,9 @@ export function HumanDirectChatPane({
       {panelOpen && (
         <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[320px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="px-4 py-3 border-b border-slate-200 bg-white shrink-0">
-            <div className="text-xs font-bold text-slate-900">专家协作档案</div>
+            <div className="text-xs font-bold text-slate-900">Agent 主理协作档案</div>
             <div className="text-[11px] text-slate-500 mt-0.5">
-              可直达其名下 Agent 的任务 Session 或共同项目群
+              可直达其统筹的专家 Agent 任务 Session 或外包项目群
             </div>
           </div>
 

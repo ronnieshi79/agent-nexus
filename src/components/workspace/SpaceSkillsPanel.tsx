@@ -466,7 +466,13 @@ export function SpaceSkillsPanel({
                           <span className="text-xs text-slate-600 truncate">
                             {boundAgents.length > 0
                               ? boundAgents
-                                  .map((ag) => formatAgentDisplayName(ag.handle, ag.runtimeAgent))
+                                  .map((ag) =>
+                                    formatAgentDisplayName(
+                                      ag.handle,
+                                      ag.runtimeAgent,
+                                      ag.defaultModel,
+                                    ),
+                                  )
                                   .join('、')
                               : '暂未加载到任何自建 Agent'}
                           </span>

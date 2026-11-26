@@ -1,71 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FolderKanban, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { AccountAuthModal } from './components/account/AccountPanel';
 import { UnifiedChatView } from './components/chat/UnifiedChatView';
 import { Sidebar } from './components/layout/Sidebar';
-import { TopHeader, type BreadcrumbItem } from './components/layout/TopHeader';
-import { formatAgentDisplayName } from './components/shared/EntityIdentity';
-import { ToolbarDropdown } from './components/shared/ViewToolbar';
+import {
+  TopHeader,
+  TopbarProjectSelector,
+  type BreadcrumbItem,
+  type TopbarProjectOption,
+} from './components/layout/TopHeader';
+import { ZoneSelectorDropdown } from './components/shared/ZoneSelectorDropdown';
 import { CommunityHubView } from './components/views/CommunityHubView';
 import { MyTeamView } from './components/views/MyTeamView';
 import { WorkflowKanbanView, type WorkKanbanTab } from './components/views/WorkflowKanbanView';
 import { useAgentNexusStore } from './hooks/useAgentNexusStore';
 import type {
   ArtifactCategoryGroup,
-  CommunityHubTab,
+  CommunityZone,
   TeamSectionTab,
 } from './types/agentnexus';
-
-const WORKSPACE_TAB_META: Record<
-  WorkKanbanTab,
-  { group: '工作项目' | 'Artifacts'; groupRoot: WorkKanbanTab; label: string }
-> = {
-  overview: { group: '工作项目', groupRoot: 'overview', label: '项目概要' },
-  my_projects: { group: '工作项目', groupRoot: 'overview', label: '项目看板' },
-  orchestration: { group: '工作项目', groupRoot: 'overview', label: '任务编排' },
-  artifacts_all: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '全部产物' },
-  artifacts_yours: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '我创建的' },
-  artifacts_shared: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '分享给我的' },
-  artifacts_starred: { group: 'Artifacts', groupRoot: 'artifacts_all', label: '标星收藏' },
-};
-
-const ARTIFACT_CATEGORY_LABELS: Record<ArtifactCategoryGroup, string> = {
-  all: '全部类型',
-  docs: '文档 · Docs',
-  slides: '演示稿 · Slides',
-  design: '设计素材 · Design',
-  code: '代码与架构 · Code',
-};
-
-const TEAM_SECTION_META: Record<
-  TeamSectionTab,
-  { group: string; label: string; parentTab?: TeamSectionTab }
-> = {
-  agents: { group: 'Agent 团队', label: 'Agent 成员' },
-  principals: { group: 'Agent 团队', label: 'Agent 主理' },
-  collab_my: { group: 'Agent 团队', label: 'Agent 社区' },
-  collab_manage: { group: 'Agent 团队', label: '主理人管理', parentTab: 'collab_my' },
-  collab_discover: { group: 'Agent 团队', label: '发现社区', parentTab: 'collab_my' },
-  nodes: { group: '空间资源', label: 'Agent 节点' },
-  nodes_purchase: { group: '空间资源', label: '平台采购', parentTab: 'nodes' },
-  storage: { group: '空间资源', label: 'Agent 存储' },
-  storage_purchase: { group: '空间资源', label: '平台采购', parentTab: 'storage' },
-  skills: { group: '空间资源', label: 'Skills / MCP' },
-  skills_purchase: { group: '空间资源', label: '平台采购', parentTab: 'skills' },
-};
-
-const COMMUNITY_TAB_META: Record<
-  CommunityHubTab,
-  { group: string; label: string; groupRoot: CommunityHubTab }
-> = {
-  service_agents: { group: '服务市场', label: '专业 Agent', groupRoot: 'service_agents' },
-  service_humans: { group: '服务市场', label: '人类专家', groupRoot: 'service_agents' },
-  service_skills: { group: '服务市场', label: 'Skills / MCP', groupRoot: 'service_agents' },
-  social_all: { group: '社区交流', label: '全部动态', groupRoot: 'social_all' },
-  social_projects: { group: '社区交流', label: '项目共创', groupRoot: 'social_all' },
-  social_following: { group: '社区交流', label: '我的关注', groupRoot: 'social_all' },
-  social_pinned: { group: '社区交流', label: '主理置顶', groupRoot: 'social_all' },
-};
 
 export default function App() {
   const store = useAgentNexusStore();
@@ -86,6 +39,23 @@ export default function App() {
 
   const [selectedWorkspaceProjectId, setSelectedWorkspaceProjectId] = useState<string>(
     store.workspaces[0]?.id || '',
+  );
+
+  const managedZones = useMemo(
+    () =>
+      store.zones.filter(
+        (z) => z.kind === 'private' && Boolean(z.createdByMe || z.isCurrentUserPrincipal),
+      ),
+    [store.zones],
+  );
+
+  const [managedZoneId, setManagedZoneId] = useState<string | null>(
+    () => managedZones[0]?.id || null,
+  );
+
+  const activeManagedZone = useMemo(
+    () => managedZones.find((z) => z.id === managedZoneId) || managedZones[0] || null,
+    [managedZoneId, managedZones],
   );
 
   useEffect(() => {
@@ -129,133 +99,178 @@ export default function App() {
     [],
   );
 
+  // Unified 1st-level navigation breadcrumb across all primary views
   const breadcrumbs = useMemo<BreadcrumbItem[]>(() => {
     if (store.activeView === 'team') {
-      const meta = TEAM_SECTION_META[teamBreadcrumbCtx.section] || TEAM_SECTION_META.agents;
-      const items: BreadcrumbItem[] = [
-        { label: 'AGN空间', onClick: () => store.openTeamTab('agents') },
+      return [
         {
-          label: meta.group,
-          onClick: () =>
-            store.openTeamTab(meta.group === '空间资源' ? 'nodes' : 'agents'),
+          label: 'AGN空间',
+          onClick:
+            teamBreadcrumbCtx.section !== 'agents'
+              ? () => store.openTeamTab('agents')
+              : undefined,
         },
       ];
-      if (meta.parentTab) {
-        items.push({
-          label: TEAM_SECTION_META[meta.parentTab].label,
-          onClick: () => store.openTeamTab(meta.parentTab!),
-        });
-        items.push({
-          label:
-            teamBreadcrumbCtx.section === 'collab_manage' && teamBreadcrumbCtx.managedZoneName
-              ? `${teamBreadcrumbCtx.managedZoneName} · 主理人管理`
-              : meta.label,
-        });
-      } else {
-        items.push({ label: meta.label });
-      }
-      return items;
     }
 
     if (store.activeView === 'kanban') {
-      const meta = WORKSPACE_TAB_META[workspaceBreadcrumbCtx.tab] || WORKSPACE_TAB_META.overview;
-      const items: BreadcrumbItem[] = [
-        { label: '工作台', onClick: () => store.openWorkspaceTab('overview') },
+      return [
         {
-          label: meta.group,
-          onClick: () => store.openWorkspaceTab(meta.groupRoot),
+          label: '工作台',
+          onClick:
+            workspaceBreadcrumbCtx.tab !== 'overview'
+              ? () => store.openWorkspaceTab('overview')
+              : undefined,
         },
-        { label: meta.label },
       ];
-      if (
-        meta.group === 'Artifacts' &&
-        workspaceBreadcrumbCtx.artifactCategory &&
-        workspaceBreadcrumbCtx.artifactCategory !== 'all'
-      ) {
-        items.push({
-          label: ARTIFACT_CATEGORY_LABELS[workspaceBreadcrumbCtx.artifactCategory],
-        });
-      }
-      return items;
     }
 
     if (store.activeView === 'community') {
-      const meta =
-        COMMUNITY_TAB_META[store.activeCommunityTab] || COMMUNITY_TAB_META.service_agents;
       return [
         {
           label: 'AGN社区',
-          onClick: () => store.setActiveCommunityTab('social_all'),
+          onClick:
+            store.activeCommunityTab !== 'social_all'
+              ? () => store.setActiveCommunityTab('social_all')
+              : undefined,
         },
-        { label: store.activeZone.name },
-        {
-          label: meta.group,
-          onClick: () => store.setActiveCommunityTab(meta.groupRoot),
-        },
-        { label: meta.label },
       ];
     }
 
-    // Chat view unified breadcrumbs: clear distinction between 新会话 / 任务模式 / 对话模式
+    // Chat view unified 1st-level label
     const ch = store.activeChatChannel;
     if (ch.type === 'new_session') {
       return [{ label: '新会话' }];
     }
     if (ch.type === 'task_session') {
-      const task = store.allTasks.find((t) => t.id === ch.taskId);
-      const taskAgent = task ? store.agents.find((a) => a.id === task.assigneeId) : undefined;
-      const taskProj = task ? store.workspaces.find((w) => w.id === task.sessionId) : undefined;
-      return [
-        { label: '任务模式' },
-        {
-          label: taskAgent
-            ? formatAgentDisplayName(taskAgent.handle, taskAgent.runtimeAgent)
-            : task?.assigneeHandle || 'Agent 任务',
-        },
-        ...(taskProj
-          ? [
-              {
-                label: taskProj.name,
-                onClick: () => store.selectSession(taskProj.id),
-              },
-            ]
-          : []),
-        { label: task ? `#${task.id} ${task.title}` : '任务执行会话' },
-      ];
+      return [{ label: '任务模式' }];
     }
-    if (ch.type === 'human_dm') {
-      const expert = store.humanExperts.find((h) => h.id === ch.expertId);
-      return [
-        { label: '对话模式' },
-        { label: '人类专家单聊' },
-        { label: expert ? expert.name : '专家沟通' },
-      ];
-    }
-    if (ch.type === 'dm') {
-      const dmAgent = store.agents.find((a) => a.id === ch.agentId);
-      return [
-        { label: '对话模式' },
-        { label: 'Agent 单聊' },
-        {
-          label: dmAgent
-            ? formatAgentDisplayName(dmAgent.handle, dmAgent.runtimeAgent)
-            : '专家协商',
-        },
-      ];
-    }
-    if (ch.type === 'assistant') {
-      return [{ label: '对话模式' }, { label: 'Nexa 助理' }];
-    }
-    return [
-      { label: '对话模式' },
-      { label: '项目群' },
-      { label: store.activeWorkspace.name },
-    ];
+    return [{ label: '对话模式' }];
   }, [
     store,
-    teamBreadcrumbCtx.managedZoneName,
     teamBreadcrumbCtx.section,
-    workspaceBreadcrumbCtx,
+    workspaceBreadcrumbCtx.tab,
+  ]);
+
+  const getZoneStat = useCallback(
+    (z: CommunityZone) => {
+      const suspended = new Set(z.suspendedAgentIds || []);
+      const agentCnt = store.agents.filter(
+        (a) => a.listedZoneIds.includes(z.id) && !suspended.has(a.id),
+      ).length;
+      const postCnt = store.communityPosts.filter((p) => p.zoneId === z.id).length;
+      return `${agentCnt} Agent · ${postCnt} 动态 · ${z.memberCount} 成员`;
+    },
+    [store.agents, store.communityPosts],
+  );
+
+  const projectOptions = useMemo<TopbarProjectOption[]>(
+    () =>
+      store.workspaces.map((w) => {
+        const taskCnt = store.allTasks.filter((t) => t.sessionId === w.id).length;
+        const statusLabel =
+          w.lifecycleStatus === 'completed'
+            ? '已完结'
+            : w.lifecycleStatus === 'archived'
+              ? '已归档'
+              : '进行中';
+        return {
+          id: w.id,
+          label: w.name,
+          hint: `${taskCnt} 卡`,
+          statusLabel,
+        };
+      }),
+    [store.allTasks, store.workspaces],
+  );
+
+  // Unified TopHeader center slot: shows Community or Project dropdown switcher whenever inside a Community or Project
+  const topHeaderCenterContent = useMemo(() => {
+    // 1. Inside AGN社区 -> Community Dropdown Switcher
+    if (store.activeView === 'community') {
+      return (
+        <ZoneSelectorDropdown
+          variant="topbar"
+          zones={store.joinedZones}
+          activeZoneId={store.activeZone.id}
+          onSelectZone={store.setActiveZoneId}
+          onManageSpaces={() => store.openTeamTab('collab_my')}
+          getZoneStat={getZoneStat}
+        />
+      );
+    }
+
+    // 2. Inside 工作台 -> Project Kanban / Task Orchestration -> Project Dropdown Switcher
+    if (
+      store.activeView === 'kanban' &&
+      (workspaceBreadcrumbCtx.tab === 'my_projects' ||
+        workspaceBreadcrumbCtx.tab === 'orchestration') &&
+      activeWorkspaceProject
+    ) {
+      return (
+        <TopbarProjectSelector
+          value={activeWorkspaceProject.id}
+          options={projectOptions}
+          onChange={setSelectedWorkspaceProjectId}
+          ariaLabel="切换当前工作项目"
+        />
+      );
+    }
+
+    // 3. Inside AGN空间 -> Agent 社区主理人管理 -> Managed Community Dropdown Switcher
+    if (
+      store.activeView === 'team' &&
+      teamBreadcrumbCtx.section === 'collab_manage' &&
+      activeManagedZone
+    ) {
+      return (
+        <ZoneSelectorDropdown
+          variant="topbar"
+          zones={managedZones}
+          activeZoneId={activeManagedZone.id}
+          onSelectZone={setManagedZoneId}
+          getZoneStat={getZoneStat}
+        />
+      );
+    }
+
+    // 4. Inside 对话模式 / 任务模式 -> Project Group Chat or Task Session -> Project Dropdown Switcher
+    if (store.activeView === 'chat') {
+      const ch = store.activeChatChannel;
+      if (ch.type === 'group') {
+        return (
+          <TopbarProjectSelector
+            value={store.activeWorkspace.id}
+            options={projectOptions}
+            onChange={store.selectSession}
+            ariaLabel="切换当前项目群"
+          />
+        );
+      }
+      if (ch.type === 'task_session') {
+        const task = store.allTasks.find((t) => t.id === ch.taskId);
+        const taskProjId = task?.sessionId || store.activeWorkspace.id;
+        return (
+          <TopbarProjectSelector
+            value={taskProjId}
+            options={projectOptions}
+            onChange={store.selectSession}
+            ariaLabel="切换所属项目"
+          />
+        );
+      }
+    }
+
+    return undefined;
+  }, [
+    activeManagedZone,
+    activeWorkspaceProject,
+    getZoneStat,
+    managedZones,
+    projectOptions,
+    store,
+    teamBreadcrumbCtx.section,
+    workspaceBreadcrumbCtx.tab,
   ]);
 
   return (
@@ -304,25 +319,7 @@ export default function App() {
       <div className="flex-1 min-w-0 flex flex-col h-full overflow-hidden">
         <TopHeader
           breadcrumbs={breadcrumbs}
-          breadcrumbTrailing={
-            store.activeView === 'kanban' &&
-            (workspaceBreadcrumbCtx.tab === 'my_projects' ||
-              workspaceBreadcrumbCtx.tab === 'orchestration') &&
-            activeWorkspaceProject ? (
-              <ToolbarDropdown
-                label="项目"
-                value={activeWorkspaceProject.id}
-                defaultValue=""
-                icon={<FolderKanban className="w-3.5 h-3.5 text-blue-600" />}
-                onChange={(nextId) => setSelectedWorkspaceProjectId(nextId)}
-                options={store.workspaces.map((w) => ({
-                  id: w.id,
-                  label: w.name,
-                  hint: `${store.allTasks.filter((t) => t.sessionId === w.id).length} 卡`,
-                }))}
-              />
-            ) : undefined
-          }
+          centerContent={topHeaderCenterContent}
           sidebarCollapsed={sidebarCollapsed}
           onToggleSidebarCollapse={() => setSidebarCollapsed((v) => !v)}
           onOpenMobileMenu={() => setMobileMenuOpen(true)}
@@ -396,6 +393,7 @@ export default function App() {
               onSettleAll={store.settleAllUnsettled}
               onResolveSpaceApplication={store.resolveSpaceApplication}
               onJumpToMarket={() => store.openCommunityService()}
+              onJumpToCommunity={() => store.openCommunityDiscover()}
               onJumpToKanban={store.openKanbanForProject}
               onJumpToTeam={() => store.setActiveView('team')}
               onJumpToMountPrivate={store.jumpToMountPrivateAgent}
@@ -501,10 +499,13 @@ export default function App() {
               openMountDrawerSignal={store.openMountDrawerSignal}
               teamSectionSeed={store.teamTabSeed}
               onClearTeamSectionSeed={store.clearTeamTabSeed}
+              managedZoneId={activeManagedZone?.id || null}
+              onSelectManagedZone={setManagedZoneId}
               onBreadcrumbContextChange={handleTeamBreadcrumbChange}
               onHireAgent={store.hireAgent}
               onReleaseAgent={store.releaseAgent}
               onLeaseAgent={store.leaseAgent}
+              onUpdateAgentSliceFirewall={store.updateAgentSliceFirewall}
               onInviteTeamExpert={store.inviteTeamExpert}
               onAssignExpertToWorkspace={store.assignExpertToWorkspace}
               onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
@@ -578,7 +579,6 @@ export default function App() {
               followedEntityKeys={store.followedEntityKeys}
               zoneSeed={store.discoverZoneSeed}
               onSelectZone={store.setActiveZoneId}
-              onManageCollabSpaces={() => store.openTeamTab('collab_my')}
               onClearDmError={store.clearDmError}
               onSendDm={store.sendDirectMessage}
               onStartNegotiation={(agentId) => store.startOrOpenNegotiation(agentId, true)}

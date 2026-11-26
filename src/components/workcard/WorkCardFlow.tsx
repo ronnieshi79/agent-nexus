@@ -26,7 +26,7 @@ export const WORK_CARD_STAGES: WorkStatusMeta[] = [
     status: 'in_progress',
     label: '任务执行',
     shortLabel: '执行',
-    hint: '专业 Agent 按计划自主执行交付',
+    hint: '专家 Agent 按计划自主执行交付',
     textCls: 'text-blue-700',
     activeSegmentCls: 'bg-blue-600',
     badgeCls: 'bg-blue-50 text-blue-700 border-blue-200',

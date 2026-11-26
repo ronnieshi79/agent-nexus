@@ -32,8 +32,7 @@ import type {
 import {
   AgentIdentityName,
   EntityAvatar,
-  displayEntityName,
-  formatShortModel,
+  formatAgentDisplayName,
 } from '../shared/EntityIdentity';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
@@ -289,22 +288,15 @@ export function TaskSessionPane({
 
               <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap text-[11px] text-slate-500">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span>
-                    锁定专家：
-                    <strong className="text-slate-800 font-semibold">
-                      {displayEntityName(agent?.handle || task.assigneeHandle)}
-                    </strong>
+                  <span className="inline-flex items-center gap-1">
+                    <span>锁定专家：</span>
+                    <AgentIdentityName
+                      name={agent?.handle || task.assigneeHandle}
+                      runtime={agent?.runtimeAgent}
+                      model={agent?.defaultModel}
+                      className="font-semibold text-slate-800"
+                    />
                   </span>
-                  {agent?.runtimeAgent && (
-                    <>
-                      <span className="text-slate-300" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="font-mono text-slate-700">
-                        {agent.runtimeAgent} / {formatShortModel(agent.defaultModel)}
-                      </span>
-                    </>
-                  )}
                   {agent?.mcpTools && agent.mcpTools.length > 0 && (
                     <>
                       <span className="text-slate-300" aria-hidden="true">
@@ -523,7 +515,12 @@ export function TaskSessionPane({
 
             {isBusy && (
               <div className="text-xs text-slate-500 pl-11">
-                {displayEntityName(agent?.handle || task.assigneeHandle)} 正在独立沙箱中执行本轮指令...
+                {formatAgentDisplayName(
+                  agent?.handle || task.assigneeHandle,
+                  agent?.runtimeAgent,
+                  agent?.defaultModel,
+                )}{' '}
+                正在独立沙箱中执行本轮指令...
               </div>
             )}
 
@@ -647,7 +644,11 @@ export function TaskSessionPane({
                 placeholder={
                   isReadOnly
                     ? '所属项目已结项/归档，当前仅支持只读查阅。重新激活项目后可继续指令协作。'
-                    : `向 ${displayEntityName(agent?.handle || task.assigneeHandle)}${agent?.runtimeAgent ? ` (${agent.runtimeAgent})` : ''} 发送本任务指令、确认边界或要求修正...`
+                    : `向 ${formatAgentDisplayName(
+                        agent?.handle || task.assigneeHandle,
+                        agent?.runtimeAgent,
+                        agent?.defaultModel,
+                      )} 发送本任务指令、确认边界或要求修正...`
                 }
                 className="flex-1 min-w-0 bg-transparent px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
               />
@@ -727,8 +728,14 @@ export function TaskSessionPane({
               <div className="space-y-2.5">
                 <div className="flex items-center justify-between gap-2 px-0.5">
                   <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-900 truncate">
-                      {displayEntityName(agent?.handle || task.assigneeHandle)} 跨项目汇聚
+                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1 min-w-0">
+                      <AgentIdentityName
+                        name={agent?.handle || task.assigneeHandle}
+                        runtime={agent?.runtimeAgent}
+                        model={agent?.defaultModel}
+                        className="text-xs font-bold text-slate-900"
+                      />
+                      <span className="shrink-0">跨项目汇聚</span>
                     </div>
                     <div className="text-[11px] text-slate-500">
                       共 {distinctAgentProjectCount} 个项目 · {agentAggregatedTasks.length} 个任务 Session
@@ -755,8 +762,14 @@ export function TaskSessionPane({
                     className="bg-white rounded-xl border border-slate-300 p-3 space-y-2"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-800">
-                        向 {displayEntityName(agent?.handle || task.assigneeHandle)} 新派任务 Session
+                      <span className="text-[11px] font-bold text-slate-800 truncate">
+                        向{' '}
+                        {formatAgentDisplayName(
+                          agent?.handle || task.assigneeHandle,
+                          agent?.runtimeAgent,
+                          agent?.defaultModel,
+                        )}{' '}
+                        新派任务 Session
                       </span>
                       <button
                         type="button"

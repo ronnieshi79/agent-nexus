@@ -6,17 +6,37 @@ export const WORKSPACE_GUTTER_CLASS = 'px-4 sm:px-6 lg:px-8';
 export const WORKSPACE_MAX_WIDTH_CLASS = 'max-w-[1360px] mx-auto w-full';
 
 /**
- * Full-height far-left primary filter rail shared across Market, Community, Kanban, and Team.
+ * Subtle typographic brand backdrop rendered uniformly near the bottom whitespace of every module's left menu rail.
+ */
+export function RailBrandBackdrop({ compact = false }: { compact?: boolean }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`${compact ? 'pt-12 pb-3 px-2.5' : 'mt-auto pt-14 pb-1 px-2.5'} select-none pointer-events-none`}
+    >
+      <p className="text-[11px] font-medium leading-relaxed text-slate-300 tracking-wide">
+        FDE / OPC 专属的
+        <br />
+        网络专业 Agent 团队
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Full-height far-left primary filter rail shared across Market, Community, Kanban, Team, and Artifacts.
  * Anchored at the far-left edge so the right-side ViewToolbar (search & secondary filters) aligns flush with content.
  */
 export function WorkspacePrimaryRail({
   ariaLabel,
   children,
   footer,
+  showBackdrop = true,
 }: {
   ariaLabel: string;
   children: ReactNode;
   footer?: ReactNode;
+  showBackdrop?: boolean;
 }) {
   return (
     <aside
@@ -24,7 +44,8 @@ export function WorkspacePrimaryRail({
       className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200 bg-white overflow-y-auto clean-scroll px-2.5 py-3.5"
     >
       <div className="space-y-3">{children}</div>
-      {footer && <div className="mt-auto pt-6">{footer}</div>}
+      {showBackdrop && <RailBrandBackdrop />}
+      {footer && <div className={showBackdrop ? 'pt-4' : 'mt-auto pt-6'}>{footer}</div>}
     </aside>
   );
 }
