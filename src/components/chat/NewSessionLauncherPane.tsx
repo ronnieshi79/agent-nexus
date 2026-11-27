@@ -289,7 +289,7 @@ export function NewSessionLauncherPane({
           onSubmit={handleCreateInlineProject}
           footer={
             <>
-              <span className="text-[11px] text-slate-500">支持随时在工作台编排专家</span>
+              <span className="text-[11px] text-slate-500">支持随时在项目群设置中编排专家</span>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"

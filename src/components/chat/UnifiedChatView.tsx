@@ -1,25 +1,36 @@
 import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   ActiveChatChannel,
+  ActiveWorkflowStage,
+  AgentLeaseRecord,
   AgentNexusAccount,
   AssistantMessage,
   ChatMessage,
   CommunityZone,
+  ComputeNode,
   ExpertAgent,
   HumanDirectThread,
   HumanExpert,
   NegotiationThread,
   PlatformAuditLog,
   ProjectAgentAssignment,
+  ProjectArtifact,
+  ProjectLifecycleStatus,
   ProjectStageSlot,
+  ProjectTaskType,
   ProjectWorkspace,
   SettlementRecord,
   SpaceJoinApplication,
+  SpaceSharedNode,
+  StorageVolume,
   TaskSessionMessage,
   TaskStatus,
+  TaskTypeAccent,
+  TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
+import type { TaskTemplatePackId } from '../../utils/pipelineSync';
 import { GroupChatView } from '../views/GroupChatView';
 import { DirectNegotiationPane } from './DirectNegotiationPane';
 import { HumanDirectChatPane } from './HumanDirectChatPane';
@@ -34,6 +45,14 @@ interface UnifiedChatViewProps {
   activeWorkspace: ProjectWorkspace;
   projectPipelines: Record<string, ProjectStageSlot[]>;
   projectAgentAssignments: Record<string, ProjectAgentAssignment[]>;
+  projectTaskTypes: Record<string, ProjectTaskType[]>;
+  computeNodes: ComputeNode[];
+  spaceSharedNodes: SpaceSharedNode[];
+  storageVolumes: StorageVolume[];
+  teamExperts: TeamExpertMembership[];
+  agentLeases: Record<string, AgentLeaseRecord>;
+  artifacts: ProjectArtifact[];
+  groupKanbanOpenSignal: number;
   agents: ExpertAgent[];
   humanExperts: HumanExpert[];
   hiredAgents: ExpertAgent[];
@@ -88,6 +107,43 @@ interface UnifiedChatViewProps {
   onSettleRecord: (settlementId: string) => void;
   onSettleAll: () => void;
   onResolveSpaceApplication: (applicationId: string, decision: 'approved' | 'rejected') => void;
+  onOpenProjectArtifacts: (projectId: string) => void;
+  onAddProjectAgentAssignment: (
+    projectId: string,
+    agentId: string,
+    initialStages?: ActiveWorkflowStage[],
+  ) => void;
+  onRemoveProjectAgentAssignment: (projectId: string, agentId: string) => void;
+  onUpdateProjectAgentAssignment: (
+    projectId: string,
+    agentId: string,
+    patch: Partial<Omit<ProjectAgentAssignment, 'agentId'>>,
+  ) => void;
+  onAssignExpertToWorkspace: (expertId: string, workspaceId: string) => void;
+  onRemoveExpertFromWorkspace: (expertId: string, workspaceId: string) => void;
+  onAddProjectTaskType: (
+    projectId: string,
+    input: {
+      name: string;
+      description: string;
+      templateChecklist?: string;
+      accent: TaskTypeAccent;
+      creatorAgentIds?: string[];
+    },
+  ) => void;
+  onUpdateProjectTaskType: (
+    projectId: string,
+    typeId: string,
+    patch: Partial<Omit<ProjectTaskType, 'id'>>,
+  ) => void;
+  onDeleteProjectTaskType: (projectId: string, typeId: string) => void;
+  onApplyTaskTypePresetPack: (projectId: string, packId: TaskTemplatePackId) => void;
+  onStartTemplateConversation: (
+    projectId: string,
+    taskTypeId: string,
+    options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
+  ) => void;
+  onUpdateProjectLifecycle: (projectId: string, status: ProjectLifecycleStatus) => void;
   onJumpToMarket: () => void;
   onJumpToCommunity?: () => void;
   onJumpToKanban: (projectId?: string) => void;
@@ -112,6 +168,14 @@ export function UnifiedChatView({
   activeWorkspace,
   projectPipelines,
   projectAgentAssignments,
+  projectTaskTypes,
+  computeNodes,
+  spaceSharedNodes,
+  storageVolumes,
+  teamExperts,
+  agentLeases,
+  artifacts,
+  groupKanbanOpenSignal,
   agents,
   humanExperts,
   hiredAgents,
@@ -158,6 +222,18 @@ export function UnifiedChatView({
   onSettleRecord,
   onSettleAll,
   onResolveSpaceApplication,
+  onOpenProjectArtifacts,
+  onAddProjectAgentAssignment,
+  onRemoveProjectAgentAssignment,
+  onUpdateProjectAgentAssignment,
+  onAssignExpertToWorkspace,
+  onRemoveExpertFromWorkspace,
+  onAddProjectTaskType,
+  onUpdateProjectTaskType,
+  onDeleteProjectTaskType,
+  onApplyTaskTypePresetPack,
+  onStartTemplateConversation,
+  onUpdateProjectLifecycle,
   onJumpToMarket,
   onJumpToCommunity,
   onJumpToKanban,
@@ -230,10 +306,28 @@ export function UnifiedChatView({
               ? zones.find((z) => z.id === activeWorkspace.sourceZoneId)
               : undefined
           }
+          zones={zones}
           hiredAgents={hiredAgents}
           allAgents={agents}
+          humanExperts={humanExperts}
+          teamExperts={teamExperts}
+          agentLeases={agentLeases}
           assignments={projectAgentAssignments[activeWorkspace.id] || []}
           pipelineSlots={projectPipelines[activeWorkspace.id] || []}
+          taskTypes={projectTaskTypes[activeWorkspace.id] || []}
+          computeNodes={computeNodes}
+          spaceSharedNodes={spaceSharedNodes}
+          storageVolumes={storageVolumes}
+          projectArtifacts={artifacts.filter((a) => a.projectId === activeWorkspace.id)}
+          projectArtifactCount={
+            artifacts.filter((a) => a.projectId === activeWorkspace.id).length +
+            sessionTasks.filter(
+              (t) =>
+                Boolean(t.deliverableArtifact) &&
+                !artifacts.some((a) => a.sourceTaskId === t.id),
+            ).length
+          }
+          groupKanbanOpenSignal={groupKanbanOpenSignal}
           messages={sessionMessages}
           tasks={sessionTasks}
           taskSessions={taskSessions}
@@ -248,6 +342,18 @@ export function UnifiedChatView({
           onApproveTask={onApproveTask}
           onUpdateTaskStatus={onUpdateTaskStatus}
           onOpenTaskSession={onOpenTaskSession}
+          onOpenProjectArtifacts={onOpenProjectArtifacts}
+          onAddProjectAgentAssignment={onAddProjectAgentAssignment}
+          onRemoveProjectAgentAssignment={onRemoveProjectAgentAssignment}
+          onUpdateProjectAgentAssignment={onUpdateProjectAgentAssignment}
+          onAssignExpertToWorkspace={onAssignExpertToWorkspace}
+          onRemoveExpertFromWorkspace={onRemoveExpertFromWorkspace}
+          onAddProjectTaskType={onAddProjectTaskType}
+          onUpdateProjectTaskType={onUpdateProjectTaskType}
+          onDeleteProjectTaskType={onDeleteProjectTaskType}
+          onApplyTaskTypePresetPack={onApplyTaskTypePresetPack}
+          onStartTemplateConversation={onStartTemplateConversation}
+          onUpdateProjectLifecycle={onUpdateProjectLifecycle}
           onJumpToMarket={onJumpToMarket}
           onJumpToKanban={() => onJumpToKanban(activeWorkspace.id)}
           onJumpToTeam={onJumpToTeam}

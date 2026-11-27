@@ -2247,7 +2247,7 @@ export function CommunityDiscoverView({
           <>
             <span className="text-[11px] text-slate-500">
               {composerMode === 'project'
-                ? '发布后自动进入「项目共创」并同步至「工作台 → 我的项目」'
+                ? '发布后自动进入「项目共创」并同步建立项目群聊'
                 : composerMode === 'event'
                   ? '发布后自动上架「主题活动」并同步至社区动态，开放报名与凭证核验'
                   : composerMode === 'skill_share'
@@ -2584,7 +2584,7 @@ export function CommunityDiscoverView({
                   onChange={(e) => setPostBody(e.target.value)}
                   placeholder={
                     composerMode === 'project'
-                      ? '补充项目背景、交付范围与共创分工（发布后自动进入「项目共创」并同步至「工作台 → 我的项目」）...'
+                      ? '补充项目背景、交付范围与共创分工（发布后自动进入「项目共创」并同步建立项目群聊）...'
                       : composerMode === 'event'
                         ? '介绍活动亮点、主理人分享内容与适合人群（发布后自动同步至「主题活动」与「全部动态」，开放成员报名）...'
                         : composerMode === 'skill_share'

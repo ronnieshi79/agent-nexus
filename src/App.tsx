@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { AccountAuthModal } from './components/account/AccountPanel';
 import { UnifiedChatView } from './components/chat/UnifiedChatView';
@@ -10,15 +10,11 @@ import {
   type TopbarProjectOption,
 } from './components/layout/TopHeader';
 import { ZoneSelectorDropdown } from './components/shared/ZoneSelectorDropdown';
+import { ArtifactsView } from './components/views/ArtifactsView';
 import { CommunityHubView } from './components/views/CommunityHubView';
 import { MyTeamView } from './components/views/MyTeamView';
-import { WorkflowKanbanView, type WorkKanbanTab } from './components/views/WorkflowKanbanView';
 import { useAgentNexusStore } from './hooks/useAgentNexusStore';
-import type {
-  ArtifactCategoryGroup,
-  CommunityZone,
-  TeamSectionTab,
-} from './types/agentnexus';
+import type { CommunityZone, TeamSectionTab } from './types/agentnexus';
 
 export default function App() {
   const store = useAgentNexusStore();
@@ -29,17 +25,6 @@ export default function App() {
     section: TeamSectionTab;
     managedZoneName?: string | null;
   }>({ section: 'agents' });
-
-  const [workspaceBreadcrumbCtx, setWorkspaceBreadcrumbCtx] = useState<{
-    tab: WorkKanbanTab;
-    focusedProjectName?: string | null;
-    artifactCategory?: ArtifactCategoryGroup;
-    onClearFocus?: () => void;
-  }>({ tab: 'overview', artifactCategory: 'all' });
-
-  const [selectedWorkspaceProjectId, setSelectedWorkspaceProjectId] = useState<string>(
-    store.workspaces[0]?.id || '',
-  );
 
   const managedZones = useMemo(
     () =>
@@ -58,42 +43,18 @@ export default function App() {
     [managedZoneId, managedZones],
   );
 
-  useEffect(() => {
-    if (store.kanbanProjectSeed && store.kanbanProjectSeed !== 'all') {
-      setSelectedWorkspaceProjectId(store.kanbanProjectSeed);
-    }
-  }, [store.kanbanProjectSeed]);
-
-  const activeWorkspaceProject = useMemo(
-    () =>
-      store.workspaces.find((w) => w.id === selectedWorkspaceProjectId) ||
-      store.workspaces[0] ||
-      null,
-    [selectedWorkspaceProjectId, store.workspaces],
-  );
+  const totalArtifactCount = useMemo(() => {
+    const existingTaskIds = new Set(store.artifacts.map((a) => a.sourceTaskId).filter(Boolean));
+    const derivedCount = store.allTasks.filter(
+      (t) => Boolean(t.deliverableArtifact) && !existingTaskIds.has(t.id),
+    ).length;
+    return store.artifacts.length + derivedCount;
+  }, [store.allTasks, store.artifacts]);
 
   const handleTeamBreadcrumbChange = useCallback(
     (ctx: { section: TeamSectionTab; managedZoneName?: string | null }) => {
       setTeamBreadcrumbCtx((prev) =>
         prev.section === ctx.section && prev.managedZoneName === ctx.managedZoneName ? prev : ctx,
-      );
-    },
-    [],
-  );
-
-  const handleWorkspaceBreadcrumbChange = useCallback(
-    (ctx: {
-      tab: WorkKanbanTab;
-      focusedProjectName?: string | null;
-      artifactCategory?: ArtifactCategoryGroup;
-      onClearFocus?: () => void;
-    }) => {
-      setWorkspaceBreadcrumbCtx((prev) =>
-        prev.tab === ctx.tab &&
-        prev.focusedProjectName === ctx.focusedProjectName &&
-        prev.artifactCategory === ctx.artifactCategory
-          ? prev
-          : ctx,
       );
     },
     [],
@@ -113,16 +74,8 @@ export default function App() {
       ];
     }
 
-    if (store.activeView === 'kanban') {
-      return [
-        {
-          label: '工作台',
-          onClick:
-            workspaceBreadcrumbCtx.tab !== 'overview'
-              ? () => store.openWorkspaceTab('overview')
-              : undefined,
-        },
-      ];
+    if (store.activeView === 'artifacts') {
+      return [{ label: 'Artifacts' }];
     }
 
     if (store.activeView === 'community') {
@@ -143,14 +96,10 @@ export default function App() {
       return [{ label: '新会话' }];
     }
     if (ch.type === 'task_session') {
-      return [{ label: '任务模式' }];
+      return [{ label: '任务会话' }];
     }
-    return [{ label: '对话模式' }];
-  }, [
-    store,
-    teamBreadcrumbCtx.section,
-    workspaceBreadcrumbCtx.tab,
-  ]);
+    return [{ label: '聊天对话' }];
+  }, [store, teamBreadcrumbCtx.section]);
 
   const getZoneStat = useCallback(
     (z: CommunityZone) => {
@@ -200,24 +149,7 @@ export default function App() {
       );
     }
 
-    // 2. Inside 工作台 -> Project Kanban / Task Orchestration -> Project Dropdown Switcher
-    if (
-      store.activeView === 'kanban' &&
-      (workspaceBreadcrumbCtx.tab === 'my_projects' ||
-        workspaceBreadcrumbCtx.tab === 'orchestration') &&
-      activeWorkspaceProject
-    ) {
-      return (
-        <TopbarProjectSelector
-          value={activeWorkspaceProject.id}
-          options={projectOptions}
-          onChange={setSelectedWorkspaceProjectId}
-          ariaLabel="切换当前工作项目"
-        />
-      );
-    }
-
-    // 3. Inside AGN空间 -> Agent 社区主理人管理 -> Managed Community Dropdown Switcher
+    // 2. Inside AGN空间 -> Agent 社区主理人管理 -> Managed Community Dropdown Switcher
     if (
       store.activeView === 'team' &&
       teamBreadcrumbCtx.section === 'collab_manage' &&
@@ -234,7 +166,7 @@ export default function App() {
       );
     }
 
-    // 4. Inside 对话模式 / 任务模式 -> Project Group Chat or Task Session -> Project Dropdown Switcher
+    // 3. Inside 聊天对话 / 任务会话 -> Project Group Chat or Task Session -> Project Dropdown Switcher
     if (store.activeView === 'chat') {
       const ch = store.activeChatChannel;
       if (ch.type === 'group') {
@@ -264,13 +196,11 @@ export default function App() {
     return undefined;
   }, [
     activeManagedZone,
-    activeWorkspaceProject,
     getZoneStat,
     managedZones,
     projectOptions,
     store,
     teamBreadcrumbCtx.section,
-    workspaceBreadcrumbCtx.tab,
   ]);
 
   return (
@@ -291,7 +221,7 @@ export default function App() {
         assistantMessages={store.assistantMessages}
         assistantPendingCount={store.assistantPendingCount}
         awaitingTaskSessionCount={store.awaitingTaskSessionCount}
-        reviewTaskCount={store.reviewTaskCount}
+        artifactCount={totalArtifactCount}
         hiredCount={store.hiredAgents.length}
         privateCount={store.privateAgents.length}
         account={store.account}
@@ -348,6 +278,14 @@ export default function App() {
               activeWorkspace={store.activeWorkspace}
               projectPipelines={store.projectPipelines}
               projectAgentAssignments={store.projectAgentAssignments}
+              projectTaskTypes={store.projectTaskTypes}
+              computeNodes={store.computeNodes}
+              spaceSharedNodes={store.spaceSharedNodes}
+              storageVolumes={store.storageVolumes}
+              teamExperts={store.teamExperts}
+              agentLeases={store.agentLeases}
+              artifacts={store.artifacts}
+              groupKanbanOpenSignal={store.groupKanbanOpenSignal}
               agents={store.agents}
               humanExperts={store.humanExperts}
               hiredAgents={store.hiredAgents}
@@ -394,6 +332,18 @@ export default function App() {
               onSettleRecord={store.settleRecord}
               onSettleAll={store.settleAllUnsettled}
               onResolveSpaceApplication={store.resolveSpaceApplication}
+              onOpenProjectArtifacts={store.openArtifactsForProject}
+              onAddProjectAgentAssignment={store.addProjectAgentAssignment}
+              onRemoveProjectAgentAssignment={store.removeProjectAgentAssignment}
+              onUpdateProjectAgentAssignment={store.updateProjectAgentAssignment}
+              onAssignExpertToWorkspace={store.assignExpertToWorkspace}
+              onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
+              onAddProjectTaskType={store.addProjectTaskType}
+              onUpdateProjectTaskType={store.updateProjectTaskType}
+              onDeleteProjectTaskType={store.deleteProjectTaskType}
+              onApplyTaskTypePresetPack={store.applyTaskTypePresetPack}
+              onStartTemplateConversation={store.startTemplateConversation}
+              onUpdateProjectLifecycle={store.updateProjectLifecycle}
               onJumpToMarket={() => store.openCommunityService()}
               onJumpToCommunity={() => store.openCommunityDiscover()}
               onJumpToKanban={store.openKanbanForProject}
@@ -411,60 +361,19 @@ export default function App() {
             />
           )}
 
-          {store.activeView === 'kanban' && (
-            <WorkflowKanbanView
-              zones={store.zones}
-              joinedZoneIds={store.joinedZoneIds}
-              spaceSharedNodes={store.spaceSharedNodes}
-              workspaces={store.workspaces}
-              computeNodes={store.computeNodes}
-              storageVolumes={store.storageVolumes}
-              projectAgentAssignments={store.projectAgentAssignments}
-              projectTaskTypes={store.projectTaskTypes}
-              selectedProjectId={activeWorkspaceProject?.id || ''}
-              onSelectProjectId={setSelectedWorkspaceProjectId}
-              projectSeed={store.kanbanProjectSeed}
-              onClearProjectSeed={store.clearKanbanProjectSeed}
-              tabSeed={store.kanbanTabSeed}
-              onClearTabSeed={store.clearKanbanTabSeed}
-              allTasks={store.allTasks}
-              agents={store.agents}
-              humanExperts={store.humanExperts}
-              agentLeases={store.agentLeases}
-              teamExperts={store.teamExperts}
-              negotiations={store.negotiations}
-              settlements={store.settlements}
-              executingTaskId={store.executingTaskId}
+          {store.activeView === 'artifacts' && (
+            <ArtifactsView
               artifacts={store.artifacts}
+              workspaces={store.workspaces}
+              allTasks={store.allTasks}
+              projectSeed={store.artifactsProjectSeed}
+              onClearProjectSeed={store.clearArtifactsProjectSeed}
               onCreateArtifact={store.createProjectArtifact}
               onShareArtifactToChat={store.shareArtifactToProjectChat}
               onToggleStarArtifact={store.toggleStarArtifact}
               onDeleteArtifact={store.deleteProjectArtifact}
-              onOpenProjectChat={store.selectSession}
-              onBreadcrumbContextChange={handleWorkspaceBreadcrumbChange}
-              onCreateProject={store.createSession}
-              onRunTask={store.runAutonomousTask}
-              onUpdateStatus={store.updateTaskStatus}
               onOpenTaskSession={store.openTaskSession}
-              onConfirmHire={store.confirmHireFromNegotiation}
-              onJumpToMarket={() => store.openCommunityService()}
-              onJumpToZoneMarket={store.openMarketForZone}
-              onJumpToDiscover={() => store.openCommunityDiscover()}
-              onJumpToTeam={() => store.setActiveView('team')}
-              onJumpToTeamNodes={() => store.openTeamTab('nodes')}
-              onReleaseAgent={store.releaseAgent}
-              onLeaseAgent={store.leaseAgent}
-              onAssignExpertToWorkspace={store.assignExpertToWorkspace}
-              onRemoveExpertFromWorkspace={store.removeExpertFromWorkspace}
-              onUpdateProjectLifecycle={store.updateProjectLifecycle}
-              onAddProjectAgentAssignment={store.addProjectAgentAssignment}
-              onRemoveProjectAgentAssignment={store.removeProjectAgentAssignment}
-              onUpdateProjectAgentAssignment={store.updateProjectAgentAssignment}
-              onAddProjectTaskType={store.addProjectTaskType}
-              onUpdateProjectTaskType={store.updateProjectTaskType}
-              onDeleteProjectTaskType={store.deleteProjectTaskType}
-              onApplyTaskTypePresetPack={store.applyTaskTypePresetPack}
-              onStartTemplateConversation={store.startTemplateConversation}
+              onOpenProjectChat={store.selectSession}
             />
           )}
 

@@ -8,7 +8,6 @@ import {
   Compass,
   FolderKanban,
   FolderPlus,
-  KanbanSquare,
   ListFilter,
   LogIn,
   MessageSquare,
@@ -17,6 +16,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  Shapes,
   UserPlus,
   X,
 } from 'lucide-react';
@@ -66,7 +66,7 @@ interface SidebarProps {
   assistantMessages: AssistantMessage[];
   assistantPendingCount: number;
   awaitingTaskSessionCount: number;
-  reviewTaskCount: number;
+  artifactCount: number;
   hiredCount: number;
   privateCount: number;
   account: AgentNexusAccount | null;
@@ -182,7 +182,7 @@ export function Sidebar({
   assistantMessages,
   assistantPendingCount,
   awaitingTaskSessionCount,
-  reviewTaskCount,
+  artifactCount,
   hiredCount,
   privateCount,
   account,
@@ -489,22 +489,18 @@ export function Sidebar({
   const navItems: {
     id: Exclude<NavViewId, 'chat'>;
     label: string;
-    icon: typeof KanbanSquare;
+    icon: typeof Shapes;
     badge?: string;
     tooltip: string;
     highlight?: boolean;
     isInfra?: boolean;
   }[] = [
     {
-      id: 'kanban',
-      label: '工作台',
-      icon: KanbanSquare,
-      badge: reviewTaskCount > 0 ? `${reviewTaskCount} 待验证` : undefined,
-      tooltip:
-        reviewTaskCount > 0
-          ? `工作台（${workspaces.length} 项目 · ${reviewTaskCount} 待验证）`
-          : `工作台（${workspaces.length} 项目）`,
-      highlight: reviewTaskCount > 0,
+      id: 'artifacts',
+      label: 'Artifacts',
+      icon: Shapes,
+      badge: artifactCount > 0 ? `${artifactCount}` : undefined,
+      tooltip: `Artifacts · 跨项目沉淀的文档、演示稿、设计与代码产出库（共 ${artifactCount} 份）`,
     },
     {
       id: 'team',
@@ -716,7 +712,7 @@ export function Sidebar({
             {/* Full Non-Truncated Mode Title (No dropdown chevron) */}
             <div className="inline-flex items-center gap-1.5 min-w-0 whitespace-nowrap">
               <span className="text-xs font-semibold text-slate-600">
-                {conversationMode === 'chat' ? '消息列表' : '任务会话'}
+                {conversationMode === 'chat' ? '聊天对话' : '任务会话'}
               </span>
               <span className="font-mono tabular-nums text-[11px] font-normal text-slate-400">
                 {conversationMode === 'chat'
@@ -735,7 +731,7 @@ export function Sidebar({
                     handleSelectMode(conversationMode === 'chat' ? 'task' : 'chat')
                   }
                   aria-label={
-                    conversationMode === 'chat' ? '切换至任务模式' : '切换至对话模式'
+                    conversationMode === 'chat' ? '切换至任务会话' : '切换至聊天对话'
                   }
                   className="relative p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/50 transition-colors cursor-pointer"
                 >
@@ -745,7 +741,7 @@ export function Sidebar({
                   )}
                 </button>
                 <div className="pointer-events-none opacity-0 group-hover/tip:opacity-100 transition-opacity duration-150 absolute bottom-full mb-1.5 right-0 z-50 px-2 py-1 rounded-md bg-slate-900 text-white text-[11px] font-medium whitespace-nowrap shadow-md">
-                  {conversationMode === 'chat' ? '切换至任务模式' : '切换至对话模式'}
+                  {conversationMode === 'chat' ? '切换至任务会话' : '切换至聊天对话'}
                 </div>
               </div>
 
@@ -1765,10 +1761,10 @@ export function Sidebar({
           onClick={handleRailEnterCurrentMode}
           title={
             conversationMode === 'task'
-              ? `任务模式（${allTasks.length} 个任务 Session）`
-              : `对话模式（${unifiedChatStream.length} 条会话）`
+              ? `任务会话（${allTasks.length} 个任务）`
+              : `聊天对话（${unifiedChatStream.length} 条会话）`
           }
-          aria-label={conversationMode === 'task' ? '任务模式' : '对话模式'}
+          aria-label={conversationMode === 'task' ? '任务会话' : '聊天对话'}
           className={`relative w-10 h-10 rounded-lg flex items-center justify-center transition-colors cursor-pointer ${
             isChatView
               ? 'bg-slate-900 text-sky-300 shadow-2xs'

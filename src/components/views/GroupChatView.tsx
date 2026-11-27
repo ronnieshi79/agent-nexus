@@ -7,6 +7,7 @@ import {
   FolderKanban,
   Lock,
   MessageSquareCode,
+  MoreHorizontal,
   Play,
   RotateCcw,
   Send,
@@ -15,21 +16,36 @@ import {
 } from 'lucide-react';
 import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
+  ActiveWorkflowStage,
+  AgentLeaseRecord,
   AgentNexusAccount,
   ChatMessage,
   CommunityZone,
+  ComputeNode,
   ExpertAgent,
+  HumanExpert,
   ProjectAgentAssignment,
+  ProjectArtifact,
+  ProjectLifecycleStatus,
   ProjectStageSlot,
+  ProjectTaskType,
   ProjectWorkspace,
+  SpaceSharedNode,
+  StorageVolume,
   TaskSessionMessage,
   TaskStatus,
+  TaskTypeAccent,
+  TeamExpertMembership,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
+import type { TaskTemplatePackId } from '../../utils/pipelineSync';
 import { STAGE_LABEL_MAP, resolveTaskWorkflowTeam } from '../../utils/taskWorkflow';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
 import { GroupTaskCard } from '../chat/GroupTaskCard';
+import { ProjectArtifactsRailTab } from '../chat/ProjectArtifactsRailTab';
+import { ProjectGroupSettingsDrawer } from '../chat/ProjectGroupSettingsDrawer';
+import { ProjectKanbanWidget } from '../chat/ProjectKanbanWidget';
 import {
   AgentIdentityName,
   EntityAvatar,
@@ -42,10 +58,21 @@ import { WorkStatusBadge } from '../workcard/WorkCardFlow';
 interface GroupChatViewProps {
   workspace: ProjectWorkspace;
   linkedZone?: CommunityZone;
+  zones?: CommunityZone[];
   hiredAgents: ExpertAgent[];
   allAgents?: ExpertAgent[];
+  humanExperts?: HumanExpert[];
+  teamExperts?: TeamExpertMembership[];
+  agentLeases?: Record<string, AgentLeaseRecord>;
   assignments?: ProjectAgentAssignment[];
   pipelineSlots?: ProjectStageSlot[];
+  taskTypes?: ProjectTaskType[];
+  computeNodes?: ComputeNode[];
+  spaceSharedNodes?: SpaceSharedNode[];
+  storageVolumes?: StorageVolume[];
+  projectArtifacts?: ProjectArtifact[];
+  projectArtifactCount?: number;
+  groupKanbanOpenSignal?: number;
   messages: ChatMessage[];
   tasks: WorkflowTask[];
   taskSessions: Record<string, TaskSessionMessage[]>;
@@ -60,6 +87,43 @@ interface GroupChatViewProps {
   onApproveTask: (taskId: string) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
   onOpenTaskSession: (taskId: string) => void;
+  onOpenProjectArtifacts?: (projectId: string) => void;
+  onAddProjectAgentAssignment?: (
+    projectId: string,
+    agentId: string,
+    initialStages?: ActiveWorkflowStage[],
+  ) => void;
+  onRemoveProjectAgentAssignment?: (projectId: string, agentId: string) => void;
+  onUpdateProjectAgentAssignment?: (
+    projectId: string,
+    agentId: string,
+    patch: Partial<Omit<ProjectAgentAssignment, 'agentId'>>,
+  ) => void;
+  onAssignExpertToWorkspace?: (expertId: string, workspaceId: string) => void;
+  onRemoveExpertFromWorkspace?: (expertId: string, workspaceId: string) => void;
+  onAddProjectTaskType?: (
+    projectId: string,
+    input: {
+      name: string;
+      description: string;
+      templateChecklist?: string;
+      accent: TaskTypeAccent;
+      creatorAgentIds?: string[];
+    },
+  ) => void;
+  onUpdateProjectTaskType?: (
+    projectId: string,
+    typeId: string,
+    patch: Partial<Omit<ProjectTaskType, 'id'>>,
+  ) => void;
+  onDeleteProjectTaskType?: (projectId: string, typeId: string) => void;
+  onApplyTaskTypePresetPack?: (projectId: string, packId: TaskTemplatePackId) => void;
+  onStartTemplateConversation?: (
+    projectId: string,
+    taskTypeId: string,
+    options?: { prompt?: string; creatorAgentId?: string; autoSend?: boolean },
+  ) => void;
+  onUpdateProjectLifecycle?: (projectId: string, status: ProjectLifecycleStatus) => void;
   onJumpToMarket: () => void;
   onJumpToKanban: () => void;
   onJumpToTeam: () => void;
@@ -76,10 +140,21 @@ const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
 export function GroupChatView({
   workspace,
   linkedZone,
+  zones = [],
   hiredAgents,
   allAgents,
+  humanExperts = [],
+  teamExperts = [],
+  agentLeases = {},
   assignments = [],
   pipelineSlots = [],
+  taskTypes = [],
+  computeNodes = [],
+  spaceSharedNodes = [],
+  storageVolumes = [],
+  projectArtifacts = [],
+  projectArtifactCount = 0,
+  groupKanbanOpenSignal = 0,
   messages,
   tasks,
   taskSessions,
@@ -94,6 +169,20 @@ export function GroupChatView({
   onApproveTask,
   onUpdateTaskStatus,
   onOpenTaskSession,
+  onOpenProjectArtifacts,
+  onAddProjectAgentAssignment,
+  onRemoveProjectAgentAssignment,
+  onUpdateProjectAgentAssignment,
+  onAssignExpertToWorkspace,
+  onRemoveExpertFromWorkspace,
+  onAddProjectTaskType,
+  onUpdateProjectTaskType,
+  onDeleteProjectTaskType,
+  onApplyTaskTypePresetPack,
+  onStartTemplateConversation,
+  onUpdateProjectLifecycle,
+  onJumpToMarket,
+  onJumpToTeam,
   onReactivateProject,
 }: GroupChatViewProps) {
   const resolvedAgents = useMemo(
@@ -104,7 +193,10 @@ export function GroupChatView({
     workspace.lifecycleStatus === 'completed' || workspace.lifecycleStatus === 'archived';
   const [draft, setDraft] = useState('');
   const [rightOpen, setRightOpen] = useState(true);
-  const [rightTab, setRightTab] = useState<'tasks' | 'members'>('tasks');
+  const [rightTab, setRightTab] = useState<'tasks' | 'artifacts' | 'members'>('tasks');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [kanbanPinned, setKanbanPinned] = useState(true);
+  const [kanbanExpanded, setKanbanExpanded] = useState(false);
 
   // Composer inline tools: none | mention | newCard | presets
   const [composerTool, setComposerTool] = useState<'none' | 'mention' | 'newCard' | 'presets'>(
@@ -125,7 +217,19 @@ export function GroupChatView({
   useEffect(() => {
     setCardModule(workspace.name);
     setComposerTool('none');
+    setSettingsOpen(false);
+    setKanbanExpanded(false);
   }, [workspace.id, workspace.name]);
+
+  const lastKanbanSignalRef = useRef(groupKanbanOpenSignal);
+  useEffect(() => {
+    if (groupKanbanOpenSignal > 0 && groupKanbanOpenSignal !== lastKanbanSignalRef.current) {
+      lastKanbanSignalRef.current = groupKanbanOpenSignal;
+      setSettingsOpen(false);
+      setKanbanPinned(true);
+      setKanbanExpanded(true);
+    }
+  }, [groupKanbanOpenSignal]);
 
   useEffect(() => {
     if (hiredAgents.length > 0 && !hiredAgents.some((a) => a.id === cardAssignee)) {
@@ -151,16 +255,29 @@ export function GroupChatView({
     return map;
   }, [tasks]);
 
-  const groupedCards = useMemo(() => {
+  const inProgressTasks = useMemo(
+    () => tasks.filter((t) => t.status === 'in_progress' || executingTaskId === t.id),
+    [executingTaskId, tasks],
+  );
+
+  const groupedInProgressCards = useMemo(() => {
     const groups = new Map<string, WorkflowTask[]>();
-    tasks.forEach((t) => {
+    inProgressTasks.forEach((t) => {
       const key = t.featureModule || '核心功能模块';
       const list = groups.get(key) || [];
       list.push(t);
       groups.set(key, list);
     });
     return Array.from(groups.entries());
-  }, [tasks]);
+  }, [inProgressTasks]);
+
+  const liveArtifactCount = useMemo(() => {
+    const coveredTaskIds = new Set(projectArtifacts.map((a) => a.sourceTaskId).filter(Boolean));
+    const derived = tasks.filter(
+      (t) => Boolean(t.deliverableArtifact) && !coveredTaskIds.has(t.id),
+    ).length;
+    return projectArtifacts.length + derived;
+  }, [projectArtifacts, tasks]);
 
   const submitMessage = async () => {
     const cleaned = draft.trim();
@@ -223,7 +340,7 @@ export function GroupChatView({
     <div className="h-full flex min-h-0 bg-white relative">
       {/* Main Center Project Group Chat Column */}
       <div className="flex-1 min-w-0 flex flex-col h-full">
-        {/* Uniform Top Channel Header with Mode Switcher & Collapse/Expand Side Panel Button */}
+        {/* Uniform Top Channel Header with Right Side Panel Toggle & WeChat-style Group Settings '···' */}
         <ChatChannelHeader
           avatar={
             <div className="w-9 h-9 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 flex items-center justify-center shrink-0">
@@ -234,13 +351,56 @@ export function GroupChatView({
           tag={`项目群 · ${spaceOwnershipLabel} · ${hiredAgents.length} 专家 · ${tasks.length} 任务卡`}
           tagClassName={linkedZone?.kind === 'private' ? 'text-indigo-700' : 'text-blue-700'}
           subtitle={workspace.goal}
-          panelOpen={rightOpen}
-          panelToggleLabel={`任务与专家 (${tasks.length})`}
-          onTogglePanel={() => setRightOpen((v) => !v)}
+          panelOpen={rightOpen && !settingsOpen}
+          panelToggleLabel={`进行中 (${inProgressTasks.length})`}
+          onTogglePanel={() => {
+            if (settingsOpen) {
+              setSettingsOpen(false);
+              setRightOpen(true);
+            } else {
+              setRightOpen((v) => !v);
+            }
+          }}
+          extraAction={
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((v) => !v)}
+              title="群聊设置（加人 · 项目看板 · 任务编排）"
+              aria-label="群聊设置"
+              className={`inline-flex items-center justify-center w-8 h-8 rounded-lg border transition-colors cursor-pointer shrink-0 ${
+                settingsOpen
+                  ? 'bg-slate-900 border-slate-900 text-white'
+                  : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+              }`}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+          }
         />
 
-        {/* Chat Message Stream */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-4 sm:px-8 py-6 bg-white">
+        {/* Chat Viewport Container (hosts Floating Pinned Top Kanban Widget + Message Stream + Composer) */}
+        <div className="flex-1 min-h-0 flex flex-col relative overflow-hidden">
+          <ProjectKanbanWidget
+            workspace={workspace}
+            tasks={tasks}
+            taskSessions={taskSessions}
+            agents={resolvedAgents}
+            assignments={assignments}
+            pipelineSlots={pipelineSlots}
+            taskTypes={taskTypes}
+            executingTaskId={executingTaskId}
+            pinned={kanbanPinned}
+            expanded={kanbanExpanded}
+            onToggleExpanded={() => setKanbanExpanded((v) => !v)}
+            onCloseExpanded={() => setKanbanExpanded(false)}
+            onOpenTaskSession={onOpenTaskSession}
+            onRunTask={onRunTask}
+            onApproveTask={onApproveTask}
+            onUpdateTaskStatus={onUpdateTaskStatus}
+          />
+
+          {/* Chat Message Stream */}
+          <div className="flex-1 overflow-y-auto clean-scroll px-4 sm:px-8 py-5 bg-white">
           <div className="max-w-3xl mx-auto space-y-5">
             {messages.map((msg) => {
               if (msg.senderType === 'system') {
@@ -655,231 +815,275 @@ export function GroupChatView({
             </form>
           </div>
         </div>
+        </div>
       </div>
 
-      {/* Right Docked Side Panel: Project Work Cards + Active Members */}
-      {rightOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200/80 bg-[#FAFAFA] flex flex-col h-full shadow-2xl lg:shadow-none">
+      {/* Right Docked Side Panel: Either WeChat-style Group Settings OR Project Tasks/Experts */}
+      {settingsOpen ? (
+        <ProjectGroupSettingsDrawer
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          workspace={workspace}
+          linkedZone={linkedZone}
+          account={account}
+          tasks={tasks}
+          projectArtifactCount={projectArtifactCount}
+          allAgents={resolvedAgents}
+          humanExperts={humanExperts}
+          teamExperts={teamExperts}
+          agentLeases={agentLeases}
+          assignments={assignments}
+          taskTypes={taskTypes}
+          computeNodes={computeNodes}
+          spaceSharedNodes={spaceSharedNodes}
+          zones={zones}
+          storageVolumes={storageVolumes}
+          kanbanPinned={kanbanPinned}
+          onToggleKanbanPinned={() => setKanbanPinned((v) => !v)}
+          onOpenKanbanOverlay={() => {
+            setKanbanPinned(true);
+            setKanbanExpanded(true);
+          }}
+          onOpenProjectArtifacts={(pid) => onOpenProjectArtifacts?.(pid)}
+          onAddProjectAgentAssignment={(pid, agentId, stages) =>
+            onAddProjectAgentAssignment?.(pid, agentId, stages)
+          }
+          onRemoveProjectAgentAssignment={(pid, agentId) =>
+            onRemoveProjectAgentAssignment?.(pid, agentId)
+          }
+          onUpdateProjectAgentAssignment={(pid, agentId, patch) =>
+            onUpdateProjectAgentAssignment?.(pid, agentId, patch)
+          }
+          onAssignExpertToWorkspace={(eid, wid) => onAssignExpertToWorkspace?.(eid, wid)}
+          onRemoveExpertFromWorkspace={(eid, wid) => onRemoveExpertFromWorkspace?.(eid, wid)}
+          onAddProjectTaskType={(pid, input) => onAddProjectTaskType?.(pid, input)}
+          onUpdateProjectTaskType={(pid, tid, patch) => onUpdateProjectTaskType?.(pid, tid, patch)}
+          onDeleteProjectTaskType={(pid, tid) => onDeleteProjectTaskType?.(pid, tid)}
+          onApplyTaskTypePresetPack={(pid, packId) => onApplyTaskTypePresetPack?.(pid, packId)}
+          onStartTemplateConversation={(pid, tid, opts) =>
+            onStartTemplateConversation?.(pid, tid, opts)
+          }
+          onUpdateProjectLifecycle={(pid, status) => {
+            if (onUpdateProjectLifecycle) {
+              onUpdateProjectLifecycle(pid, status);
+            } else if (status === 'active') {
+              onReactivateProject?.(pid);
+            }
+          }}
+          onJumpToTeam={onJumpToTeam}
+          onJumpToMarket={onJumpToMarket}
+        />
+      ) : (
+        rightOpen && (
+        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[340px] max-w-[88vw] shrink-0 border-l border-slate-200/80 bg-[#FAFAFA] flex flex-col h-full shadow-2xl lg:shadow-none">
           <div className="p-3 border-b border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
-            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg flex-1">
+            <div className="grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg flex-1">
               <button
                 type="button"
                 onClick={() => setRightTab('tasks')}
-                className={`py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                className={`py-1 px-1.5 text-[11.5px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap truncate ${
                   rightTab === 'tasks'
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                任务列表状态 ({tasks.length})
+                进行中 ({inProgressTasks.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setRightTab('artifacts')}
+                className={`py-1 px-1.5 text-[11.5px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap truncate ${
+                  rightTab === 'artifacts'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Artifacts ({liveArtifactCount})
               </button>
               <button
                 type="button"
                 onClick={() => setRightTab('members')}
-                className={`py-1 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                className={`py-1 px-1.5 text-[11.5px] font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap truncate ${
                   rightTab === 'members'
                     ? 'bg-white text-slate-900 shadow-2xs'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Agent 专家 ({hiredAgents.length})
+                专家 ({hiredAgents.length})
               </button>
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-5">
+          <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-4">
             {rightTab === 'tasks' ? (
               <>
-                {tasks.length > 0 && (
-                  <div className="grid grid-cols-4 divide-x divide-slate-200/80 rounded-xl border border-slate-200/80 bg-white py-2.5 text-center">
-                    {[
-                      {
-                        label: '计划',
-                        count: tasks.filter((t) => t.status === 'pending').length,
-                        cls: 'text-slate-700',
-                      },
-                      {
-                        label: '执行',
-                        count: tasks.filter((t) => t.status === 'in_progress').length,
-                        cls: 'text-blue-700',
-                      },
-                      {
-                        label: '验收',
-                        count: tasks.filter((t) => t.status === 'review').length,
-                        cls: 'text-amber-700',
-                      },
-                      {
-                        label: '完成',
-                        count: tasks.filter((t) => t.status === 'done').length,
-                        cls: 'text-emerald-700',
-                      },
-                    ].map((item) => (
-                      <div key={item.label} className="px-1">
-                        <div className={`text-sm font-bold font-mono tabular-nums ${item.cls}`}>
-                          {item.count}
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">{item.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {groupedCards.length === 0 ? (
-                  <div className="py-10 text-center text-xs text-slate-500">
-                    在下方对话输入框输入需求或 @ 专家，任务卡片将按功能模块自动归类至此。
+                {groupedInProgressCards.length === 0 ? (
+                  <div className="py-10 text-center space-y-2.5">
+                    <div className="text-xs font-medium text-slate-600">
+                      当前暂无进行中的任务
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed px-2">
+                      计划中、待验收与已完成任务已收纳至顶部项目看板，或在聊天框直接 @ 专家发起新任务。
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setKanbanPinned(true);
+                        setKanbanExpanded(true);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      <span>展开项目看板</span>
+                    </button>
                   </div>
                 ) : (
-                  groupedCards.map(([moduleName, moduleTasks]) => (
-                    <div key={moduleName} className="space-y-3">
-                      <div className="flex items-center justify-between px-1">
-                        <span className="text-xs font-bold text-slate-800">{moduleName}</span>
-                        <span className="text-[11px] font-mono tabular-nums text-slate-500">
-                          {moduleTasks.filter((t) => t.status === 'done').length}/{moduleTasks.length} 完成
-                        </span>
-                      </div>
+                  <>
+                    {groupedInProgressCards.map(([moduleName, moduleTasks]) => (
+                      <div key={moduleName} className="space-y-3">
+                        <div className="flex items-center justify-between px-1">
+                          <span className="text-xs font-bold text-slate-800">{moduleName}</span>
+                          <span className="text-[11px] font-mono tabular-nums text-blue-700">
+                            {moduleTasks.length} 执行中
+                          </span>
+                        </div>
 
-                      {moduleTasks.map((task) => {
-                        const isExec = executingTaskId === task.id;
-                        const sessionMsgs = taskSessions[task.id] || [];
-                        const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-                        const needsConfirm =
-                          task.status !== 'done' && Boolean(lastMsg?.awaitingConfirmation);
-                        const workflow = resolveTaskWorkflowTeam(
-                          task,
-                          workspace,
-                          resolvedAgents,
-                          assignments,
-                          pipelineSlots,
-                        );
-                        const activeSpecialist = workflow.activeAgent;
+                        {moduleTasks.map((task) => {
+                          const isExec = executingTaskId === task.id;
+                          const sessionMsgs = taskSessions[task.id] || [];
+                          const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+                          const needsConfirm = Boolean(lastMsg?.awaitingConfirmation);
+                          const workflow = resolveTaskWorkflowTeam(
+                            task,
+                            workspace,
+                            resolvedAgents,
+                            assignments,
+                            pipelineSlots,
+                          );
+                          const activeSpecialist = workflow.activeAgent;
 
-                        return (
-                          <div
-                            key={task.id}
-                            className="bg-white rounded-xl p-4 border border-slate-200/85 hover:border-slate-300 transition-colors space-y-3"
-                          >
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="text-slate-500 font-medium">
-                                {WORK_TYPE_LABELS[task.workType]} · <span className="font-mono">{task.id}</span>
-                              </span>
-                              <WorkStatusBadge status={task.status} executing={isExec} />
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => onOpenTaskSession(task.id)}
-                              className="block w-full text-left text-[13px] font-semibold text-slate-900 hover:text-blue-700 leading-snug cursor-pointer"
+                          return (
+                            <div
+                              key={task.id}
+                              className="bg-white rounded-xl p-4 border border-slate-200/85 hover:border-slate-300 transition-colors space-y-3"
                             >
-                              {task.title}
-                            </button>
-
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                              <span className="inline-flex items-center gap-1.5 min-w-0">
-                                <span className="flex -space-x-1 shrink-0">
-                                  {workflow.participants.map((p) => (
-                                    <span
-                                      key={p.id}
-                                      title={p.handle}
-                                      className="w-4 h-4 rounded-full ring-1 ring-white text-[8px] font-bold text-white inline-flex items-center justify-center"
-                                      style={{ backgroundColor: p.avatarAccent }}
-                                    >
-                                      {p.avatarCode.slice(0, 1)}
-                                    </span>
-                                  ))}
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="text-slate-500 font-medium">
+                                  {WORK_TYPE_LABELS[task.workType]} ·{' '}
+                                  <span className="font-mono">{task.id}</span>
                                 </span>
-                                <AgentIdentityName
-                                  name={activeSpecialist?.handle || task.assigneeHandle}
-                                  runtime={activeSpecialist?.runtimeAgent}
-                                  model={activeSpecialist?.defaultModel}
-                                  className="font-medium text-slate-700"
-                                />
-                              </span>
-                              <span className="font-mono tabular-nums shrink-0 text-[10.5px]">
-                                {STAGE_LABEL_MAP[workflow.currentStage]} · {task.updatedAt}
-                              </span>
-                            </div>
-
-                            {task.deliverableArtifact && (
-                              <div className="flex items-center gap-1.5 text-[11px] font-mono text-blue-700 truncate">
-                                <FileCode2 className="w-3.5 h-3.5 shrink-0" />
-                                <span className="truncate">{task.deliverableArtifact}</span>
+                                <WorkStatusBadge status={task.status} executing={isExec} />
                               </div>
-                            )}
 
-                            <div className="flex items-center gap-2 pt-1">
                               <button
                                 type="button"
                                 onClick={() => onOpenTaskSession(task.id)}
-                                className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap cursor-pointer ${
-                                  needsConfirm
-                                    ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100/70'
-                                    : 'bg-[#FAFAFA] border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900'
-                                }`}
+                                className="block w-full text-left text-[13px] font-semibold text-slate-900 hover:text-blue-700 leading-snug cursor-pointer"
                               >
-                                <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
-                                <span>
-                                  {needsConfirm
-                                    ? '待确认 · 进入任务对话'
-                                    : sessionMsgs.length > 0
-                                      ? `进入任务对话 (${sessionMsgs.length})`
-                                      : '进入任务对话'}
-                                </span>
+                                {task.title}
                               </button>
 
-                              {task.status === 'pending' && (
-                                <button
-                                  type="button"
-                                  disabled={isReadOnly || Boolean(executingTaskId)}
-                                  onClick={() => onRunTask(task.id)}
-                                  className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-                                >
-                                  <Play className="w-3 h-3" />
-                                  <span>{isExec ? '执行中' : '自动接力'}</span>
-                                </button>
-                              )}
-
-                              {task.status === 'in_progress' && onUpdateTaskStatus && (
-                                <button
-                                  type="button"
-                                  disabled={isReadOnly}
-                                  onClick={() => onUpdateTaskStatus(task.id, 'review')}
-                                  className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-                                >
-                                  <span>提交验收</span>
-                                </button>
-                              )}
-
-                              {task.status === 'review' && (
-                                <button
-                                  type="button"
-                                  disabled={isReadOnly}
-                                  onClick={() => onApproveTask(task.id)}
-                                  className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-                                >
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>验证通过</span>
-                                </button>
-                              )}
-                            </div>
-
-                            {task.status === 'done' && (
-                              <div className="flex items-center justify-between text-[11px] text-emerald-700 font-semibold pt-0.5">
-                                <span className="inline-flex items-center gap-1">
-                                  <CheckCircle2 className="w-3.5 h-3.5" />
-                                  <span>已验收完成</span>
+                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                <span className="inline-flex items-center gap-1.5 min-w-0">
+                                  <span className="flex -space-x-1 shrink-0">
+                                    {workflow.participants.map((p) => (
+                                      <span
+                                        key={p.id}
+                                        title={p.handle}
+                                        className="w-4 h-4 rounded-full ring-1 ring-white text-[8px] font-bold text-white inline-flex items-center justify-center"
+                                        style={{ backgroundColor: p.avatarAccent }}
+                                      >
+                                        {p.avatarCode.slice(0, 1)}
+                                      </span>
+                                    ))}
+                                  </span>
+                                  <AgentIdentityName
+                                    name={activeSpecialist?.handle || task.assigneeHandle}
+                                    runtime={activeSpecialist?.runtimeAgent}
+                                    model={activeSpecialist?.defaultModel}
+                                    className="font-medium text-slate-700"
+                                  />
                                 </span>
-                                <span className="font-mono tabular-nums text-slate-400 font-normal">
-                                  {task.updatedAt}
+                                <span className="font-mono tabular-nums shrink-0 text-[10.5px]">
+                                  {STAGE_LABEL_MAP[workflow.currentStage]} · {task.updatedAt}
                                 </span>
                               </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ))
+
+                              {task.deliverableArtifact && (
+                                <div className="flex items-center gap-1.5 text-[11px] font-mono text-blue-700 truncate">
+                                  <FileCode2 className="w-3.5 h-3.5 shrink-0" />
+                                  <span className="truncate">{task.deliverableArtifact}</span>
+                                </div>
+                              )}
+
+                              <div className="flex items-center gap-2 pt-1">
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTaskSession(task.id)}
+                                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap cursor-pointer ${
+                                    needsConfirm
+                                      ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100/70'
+                                      : 'bg-[#FAFAFA] border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900'
+                                  }`}
+                                >
+                                  <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
+                                  <span>
+                                    {needsConfirm
+                                      ? '待确认 · 进入会话'
+                                      : sessionMsgs.length > 0
+                                        ? `任务会话 (${sessionMsgs.length})`
+                                        : '进入任务会话'}
+                                  </span>
+                                </button>
+
+                                {onUpdateTaskStatus && (
+                                  <button
+                                    type="button"
+                                    disabled={isReadOnly}
+                                    onClick={() => onUpdateTaskStatus(task.id, 'review')}
+                                    className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                                  >
+                                    <span>提交验收</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+
+                    {tasks.length > inProgressTasks.length && (
+                      <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between text-[11px] text-slate-500 px-1">
+                        <span>
+                          另有{' '}
+                          <strong className="font-mono tabular-nums text-slate-700">
+                            {tasks.length - inProgressTasks.length}
+                          </strong>{' '}
+                          项非进行中任务
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setKanbanPinned(true);
+                            setKanbanExpanded(true);
+                          }}
+                          className="font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                        >
+                          在看板查看 →
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
+            ) : rightTab === 'artifacts' ? (
+              <ProjectArtifactsRailTab
+                projectId={workspace.id}
+                artifacts={projectArtifacts}
+                tasks={tasks}
+                onOpenTaskSession={onOpenTaskSession}
+                onOpenProjectArtifacts={onOpenProjectArtifacts}
+              />
             ) : (
               <>
                 {hiredAgents.map((agent) => (
@@ -952,6 +1156,7 @@ export function GroupChatView({
             )}
           </div>
         </aside>
+        )
       )}
     </div>
   );

@@ -374,6 +374,8 @@ export function useAgentNexusStore() {
   const [openMountDrawerSignal, setOpenMountDrawerSignal] = useState(0);
   const [kanbanProjectSeed, setKanbanProjectSeed] = useState<string | null>(null);
   const [kanbanTabSeed, setKanbanTabSeed] = useState<WorkspaceTabId | null>(null);
+  const [groupKanbanOpenSignal, setGroupKanbanOpenSignal] = useState(0);
+  const [artifactsProjectSeed, setArtifactsProjectSeed] = useState<string | null>(null);
   const [teamTabSeed, setTeamTabSeed] = useState<TeamSectionTab | null>(null);
   const [discoverZoneSeed, setDiscoverZoneSeed] = useState<string | null>(null);
   const ACCOUNT_STORAGE_KEY = 'agentnexus_account_session_v1';
@@ -556,16 +558,24 @@ export function useAgentNexusStore() {
 
   const openKanbanForProject = useCallback(
     (projectId?: string) => {
-      setKanbanProjectSeed(projectId || activeWorkspace.id);
-      setKanbanTabSeed('my_projects');
-      setActiveView('kanban');
+      const targetId = projectId || activeWorkspace.id;
+      setPreferredConversationMode('chat');
+      setActiveSessionId(targetId);
+      setActiveChatChannel({ type: 'group', projectId: targetId });
+      setActiveView('chat');
+      setGroupKanbanOpenSignal((n) => n + 1);
     },
     [activeWorkspace.id],
   );
 
+  const openArtifactsForProject = useCallback((projectId?: string) => {
+    setArtifactsProjectSeed(projectId || 'all');
+    setActiveView('artifacts');
+  }, []);
+
   const openWorkspaceTab = useCallback((tab: WorkspaceTabId) => {
     setKanbanTabSeed(tab);
-    setActiveView('kanban');
+    setActiveView('artifacts');
   }, []);
 
   const openTeamTab = useCallback((tab: TeamSectionTab) => {
@@ -1557,7 +1567,7 @@ export function useAgentNexusStore() {
           id: `aud_pub_${Date.now()}`,
           category: 'order',
           title: `已向「${zoneName}」发布项目：${cleanedTitle}`,
-          detail: `项目预算 ${formatUsd(newOpp.budgetUsd)}，已同步建立项目工作台与初始任务编排。`,
+          detail: `项目预算 ${formatUsd(newOpp.budgetUsd)}，已同步建立项目群聊与初始任务编排。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -1681,7 +1691,7 @@ export function useAgentNexusStore() {
           id: `aud_claim_${Date.now()}`,
           category: 'order',
           title: `已承接「${zoneName}」项目：${opp.title}`,
-          detail: `已归入「项目工作台 → 项目概要（我参与）」，首张交付卡片与任务编排已同步就绪。`,
+          detail: `已同步创建项目群聊，首张交付卡片与任务编排已就绪。`,
           severity: 'success',
           timestamp: ts,
         },
@@ -6396,6 +6406,7 @@ export function useAgentNexusStore() {
     humanDmThreads,
     openNegotiationsHub,
     openKanbanForProject,
+    openArtifactsForProject,
     openWorkspaceTab,
     openTeamTab,
     openCommunityService,
@@ -6413,6 +6424,9 @@ export function useAgentNexusStore() {
     clearKanbanProjectSeed: () => setKanbanProjectSeed(null),
     kanbanTabSeed,
     clearKanbanTabSeed: () => setKanbanTabSeed(null),
+    groupKanbanOpenSignal,
+    artifactsProjectSeed,
+    clearArtifactsProjectSeed: () => setArtifactsProjectSeed(null),
     teamTabSeed,
     clearTeamTabSeed: () => setTeamTabSeed(null),
     discoverZoneSeed,

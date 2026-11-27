@@ -1,4 +1,4 @@
-export type NavViewId = 'chat' | 'kanban' | 'team' | 'community';
+export type NavViewId = 'chat' | 'artifacts' | 'team' | 'community';
 
 export type CommunityHubTab =
   | 'service_agents'

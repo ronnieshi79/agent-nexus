@@ -72,6 +72,8 @@ interface ArtifactsViewProps {
   embeddedMode?: boolean;
   controlledScope?: ArtifactScopeTab;
   onChangeScope?: (scope: ArtifactScopeTab) => void;
+  projectSeed?: string | null;
+  onClearProjectSeed?: () => void;
 }
 
 const KIND_META: Record<
@@ -193,6 +195,8 @@ export function ArtifactsView({
   embeddedMode = false,
   controlledScope,
   onChangeScope,
+  projectSeed,
+  onClearProjectSeed,
 }: ArtifactsViewProps) {
   const [internalScopeTab, setInternalScopeTab] = useState<ArtifactScopeTab>(
     controlledScope || 'all',
@@ -207,6 +211,13 @@ export function ArtifactsView({
   const [sourceFilter, setSourceFilter] = useState<'all' | ArtifactSourceType>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  useEffect(() => {
+    if (projectSeed) {
+      setProjectFilter(projectSeed);
+      onClearProjectSeed?.();
+    }
+  }, [onClearProjectSeed, projectSeed]);
 
   // Preview & Share Drawer
   const [previewId, setPreviewId] = useState<string | null>(null);
