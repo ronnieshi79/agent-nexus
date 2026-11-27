@@ -1,4 +1,4 @@
-import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
+import type { CreateArtifactInput, CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   ActiveChatChannel,
   ActiveWorkflowStage,
@@ -89,6 +89,7 @@ interface UnifiedChatViewProps {
   onSendHumanDm: (expertId: string, text: string, linkedTaskId?: string) => void;
   onSendGroupMessage: (text: string) => Promise<void>;
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
+  onCreateArtifact: (input: CreateArtifactInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
   onApproveTask: (taskId: string) => void;
   onUpdateTaskStatus: (taskId: string, status: TaskStatus) => void;
@@ -212,6 +213,7 @@ export function UnifiedChatView({
   onSendHumanDm,
   onSendGroupMessage,
   onCreateWorkCard,
+  onCreateArtifact,
   onRunTask,
   onApproveTask,
   onUpdateTaskStatus,
@@ -338,6 +340,7 @@ export function UnifiedChatView({
           onClearDraftSeed={onClearDraftSeed}
           onSendMessage={onSendGroupMessage}
           onCreateWorkCard={onCreateWorkCard}
+          onCreateArtifact={onCreateArtifact}
           onRunTask={onRunTask}
           onApproveTask={onApproveTask}
           onUpdateTaskStatus={onUpdateTaskStatus}

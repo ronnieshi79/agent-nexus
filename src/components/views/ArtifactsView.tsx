@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
 import {
   Check,
   Code2,
@@ -6,12 +6,12 @@ import {
   ExternalLink,
   FileCode2,
   FileText,
+  FileUp,
   FolderOpen,
   LayoutGrid,
   List,
   MessageSquare,
   Palette,
-  Plus,
   Presentation,
   Send,
   Share2,
@@ -19,10 +19,11 @@ import {
   Sparkles,
   Star,
   Trash2,
-  User,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
+import type { CreateArtifactInput } from '../../hooks/useAgentNexusStore';
 import type {
   ArtifactCategoryGroup,
   ArtifactKind,
@@ -48,18 +49,7 @@ interface ArtifactsViewProps {
   artifacts: ProjectArtifact[];
   workspaces: ProjectWorkspace[];
   allTasks: WorkflowTask[];
-  onCreateArtifact: (input: {
-    projectId: string;
-    title: string;
-    kind: ArtifactKind;
-    summary: string;
-    content: string;
-    sourceType: ArtifactSourceType;
-    sourceTaskId?: string;
-    tags: string[];
-    slides?: { heading: string; bullets: string[] }[];
-    designSpec?: { palette: string[]; typography: string; components: string[] };
-  }) => void;
+  onCreateArtifact: (input: CreateArtifactInput) => void;
   onShareArtifactToChat: (artifactId: string, projectId: string, note?: string) => void;
   onToggleStarArtifact: (artifactId: string) => void;
   onDeleteArtifact: (artifactId: string) => void;
@@ -124,62 +114,34 @@ const KIND_META: Record<
 };
 
 const SOURCE_META: Record<ArtifactSourceType, { label: string; cls: string }> = {
-  task_session: { label: '任务生成', cls: 'text-indigo-700 bg-indigo-50 border-indigo-200/70' },
-  project_group: { label: '对话分享', cls: 'text-sky-700 bg-sky-50 border-sky-200/70' },
-  manual: { label: '手动创作', cls: 'text-slate-600 bg-slate-100 border-slate-200/80' },
+  task_session: { label: '任务 AI 生成', cls: 'text-indigo-700 bg-indigo-50 border-indigo-200/70' },
+  project_group: { label: '群聊 AI 沉淀', cls: 'text-sky-700 bg-sky-50 border-sky-200/70' },
+  manual: { label: '本地上传', cls: 'text-slate-600 bg-slate-100 border-slate-200/80' },
 };
 
-const LAUNCHER_PRESETS: {
-  id: Exclude<ArtifactCategoryGroup, 'all'>;
-  kind: ArtifactKind;
-  title: string;
-  subtitle: string;
-  cardBg: string;
-  iconColor: string;
-  accentRing: string;
-  icon: typeof FileText;
-}[] = [
-  {
-    id: 'docs',
-    kind: 'prd',
-    title: '文档 · Docs',
-    subtitle: 'PRD 规格、方案讨论与决策纪要',
-    cardBg: 'bg-gradient-to-br from-sky-100/90 via-blue-50 to-sky-100/70',
-    iconColor: 'text-blue-700',
-    accentRing: 'hover:border-blue-300',
-    icon: FileText,
-  },
-  {
-    id: 'slides',
-    kind: 'ppt',
-    title: '演示稿 · Slides',
-    subtitle: '项目汇报 PPT 与方案路演分镜',
-    cardBg: 'bg-gradient-to-br from-orange-100/90 via-amber-50 to-rose-100/60',
-    iconColor: 'text-amber-800',
-    accentRing: 'hover:border-orange-300',
-    icon: Presentation,
-  },
-  {
-    id: 'design',
-    kind: 'design',
-    title: '设计素材 · Design',
-    subtitle: '视觉情绪板、配色规范与原型草图',
-    cardBg: 'bg-gradient-to-br from-violet-100/90 via-purple-50 to-indigo-100/70',
-    iconColor: 'text-violet-700',
-    accentRing: 'hover:border-violet-300',
-    icon: Palette,
-  },
-  {
-    id: 'code',
-    kind: 'code_test',
-    title: '代码与架构 · Code',
-    subtitle: '系统架构图、补丁与回归测试报告',
-    cardBg: 'bg-gradient-to-br from-emerald-100/85 via-teal-50 to-emerald-100/60',
-    iconColor: 'text-emerald-700',
-    accentRing: 'hover:border-emerald-300',
-    icon: Code2,
-  },
-];
+function inferKindFromFilename(filename: string): ArtifactKind {
+  const lower = filename.toLowerCase();
+  if (/\.(ppt|pptx|key)$/.test(lower) || /演示|汇报|slide|ppt/.test(lower)) return 'ppt';
+  if (/\.(fig|sketch|xd|psd|ai|png|jpg|jpeg|webp|svg)$/.test(lower) || /原型|视觉|设计|ui/.test(lower))
+    return 'design';
+  if (/\.(ts|tsx|js|jsx|py|go|java|rs|sql|sh|yaml|yml|json|toml)$/.test(lower)) return 'code_test';
+  if (/架构|arch|topology|rfc/.test(lower)) return 'architecture';
+  if (/prd|需求|spec/.test(lower)) return 'prd';
+  return 'solution';
+}
+
+function isReadableTextFile(file: File): boolean {
+  if (file.type.startsWith('text/') || file.type === 'application/json') return true;
+  return /\.(md|markdown|txt|json|ts|tsx|js|jsx|py|go|java|rs|sql|csv|yaml|yml|xml|html|css|sh|log|env)$/i.test(
+    file.name,
+  );
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 export function ArtifactsView({
   artifacts,
@@ -226,15 +188,20 @@ export function ArtifactsView({
   const [shareNote, setShareNote] = useState('');
   const [shareSuccessProjectId, setShareSuccessProjectId] = useState<string | null>(null);
 
-  // Create Artifact Drawer
-  const [createOpen, setCreateOpen] = useState(false);
-  const [newKind, setNewKind] = useState<ArtifactKind>('prd');
-  const [newProjectId, setNewProjectId] = useState<string>(workspaces[0]?.id || '');
-  const [newSourceType, setNewSourceType] = useState<ArtifactSourceType>('manual');
-  const [newTitle, setNewTitle] = useState('');
-  const [newSummary, setNewSummary] = useState('');
-  const [newContent, setNewContent] = useState('');
-  const [newTagsText, setNewTagsText] = useState('方案沉淀, 协作分享');
+  // Local File Upload Modal ("我上传的")
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadKind, setUploadKind] = useState<ArtifactKind>('prd');
+  const [uploadProjectId, setUploadProjectId] = useState<string>(workspaces[0]?.id || '');
+  const [uploadTitle, setUploadTitle] = useState('');
+  const [uploadSummary, setUploadSummary] = useState('');
+  const [uploadContent, setUploadContent] = useState('');
+  const [uploadFileMeta, setUploadFileMeta] = useState<{
+    name: string;
+    size: number;
+    ext: string;
+  } | null>(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     onBreadcrumbContextChange?.({ scope: scopeTab, category: categoryGroup });
@@ -272,7 +239,9 @@ export function ArtifactsView({
   const scopeCounts = useMemo(() => {
     return {
       all: combinedArtifacts.length,
-      yours: combinedArtifacts.filter((a) => a.ownership === 'yours').length,
+      yours: combinedArtifacts.filter(
+        (a) => a.ownership === 'yours' && a.sourceType === 'manual',
+      ).length,
       shared: combinedArtifacts.filter((a) => a.ownership === 'shared').length,
       starred: combinedArtifacts.filter((a) => Boolean(a.starred)).length,
     };
@@ -280,7 +249,8 @@ export function ArtifactsView({
 
   const scopedBase = useMemo(() => {
     return combinedArtifacts.filter((a) => {
-      if (scopeTab === 'yours' && a.ownership !== 'yours') return false;
+      if (scopeTab === 'yours' && !(a.ownership === 'yours' && a.sourceType === 'manual'))
+        return false;
       if (scopeTab === 'shared' && a.ownership !== 'shared') return false;
       if (scopeTab === 'starred' && !a.starred) return false;
       return true;
@@ -338,23 +308,63 @@ export function ArtifactsView({
     }
   }, [previewArtifact?.id, previewArtifact?.projectId, workspaces]);
 
-  const openCreateWithKind = (kind: ArtifactKind) => {
-    setNewKind(kind);
-    setNewProjectId(projectFilter !== 'all' ? projectFilter : workspaces[0]?.id || '');
-    setNewSourceType('manual');
-    setNewTitle('');
-    setNewSummary('');
-    setNewContent('');
-    setNewTagsText(
-      kind === 'design'
-        ? '设计素材, 视觉情绪板'
-        : kind === 'ppt'
-          ? '演示稿, 方案汇报'
-          : kind === 'code_test' || kind === 'architecture'
-            ? '架构代码, 技术产物'
-            : '产品文档, 方案讨论',
-    );
-    setCreateOpen(true);
+  const openUploadModal = () => {
+    setUploadProjectId(projectFilter !== 'all' ? projectFilter : workspaces[0]?.id || '');
+    setUploadKind('prd');
+    setUploadTitle('');
+    setUploadSummary('');
+    setUploadContent('');
+    setUploadFileMeta(null);
+    setIsDraggingFile(false);
+    setUploadOpen(true);
+  };
+
+  const processSelectedFile = (file: File) => {
+    const extMatch = file.name.match(/\.([^.]+)$/);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+    const baseName = ext ? file.name.slice(0, -(ext.length + 1)) : file.name;
+    const inferredKind = inferKindFromFilename(file.name);
+
+    setUploadFileMeta({ name: file.name, size: file.size, ext });
+    setUploadKind(inferredKind);
+    setUploadTitle(baseName);
+    setUploadSummary(`本地上传文件：${file.name}（${formatFileSize(file.size)}）`);
+
+    if (isReadableTextFile(file)) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === 'string' ? reader.result : '';
+        setUploadContent(
+          text.length > 12000
+            ? `${text.slice(0, 12000)}\n\n...（文件较大，已截取前 12,000 字符预览）`
+            : text || `已上传文本文件：${file.name}`,
+        );
+      };
+      reader.readAsText(file);
+    } else {
+      setUploadContent(
+        `文件名：${file.name}\n文件类型：${file.type || (ext ? `.${ext}` : '二进制文件')}\n文件大小：${formatFileSize(
+          file.size,
+        )}\n上传方式：本地文件直传，可在项目群聊中引用或分享给专家 Agent。`,
+      );
+    }
+  };
+
+  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processSelectedFile(file);
+    }
+    e.target.value = '';
+  };
+
+  const handleFileDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDraggingFile(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processSelectedFile(file);
+    }
   };
 
   const handleCopyContent = (art: ProjectArtifact) => {
@@ -373,54 +383,49 @@ export function ArtifactsView({
     }, 1800);
   };
 
-  const handleCreateSubmit = (e: FormEvent) => {
+  const handleUploadSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (!newTitle.trim()) return;
-    const tags = newTagsText
-      .split(/[,，、/]/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+    if (!uploadFileMeta || !uploadTitle.trim()) return;
+
+    const cleanTitle = uploadTitle.trim();
+    const cleanSummary =
+      uploadSummary.trim() || `本地上传文件：${uploadFileMeta.name}（${formatFileSize(uploadFileMeta.size)}）`;
+    const tags = ['本地上传', uploadFileMeta.ext ? uploadFileMeta.ext.toUpperCase() : '文件'];
+
     const slides =
-      newKind === 'ppt'
+      uploadKind === 'ppt'
         ? [
             {
-              heading: `01 · ${newTitle.trim()}`,
+              heading: `01 · ${cleanTitle}`,
               bullets: [
-                newSummary.trim() || '核心背景、业务目标与关键挑战拆解',
-                '自动按结构化大纲生成演示分镜，支持分享至项目群评审',
+                `本地演示文稿：${uploadFileMeta.name}（${formatFileSize(uploadFileMeta.size)}）`,
+                cleanSummary,
               ],
-            },
-            {
-              heading: '02 · 核心方案与落地排期',
-              bullets: (newContent.trim() || '第一阶段完成原型验证\n第二阶段上线核心能力')
-                .split('\n')
-                .map((l) => l.replace(/^[-*•\d.]+\s*/, '').trim())
-                .filter(Boolean)
-                .slice(0, 4),
             },
           ]
         : undefined;
     const designSpec =
-      newKind === 'design'
+      uploadKind === 'design'
         ? {
             palette: ['#0f172a', '#2563eb', '#7c3aed', '#10b981', '#f8fafc'],
             typography: 'Inter + Noto Sans SC',
-            components: ['视觉情绪板', '主色阶规范', '核心交互组件草图'],
+            components: [uploadFileMeta.name, '本地设计源件'],
           }
         : undefined;
 
     onCreateArtifact({
-      projectId: newProjectId || workspaces[0]?.id || 'ses_settlement_mvp',
-      title: newTitle,
-      kind: newKind,
-      summary: newSummary || '新建协作产物，支持在对话与任务间复用分享。',
-      content: newContent || newSummary || newTitle,
-      sourceType: newSourceType,
+      projectId: uploadProjectId || workspaces[0]?.id || 'ses_settlement_mvp',
+      title: cleanTitle,
+      kind: uploadKind,
+      summary: cleanSummary,
+      content: uploadContent || cleanSummary,
+      sourceType: 'manual',
+      authorType: 'human',
       tags,
       slides,
       designSpec,
     });
-    setCreateOpen(false);
+    setUploadOpen(false);
   };
 
   const activeWorkspacesForShare = useMemo(
@@ -548,7 +553,7 @@ export function ArtifactsView({
             <RailSectionLabel>产物视图</RailSectionLabel>
             {[
               { id: 'all' as const, label: '全部产物', icon: Shapes, count: scopeCounts.all },
-              { id: 'yours' as const, label: '我创建的', icon: User, count: scopeCounts.yours },
+              { id: 'yours' as const, label: '我上传的', icon: Upload, count: scopeCounts.yours },
               { id: 'shared' as const, label: '分享给我的', icon: Users, count: scopeCounts.shared },
               { id: 'starred' as const, label: '标星收藏', icon: Star, count: scopeCounts.starred },
             ].map((item) => {
@@ -659,9 +664,9 @@ export function ArtifactsView({
                 onChange={setSourceFilter}
                 options={[
                   { id: 'all', label: '全部来源' },
-                  { id: 'task_session', label: '任务生成' },
-                  { id: 'project_group', label: '对话分享' },
-                  { id: 'manual', label: '手动创作' },
+                  { id: 'task_session', label: '任务 AI 生成' },
+                  { id: 'project_group', label: '群聊 AI 沉淀' },
+                  { id: 'manual', label: '本地上传' },
                 ]}
               />
               <ToolbarDropdown
@@ -706,11 +711,11 @@ export function ArtifactsView({
               </div>
               <button
                 type="button"
-                onClick={() => openCreateWithKind('prd')}
-                className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
+                onClick={openUploadModal}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>新建 Artifact</span>
+                <Upload className="w-3.5 h-3.5" />
+                <span>上传文件</span>
               </button>
             </>
           }
@@ -726,7 +731,7 @@ export function ArtifactsView({
               {(
                 [
                   { id: 'all', label: '全部产物', count: scopeCounts.all },
-                  { id: 'yours', label: '我创建的', count: scopeCounts.yours },
+                  { id: 'yours', label: '我上传的', count: scopeCounts.yours },
                   { id: 'shared', label: '分享给我的', count: scopeCounts.shared },
                   { id: 'starred', label: '标星收藏', count: scopeCounts.starred },
                 ] as { id: ArtifactScopeTab; label: string; count: number }[]
@@ -750,43 +755,6 @@ export function ArtifactsView({
               })}
             </div>
 
-            {/* Claude-Style "快速创作 · Make something new" Visual Launcher Cards */}
-            <section className="space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-xs font-semibold text-slate-500">
-                  快速创作 · 新建 Artifact
-                </h2>
-                <span className="text-[11px] text-slate-400">
-                  支持文档、演示稿、设计素材与代码架构，并可一键分享至对话
-                </span>
-              </div>
-              <div className="grid grid-cols-2 @[720px]:grid-cols-4 gap-3">
-                {LAUNCHER_PRESETS.map((preset) => {
-                  const Icon = preset.icon;
-                  return (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      onClick={() => openCreateWithKind(preset.kind)}
-                      className={`group text-left bg-white rounded-xl border border-slate-200/90 ${preset.accentRing} p-2.5 transition-all hover:shadow-xs cursor-pointer`}
-                    >
-                      <div
-                        className={`h-20 rounded-lg ${preset.cardBg} flex items-center justify-center transition-transform group-hover:scale-[1.01]`}
-                      >
-                        <Icon className={`w-7 h-7 ${preset.iconColor}`} strokeWidth={1.75} />
-                      </div>
-                      <div className="mt-2.5 px-0.5">
-                        <div className="text-xs font-bold text-slate-900">{preset.title}</div>
-                        <div className="text-[11px] text-slate-500 mt-0.5 truncate">
-                          {preset.subtitle}
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
             {/* Artifacts Gallery / List */}
             <section className="space-y-3">
               <div className="flex items-center justify-between gap-2">
@@ -795,13 +763,19 @@ export function ArtifactsView({
                     {scopeTab === 'all'
                       ? '全部 Artifacts'
                       : scopeTab === 'yours'
-                        ? '我创建的 Artifacts'
+                        ? '我上传的文件'
                         : scopeTab === 'shared'
                           ? '分享给我的 Artifacts'
                           : '标星收藏'}
                   </span>
                   <span className="text-slate-300">·</span>
                   <span className="font-mono tabular-nums">{filteredArtifacts.length} 项</span>
+                  <span className="hidden sm:inline text-slate-300">·</span>
+                  <span className="hidden sm:inline text-[11px] text-slate-400">
+                    {scopeTab === 'yours'
+                      ? '仅展示你手动上传归档的本地文件与参考资料'
+                      : '自动汇聚项目群聊与任务会话中 AI 生成的产出物，以及本地上传文件'}
+                  </span>
                 </div>
                 {(categoryGroup !== 'all' || projectFilter !== 'all' || sourceFilter !== 'all' || searchKeyword.trim()) && (
                   <button
@@ -812,7 +786,7 @@ export function ArtifactsView({
                       setSourceFilter('all');
                       setSearchKeyword('');
                     }}
-                    className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer"
+                    className="text-xs font-medium text-blue-700 hover:text-blue-900 cursor-pointer shrink-0"
                   >
                     清除筛选
                   </button>
@@ -822,20 +796,40 @@ export function ArtifactsView({
               {filteredArtifacts.length === 0 ? (
                 <div className="border-y border-slate-200/75 py-14 px-6 text-center space-y-2.5">
                   <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 inline-flex items-center justify-center mx-auto">
-                    <Shapes className="w-5 h-5" />
+                    {scopeTab === 'yours' ? (
+                      <Upload className="w-5 h-5" />
+                    ) : (
+                      <Shapes className="w-5 h-5" />
+                    )}
                   </div>
                   <p className="text-sm font-semibold text-slate-800">
-                    {scopeTab === 'shared'
-                      ? '暂无分享给你的 Artifact'
-                      : scopeTab === 'starred'
-                        ? '暂无标星收藏的 Artifact'
-                        : '当前筛选下暂无匹配的 Artifact'}
+                    {scopeTab === 'yours'
+                      ? '暂无你上传的文件'
+                      : scopeTab === 'shared'
+                        ? '暂无分享给你的 Artifact'
+                        : scopeTab === 'starred'
+                          ? '暂无标星收藏的 Artifact'
+                          : '当前筛选下暂无匹配的 Artifact'}
                   </p>
-                  <p className="text-xs text-slate-500 max-w-md mx-auto">
-                    {scopeTab === 'shared'
-                      ? '当协作者或社区专家在项目群或任务会话中分享文档、PPT 或设计素材时，会自动汇聚到这里。'
-                      : '你可以点击上方「快速创作」卡片新建文档、演示稿或设计素材，或在 Agent 任务执行后自动沉淀。'}
+                  <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+                    {scopeTab === 'yours'
+                      ? '你可以上传本地文档、PPT、设计源文件或代码片段至项目产物库，方便在对话中随时分享给专家 Agent。'
+                      : scopeTab === 'shared'
+                        ? '当协作者或社区专家在项目群或任务会话中分享文档、PPT 或设计素材时，会自动汇聚到这里。'
+                        : 'Artifacts 会在项目群聊与任务会话中由 AI 自动生成沉淀；也可以点击右上角「上传文件」归档本地资料。'}
                   </p>
+                  {scopeTab === 'yours' && (
+                    <div className="pt-1">
+                      <button
+                        type="button"
+                        onClick={openUploadModal}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>上传本地文件</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[980px]:grid-cols-3 gap-4">
@@ -1319,142 +1313,167 @@ export function ArtifactsView({
         </div>
       )}
 
-      {/* CREATE ARTIFACT MODAL */}
+      {/* UPLOAD LOCAL FILE MODAL ("我上传的") */}
       <ModalShell
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        icon={<Shapes className="w-4 h-4 text-blue-600" />}
-        title="新建 Artifact 产物"
-        subtitle="创建后自动归入「我创建的」，并可一键分享至任意项目群协作评审"
-        maxWidthClass="max-w-xl"
-        onSubmit={handleCreateSubmit}
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        icon={<FileUp className="w-4 h-4 text-blue-600" />}
+        title="上传本地文件至 Artifacts"
+        subtitle="上传后归入「我上传的」，并可一键分享至任意项目群供专家 Agent 引用"
+        maxWidthClass="max-w-lg"
+        onSubmit={handleUploadSubmit}
         footer={
           <>
-            <span className="text-[11px] text-slate-500">支持文档、PPT 大纲、设计规范与代码片段</span>
+            <span className="text-[11px] text-slate-500">
+              支持 Markdown、代码、文档、PPT、设计源文件等本地文件
+            </span>
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={() => setCreateOpen(false)}
+                onClick={() => setUploadOpen(false)}
                 className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
               >
                 取消
               </button>
               <button
                 type="submit"
-                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                disabled={!uploadFileMeta || !uploadTitle.trim()}
+                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
               >
-                保存 Artifact
+                确认上传
               </button>
             </div>
           </>
         }
       >
         <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-slate-700">产物类型</label>
-            <div className="grid grid-cols-3 gap-1.5">
-              {(Object.keys(KIND_META) as ArtifactKind[]).map((k) => {
-                const meta = KIND_META[k];
-                const active = newKind === k;
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setNewKind(k)}
-                    className={`px-2.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
-                      active
-                        ? 'bg-slate-900 text-white border-slate-900'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={handleFileInputChange}
+            accept=".md,.markdown,.txt,.json,.ts,.tsx,.js,.jsx,.py,.go,.sql,.csv,.yaml,.yml,.pdf,.doc,.docx,.ppt,.pptx,.fig,.sketch,.png,.jpg,.jpeg,.svg,.zip"
+            className="hidden"
+          />
+
+          {/* Dropzone */}
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingFile(true);
+            }}
+            onDragLeave={() => setIsDraggingFile(false)}
+            onDrop={handleFileDrop}
+            onClick={() => fileInputRef.current?.click()}
+            className={`rounded-xl border border-dashed p-5 text-center transition-colors cursor-pointer ${
+              isDraggingFile
+                ? 'border-blue-500 bg-blue-50/70'
+                : uploadFileMeta
+                  ? 'border-emerald-300 bg-emerald-50/40'
+                  : 'border-slate-300 bg-slate-50/60 hover:border-slate-400 hover:bg-slate-50'
+            }`}
+          >
+            {uploadFileMeta ? (
+              <div className="flex items-center justify-between gap-3 text-left">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-lg bg-white border border-emerald-200 text-emerald-700 inline-flex items-center justify-center shrink-0">
+                    <FileUp className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-semibold text-slate-900 truncate">
+                      {uploadFileMeta.name}
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
+                      {formatFileSize(uploadFileMeta.size)} · 点击可重新选择文件
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setUploadFileMeta(null);
+                    setUploadTitle('');
+                    setUploadSummary('');
+                    setUploadContent('');
+                  }}
+                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white cursor-pointer shrink-0"
+                  aria-label="移除已选文件"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-1.5 py-2">
+                <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-600 inline-flex items-center justify-center mx-auto">
+                  <Upload className="w-4 h-4" />
+                </div>
+                <div className="text-xs font-semibold text-slate-800">
+                  点击选择本地文件，或直接拖拽到此处
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  自动识别文档、演示稿、设计源文件与代码类型，文本类文件将实时解析预览
+                </div>
+              </div>
+            )}
+          </div>
+
+          {uploadFileMeta && (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">归属项目</label>
+                  <select
+                    value={uploadProjectId}
+                    onChange={(e) => setUploadProjectId(e.target.value)}
+                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
                   >
-                    {meta.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                    {workspaces.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        {w.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">关联项目</label>
-              <select
-                value={newProjectId}
-                onChange={(e) => setNewProjectId(e.target.value)}
-                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-              >
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-semibold text-slate-700">生成来源</label>
-              <select
-                value={newSourceType}
-                onChange={(e) => setNewSourceType(e.target.value as ArtifactSourceType)}
-                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-              >
-                <option value="manual">手动创作</option>
-                <option value="project_group">对话分享</option>
-                <option value="task_session">任务生成</option>
-              </select>
-            </div>
-          </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">自动识别分类</label>
+                  <select
+                    value={uploadKind}
+                    onChange={(e) => setUploadKind(e.target.value as ArtifactKind)}
+                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    {(Object.keys(KIND_META) as ArtifactKind[]).map((k) => (
+                      <option key={k} value={k}>
+                        {KIND_META[k].label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">标题 *</label>
-            <input
-              type="text"
-              required
-              autoFocus
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder={
-                newKind === 'design'
-                  ? '例如：新版本控制台情绪板与配色规范'
-                  : newKind === 'ppt'
-                    ? '例如：Q4 产品路线图评审演示稿'
-                    : '例如：多币种清分异常处理方案'
-              }
-              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-            />
-          </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">显示标题 *</label>
+                <input
+                  type="text"
+                  required
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">摘要说明</label>
-            <input
-              type="text"
-              value={newSummary}
-              onChange={(e) => setNewSummary(e.target.value)}
-              placeholder="一句话概括该产物用途或核心亮点..."
-              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">
-              {newKind === 'ppt' ? '演示大纲要点（每行一条）' : '正文 / 设计说明 / 代码内容'}
-            </label>
-            <textarea
-              rows={5}
-              value={newContent}
-              onChange={(e) => setNewContent(e.target.value)}
-              placeholder="输入详细文档内容、演示要点或视觉设计规范..."
-              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20 resize-y"
-            />
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-700">标签（逗号分隔）</label>
-            <input
-              type="text"
-              value={newTagsText}
-              onChange={(e) => setNewTagsText(e.target.value)}
-              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-            />
-          </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">备注说明（可选）</label>
+                <input
+                  type="text"
+                  value={uploadSummary}
+                  onChange={(e) => setUploadSummary(e.target.value)}
+                  placeholder="补充文件用途或版本说明..."
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+            </>
+          )}
         </div>
       </ModalShell>
     </div>

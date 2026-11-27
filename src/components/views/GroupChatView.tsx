@@ -1,20 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   AtSign,
-  CheckCircle2,
-  ClipboardPlus,
   FileCode2,
   FolderKanban,
   Lock,
   MessageSquareCode,
   MoreHorizontal,
-  Play,
   RotateCcw,
   Send,
+  Shapes,
   Sparkles,
   X,
 } from 'lucide-react';
-import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
+import type { CreateArtifactInput, CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
   ActiveWorkflowStage,
   AgentLeaseRecord,
@@ -43,6 +41,8 @@ import type { TaskTemplatePackId } from '../../utils/pipelineSync';
 import { STAGE_LABEL_MAP, resolveTaskWorkflowTeam } from '../../utils/taskWorkflow';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
 import { GroupTaskCard } from '../chat/GroupTaskCard';
+import { MessageToArtifactModal } from '../chat/MessageToArtifactModal';
+import { MessageToTaskModal } from '../chat/MessageToTaskModal';
 import { ProjectArtifactsRailTab } from '../chat/ProjectArtifactsRailTab';
 import { ProjectGroupSettingsDrawer } from '../chat/ProjectGroupSettingsDrawer';
 import { ProjectKanbanWidget } from '../chat/ProjectKanbanWidget';
@@ -50,9 +50,7 @@ import {
   AgentIdentityName,
   EntityAvatar,
   displayEntityName,
-  formatAgentDisplayName,
 } from '../shared/EntityIdentity';
-import { ModalShell } from '../shared/UiPrimitives';
 import { WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
@@ -83,6 +81,7 @@ interface GroupChatViewProps {
   onClearDraftSeed: () => void;
   onSendMessage: (text: string) => Promise<void>;
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
+  onCreateArtifact?: (input: CreateArtifactInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
   onApproveTask: (taskId: string) => void;
   onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
@@ -165,6 +164,7 @@ export function GroupChatView({
   onClearDraftSeed,
   onSendMessage,
   onCreateWorkCard,
+  onCreateArtifact,
   onRunTask,
   onApproveTask,
   onUpdateTaskStatus,
@@ -198,27 +198,21 @@ export function GroupChatView({
   const [kanbanPinned, setKanbanPinned] = useState(true);
   const [kanbanExpanded, setKanbanExpanded] = useState(false);
 
-  // Composer inline tools: none | mention | newCard | presets
-  const [composerTool, setComposerTool] = useState<'none' | 'mention' | 'newCard' | 'presets'>(
-    'none',
-  );
-
-  // New work card form fields inside composer
-  const [cardModule, setCardModule] = useState(workspace.name);
-  const [cardType, setCardType] = useState<WorkCardType>('development');
-  const [cardTitle, setCardTitle] = useState('');
-  const [cardDesc, setCardDesc] = useState('');
-  const [cardAssignee, setCardAssignee] = useState(hiredAgents[0]?.id || '');
-  const [cardPriority, setCardPriority] = useState<'高' | '中' | '低'>('高');
+  // Composer inline tools: none | mention | presets
+  const [composerTool, setComposerTool] = useState<'none' | 'mention' | 'presets'>('none');
+  // AI task / artifact extraction triggered directly from a chat message
+  const [taskExtractSourceMsg, setTaskExtractSourceMsg] = useState<ChatMessage | null>(null);
+  const [artifactExtractSourceMsg, setArtifactExtractSourceMsg] = useState<ChatMessage | null>(null);
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
-    setCardModule(workspace.name);
     setComposerTool('none');
     setSettingsOpen(false);
     setKanbanExpanded(false);
+    setTaskExtractSourceMsg(null);
+    setArtifactExtractSourceMsg(null);
   }, [workspace.id, workspace.name]);
 
   const lastKanbanSignalRef = useRef(groupKanbanOpenSignal);
@@ -230,12 +224,6 @@ export function GroupChatView({
       setKanbanExpanded(true);
     }
   }, [groupKanbanOpenSignal]);
-
-  useEffect(() => {
-    if (hiredAgents.length > 0 && !hiredAgents.some((a) => a.id === cardAssignee)) {
-      setCardAssignee(hiredAgents[0].id);
-    }
-  }, [cardAssignee, hiredAgents]);
 
   useEffect(() => {
     if (draftSeed) {
@@ -297,23 +285,6 @@ export function GroupChatView({
       e.preventDefault();
       void submitMessage();
     }
-  };
-
-  const handleCreateCardSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!cardTitle.trim() || isReadOnly) return;
-    onCreateWorkCard({
-      sessionId: workspace.id,
-      featureModule: cardModule,
-      workType: cardType,
-      title: cardTitle,
-      description: cardDesc,
-      assigneeId: cardAssignee,
-      priority: cardPriority,
-    });
-    setCardTitle('');
-    setCardDesc('');
-    setComposerTool('none');
   };
 
   const insertMention = (handle: string) => {
@@ -423,7 +394,7 @@ export function GroupChatView({
               return (
                 <div
                   key={msg.id}
-                  className={`flex gap-3 ${isEmployer ? 'flex-row-reverse' : 'flex-row'}`}
+                  className={`group/msg flex gap-3 ${isEmployer ? 'flex-row-reverse' : 'flex-row'}`}
                 >
                   <EntityAvatar
                     kind={isEmployer ? 'human' : isButler ? 'assistant' : 'agent'}
@@ -444,7 +415,11 @@ export function GroupChatView({
                       isEmployer ? 'items-end' : 'items-start'
                     } flex flex-col`}
                   >
-                    <div className="flex items-center gap-1.5 text-xs mb-1 flex-wrap">
+                    <div
+                      className={`flex items-center gap-1.5 text-xs mb-1 flex-wrap ${
+                        isEmployer ? 'justify-end' : 'justify-start'
+                      }`}
+                    >
                       {isEmployer ? (
                         <span className="font-semibold text-slate-900">
                           {account?.name || displayEntityName(msg.senderHandle)}
@@ -466,6 +441,31 @@ export function GroupChatView({
                         <span className="text-slate-500">· {msg.senderName}</span>
                       )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
+
+                      {!isReadOnly && (
+                        <span className="opacity-0 group-hover/msg:opacity-100 focus-within:opacity-100 transition-opacity inline-flex items-center gap-0.5">
+                          <button
+                            type="button"
+                            onClick={() => setTaskExtractSourceMsg(msg)}
+                            title="基于该条对话由 AI 自动提炼生成任务卡片"
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50/80 cursor-pointer whitespace-nowrap"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>AI 生成任务</span>
+                          </button>
+                          {onCreateArtifact && (
+                            <button
+                              type="button"
+                              onClick={() => setArtifactExtractSourceMsg(msg)}
+                              title="基于该条对话由 AI 自动整理并沉淀为 Artifact"
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[11px] font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50/80 cursor-pointer whitespace-nowrap"
+                            >
+                              <Shapes className="w-3 h-3" />
+                              <span>AI 生成 Artifact</span>
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </div>
 
                     <div
@@ -581,119 +581,32 @@ export function GroupChatView({
               </div>
             )}
 
-            {/* New Project Work Card Creator Modal */}
-            <ModalShell
-              open={composerTool === 'newCard'}
-              onClose={() => setComposerTool('none')}
-              icon={<ClipboardPlus className="w-4 h-4 text-blue-600" />}
-              title="新建工作卡片"
-              subtitle={`所属项目「${workspace.name}」· 创建后同步进入项目看板与任务对话`}
-              maxWidthClass="max-w-lg"
-              onSubmit={handleCreateCardSubmit}
-              footer={
-                <>
-                  <span className="text-[11px] text-slate-500">同步派发给指定专家 Agent</span>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setComposerTool('none')}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                    >
-                      取消
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
-                    >
-                      创建并同步看板
-                    </button>
-                  </div>
-                </>
-              }
-            >
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">卡片标题 *</label>
-                  <input
-                    type="text"
-                    required
-                    autoFocus
-                    value={cardTitle}
-                    onChange={(e) => setCardTitle(e.target.value)}
-                    placeholder="如：开发 A 功能 · 汇率波动熔断保护"
-                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                </div>
+            {/* AI Extract Task from Selected Chat Message Modal */}
+            <MessageToTaskModal
+              open={Boolean(taskExtractSourceMsg)}
+              sourceMessage={taskExtractSourceMsg}
+              workspace={workspace}
+              agents={hiredAgents.length > 0 ? hiredAgents : resolvedAgents}
+              assignments={assignments}
+              onClose={() => setTaskExtractSourceMsg(null)}
+              onConfirmCreate={onCreateWorkCard}
+            />
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">功能模块</label>
-                    <input
-                      type="text"
-                      value={cardModule}
-                      onChange={(e) => setCardModule(e.target.value)}
-                      placeholder="如：A功能 · 多币种结算"
-                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">任务类型</label>
-                    <select
-                      value={cardType}
-                      onChange={(e) => setCardType(e.target.value as WorkCardType)}
-                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="planning">产品策划</option>
-                      <option value="development">功能开发</option>
-                      <option value="testing">功能测试</option>
-                      <option value="review">架构评审</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">指派专家 Agent</label>
-                    <select
-                      value={cardAssignee}
-                      onChange={(e) => setCardAssignee(e.target.value)}
-                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      {hiredAgents.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs font-semibold text-slate-700">优先级</label>
-                    <select
-                      value={cardPriority}
-                      onChange={(e) => setCardPriority(e.target.value as '高' | '中' | '低')}
-                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="高">高</option>
-                      <option value="中">中</option>
-                      <option value="低">低</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">
-                    交付要求与验收标准（可选）
-                  </label>
-                  <textarea
-                    rows={3}
-                    value={cardDesc}
-                    onChange={(e) => setCardDesc(e.target.value)}
-                    placeholder="补充业务上下文、约束边界或验收检查项..."
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
-                  />
-                </div>
-              </div>
-            </ModalShell>
+            {/* AI Extract Artifact from Selected Chat Message Modal */}
+            {onCreateArtifact && (
+              <MessageToArtifactModal
+                open={Boolean(artifactExtractSourceMsg)}
+                sourceMessage={artifactExtractSourceMsg}
+                workspace={workspace}
+                onClose={() => setArtifactExtractSourceMsg(null)}
+                onConfirmCreate={(input) => {
+                  onCreateArtifact(input);
+                  setSettingsOpen(false);
+                  setRightOpen(true);
+                  setRightTab('artifacts');
+                }}
+              />
+            )}
 
             {/* Attached Popover Shelf 3: Quick Prompt Presets */}
             {composerTool === 'presets' && (
@@ -768,22 +681,6 @@ export function GroupChatView({
                   >
                     <AtSign className="w-3.5 h-3.5" />
                     <span>@ 专家 ({hiredAgents.length})</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isReadOnly}
-                    onClick={() =>
-                      setComposerTool((t) => (t === 'newCard' ? 'none' : 'newCard'))
-                    }
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${
-                      composerTool === 'newCard'
-                        ? 'bg-blue-600 text-white'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/70'
-                    }`}
-                  >
-                    <ClipboardPlus className="w-3.5 h-3.5" />
-                    <span>新建工作卡片</span>
                   </button>
 
                   <button

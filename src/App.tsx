@@ -322,6 +322,7 @@ export default function App() {
               onSendHumanDm={store.sendHumanDmMessage}
               onSendGroupMessage={store.sendGroupMessage}
               onCreateWorkCard={store.createWorkCard}
+              onCreateArtifact={store.createProjectArtifact}
               onRunTask={store.runAutonomousTask}
               onApproveTask={(id) => store.updateTaskStatus(id, 'done')}
               onUpdateTaskStatus={store.updateTaskStatus}

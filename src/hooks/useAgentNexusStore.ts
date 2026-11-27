@@ -122,6 +122,21 @@ import type {
   ZoneProjectOpportunity,
 } from '../types/agentnexus';
 
+export interface CreateArtifactInput {
+  projectId: string;
+  title: string;
+  kind: ArtifactKind;
+  summary: string;
+  content: string;
+  sourceType: ArtifactSourceType;
+  sourceTaskId?: string;
+  authorName?: string;
+  authorType?: 'agent' | 'human';
+  tags: string[];
+  slides?: { heading: string; bullets: string[] }[];
+  designSpec?: { palette: string[]; typography: string; components: string[] };
+}
+
 function nowTimeStr(): string {
   const d = new Date();
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -608,47 +623,46 @@ export function useAgentNexusStore() {
   }, []);
 
   const createProjectArtifact = useCallback(
-    (input: {
-      projectId: string;
-      title: string;
-      kind: ArtifactKind;
-      summary: string;
-      content: string;
-      sourceType: ArtifactSourceType;
-      sourceTaskId?: string;
-      tags: string[];
-      slides?: { heading: string; bullets: string[] }[];
-      designSpec?: { palette: string[]; typography: string; components: string[] };
-    }) => {
+    (input: CreateArtifactInput) => {
       const cleanTitle = input.title.trim();
       if (!cleanTitle) return;
       const ts = nowTimeStr();
       const creatorName = account?.name || '林致远（我）';
+      const resolvedAuthorType =
+        input.authorType ?? (input.sourceType === 'manual' ? 'human' : 'agent');
+      const resolvedAuthorName =
+        input.authorName?.trim() ||
+        (input.sourceType === 'manual' ? creatorName : 'AI 协同沉淀');
       const newArtifact: ProjectArtifact = {
         id: `art_${Date.now().toString().slice(-6)}`,
         projectId: input.projectId,
         title: cleanTitle,
         kind: input.kind,
         ownership: 'yours',
-        summary: input.summary.trim() || '由 Artifacts 工作空间新建或归档的协作产物。',
+        summary:
+          input.summary.trim() ||
+          (input.sourceType === 'manual'
+            ? '由本地上传归档的项目参考资料与产物。'
+            : '由对话 AI 自动沉淀的结构化项目产物。'),
         content: input.content.trim() || input.summary.trim() || cleanTitle,
         slides: input.slides,
         designSpec: input.designSpec,
         sourceType: input.sourceType,
         sourceTaskId: input.sourceTaskId,
-        authorName: creatorName,
-        authorType: 'human',
+        authorName: resolvedAuthorName,
+        authorType: resolvedAuthorType,
         version: 'v1.0',
         updatedAt: `今天 ${ts}`,
         tags: input.tags.length > 0 ? input.tags : ['Artifact'],
       };
       setArtifacts((prev) => [newArtifact, ...prev]);
       const projName = workspaces.find((w) => w.id === input.projectId)?.name || '当前项目';
+      const actionVerb = input.sourceType === 'manual' ? '已上传文件' : '已沉淀 Artifact';
       setAuditLogs((prev) => [
         {
           id: `aud_art_${Date.now()}`,
           category: 'audit',
-          title: `已创建 Artifact：${cleanTitle}`,
+          title: `${actionVerb}：${cleanTitle}`,
           detail: `关联项目：${projName}，已同步归档至 Artifacts 产物库。`,
           severity: 'success',
           timestamp: ts,
