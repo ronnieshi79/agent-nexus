@@ -1736,7 +1736,7 @@ export function MyTeamView({
         />
 
         {/* Scrollable Roster Canvas */}
-        <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}>
+        <div className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-white ${WORKSPACE_GUTTER_CLASS} py-5`}>
           <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
             {/* Compact Narrow Strip (visible only when shell < 760px) */}
             <div className="@[760px]/shell:hidden space-y-2">
@@ -1959,7 +1959,7 @@ export function MyTeamView({
                 </div>
 
                 {displayedAgents.length === 0 ? (
-                  <div className="py-14 text-center border border-dashed border-slate-300 rounded-xl bg-white space-y-3">
+                  <div className="py-14 text-center border-y border-slate-200/75 space-y-3">
                     <p className="text-sm font-medium text-slate-700">当前筛选下暂无 Agent 节点</p>
                     <div className="flex items-center justify-center gap-2">
                       {(categoryFilter !== 'all' ||
@@ -1990,9 +1990,9 @@ export function MyTeamView({
                     </div>
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-xl bg-white mb-16">
+                  <div className="border-t border-b border-slate-200/80 bg-white mb-16">
                     {/* Desktop Column Header */}
-                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 px-2 py-2.5 bg-[#FAFAFA] border-b border-slate-200/80 text-[11px] font-semibold text-slate-500">
                       <div>专家 Agent</div>
                       <div>运行状态</div>
                       <div>任务 Session</div>
@@ -2000,7 +2000,7 @@ export function MyTeamView({
                       <div className="text-right">操作</div>
                     </div>
 
-                    <div className="divide-y divide-slate-200">
+                    <div className="divide-y divide-slate-200/75">
                       {displayedAgents.map((agent, rowIndex) => {
                         const status = getAgentWorkStatus(agent);
                         const isWorkingInCurrent = status.isWorkingInCurrent;
@@ -2029,7 +2029,7 @@ export function MyTeamView({
                         return (
                           <div
                             key={agent.id}
-                            className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
+                            className="px-2 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_140px_112px_164px_140px] @[860px]:items-center @[860px]:gap-4"
                           >
                             {/* Col 1: Agent Identity & Capabilities */}
                             <div className="flex items-start gap-3.5 min-w-0">
@@ -2041,7 +2041,7 @@ export function MyTeamView({
                               />
 
                               <div className="min-w-0 flex-1">
-                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
                                   <AgentIdentityName
                                     name={agent.handle}
                                     runtime={agent.runtimeAgent}
@@ -2050,15 +2050,15 @@ export function MyTeamView({
                                     className="text-sm font-bold text-slate-900"
                                   />
 
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium whitespace-nowrap">
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="text-slate-500 text-[11px] font-medium whitespace-nowrap">
                                     {AGENT_CATEGORY_LABELS[agent.category]}
                                   </span>
 
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
                                   <span
-                                    className={`px-1.5 py-0.5 rounded text-[11px] font-medium whitespace-nowrap ${
-                                      isPrivate
-                                        ? 'bg-sky-50 text-sky-700'
-                                        : 'bg-indigo-50 text-indigo-700'
+                                    className={`text-[11px] font-semibold whitespace-nowrap ${
+                                      isPrivate ? 'text-sky-700' : 'text-indigo-700'
                                     }`}
                                   >
                                     {isPrivate
@@ -2762,9 +2762,9 @@ export function MyTeamView({
                     </div>
                   </div>
                 ) : (
-                  <div className="border border-slate-200 rounded-xl bg-white mb-16">
+                  <div className="border-t border-b border-slate-200/80 bg-white mb-16">
                     {/* Desktop Column Header */}
-                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 rounded-t-xl text-[11px] font-semibold text-slate-500">
+                    <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 px-2 py-2.5 bg-[#FAFAFA] border-b border-slate-200/80 text-[11px] font-semibold text-slate-500">
                       <div>Agent 主理与擅长方向</div>
                       <div>关系 / 来源社区</div>
                       <div>合作项目</div>
@@ -2772,7 +2772,7 @@ export function MyTeamView({
                       <div className="text-right">操作</div>
                     </div>
 
-                    <div className="divide-y divide-slate-200">
+                    <div className="divide-y divide-slate-200/75">
                       {displayedTeamExperts.map(({ membership, expert, ownedAgents }, rowIndex) => {
                         const isAssignedToCurrent = (workspace.hiredExpertIds || []).includes(
                           expert.id,
@@ -2790,7 +2790,7 @@ export function MyTeamView({
                         return (
                           <div
                             key={expert.id}
-                            className="px-4 sm:px-5 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 last:rounded-b-xl"
+                            className="px-2 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4"
                           >
                             {/* Col 1: Principal Identity, Specialty & Built-in Agents */}
                             <div className="flex items-start gap-3.5 min-w-0">

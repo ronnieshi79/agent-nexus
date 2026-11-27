@@ -158,15 +158,15 @@ export function MarketLeaderboardRail({
   return (
     <aside
       aria-label="服务市场自动排行榜"
-      className="w-full @[820px]:w-[268px] @[1020px]:w-[292px] shrink-0 @[820px]:sticky @[820px]:top-5"
+      className="w-full @[820px]:w-[260px] @[1020px]:w-[280px] shrink-0 @[820px]:sticky @[820px]:top-4 @[820px]:border-l @[820px]:border-slate-200/80 @[820px]:pl-5"
     >
-      {/* PURE AUTOMATIC DATA-DRIVEN LEADERBOARD (Zero Manual Curation) */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-3.5 pt-3.5 pb-2.5 border-b border-slate-100 space-y-2.5">
+      {/* PURE AUTOMATIC DATA-DRIVEN LEADERBOARD (Flush Split Rail) */}
+      <section>
+        <div className="pb-2.5 border-b border-slate-200/75 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 min-w-0">
-              <Trophy className="w-4 h-4 text-amber-500 shrink-0" />
-              <h2 className="text-xs font-bold text-slate-900 truncate">{boardTitle}</h2>
+              <Trophy className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              <h2 className="text-xs font-semibold text-slate-900 truncate">{boardTitle}</h2>
             </div>
 
             <select

@@ -347,6 +347,7 @@ export default function App() {
               workspaces={store.workspaces}
               activeWorkspace={store.activeWorkspace}
               projectPipelines={store.projectPipelines}
+              projectAgentAssignments={store.projectAgentAssignments}
               agents={store.agents}
               humanExperts={store.humanExperts}
               hiredAgents={store.hiredAgents}
@@ -385,6 +386,7 @@ export default function App() {
               onCreateWorkCard={store.createWorkCard}
               onRunTask={store.runAutonomousTask}
               onApproveTask={(id) => store.updateTaskStatus(id, 'done')}
+              onUpdateTaskStatus={store.updateTaskStatus}
               onSendDm={store.sendDirectMessage}
               onUpdateNegotiationTerms={store.updateNegotiationTerms}
               onConfirmHire={store.confirmHireFromNegotiation}

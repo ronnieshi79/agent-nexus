@@ -10,11 +10,13 @@ import type {
   HumanExpert,
   NegotiationThread,
   PlatformAuditLog,
+  ProjectAgentAssignment,
   ProjectStageSlot,
   ProjectWorkspace,
   SettlementRecord,
   SpaceJoinApplication,
   TaskSessionMessage,
+  TaskStatus,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
@@ -31,6 +33,7 @@ interface UnifiedChatViewProps {
   workspaces: ProjectWorkspace[];
   activeWorkspace: ProjectWorkspace;
   projectPipelines: Record<string, ProjectStageSlot[]>;
+  projectAgentAssignments: Record<string, ProjectAgentAssignment[]>;
   agents: ExpertAgent[];
   humanExperts: HumanExpert[];
   hiredAgents: ExpertAgent[];
@@ -61,7 +64,7 @@ interface UnifiedChatViewProps {
   onOpenTaskSession: (taskId: string) => void;
   onOpenAgentTaskSession: (agentId: string) => void;
   onCreateAndOpenTaskSession: (input: CreateWorkCardInput) => void;
-  onSendTaskSessionTurn: (taskId: string, text: string) => Promise<void>;
+  onSendTaskSessionTurn: (taskId: string, text: string, targetAgentId?: string) => Promise<void>;
   onSyncTaskSummaryToGroup: (taskId: string) => void;
   onStartNegotiation: (agentId: string) => void;
   onSendHumanDm: (expertId: string, text: string, linkedTaskId?: string) => void;
@@ -69,6 +72,7 @@ interface UnifiedChatViewProps {
   onCreateWorkCard: (input: CreateWorkCardInput) => void;
   onRunTask: (taskId: string) => Promise<void>;
   onApproveTask: (taskId: string) => void;
+  onUpdateTaskStatus: (taskId: string, status: TaskStatus) => void;
   onSendDm: (agentId: string, text: string) => Promise<void>;
   onUpdateNegotiationTerms: (
     agentId: string,
@@ -107,6 +111,7 @@ export function UnifiedChatView({
   workspaces,
   activeWorkspace,
   projectPipelines,
+  projectAgentAssignments,
   agents,
   humanExperts,
   hiredAgents,
@@ -145,6 +150,7 @@ export function UnifiedChatView({
   onCreateWorkCard,
   onRunTask,
   onApproveTask,
+  onUpdateTaskStatus,
   onSendDm,
   onUpdateNegotiationTerms,
   onConfirmHire,
@@ -225,6 +231,9 @@ export function UnifiedChatView({
               : undefined
           }
           hiredAgents={hiredAgents}
+          allAgents={agents}
+          assignments={projectAgentAssignments[activeWorkspace.id] || []}
+          pipelineSlots={projectPipelines[activeWorkspace.id] || []}
           messages={sessionMessages}
           tasks={sessionTasks}
           taskSessions={taskSessions}
@@ -237,6 +246,7 @@ export function UnifiedChatView({
           onCreateWorkCard={onCreateWorkCard}
           onRunTask={onRunTask}
           onApproveTask={onApproveTask}
+          onUpdateTaskStatus={onUpdateTaskStatus}
           onOpenTaskSession={onOpenTaskSession}
           onJumpToMarket={onJumpToMarket}
           onJumpToKanban={() => onJumpToKanban(activeWorkspace.id)}
@@ -252,6 +262,8 @@ export function UnifiedChatView({
           workspaces={workspaces}
           agent={activeTaskAgent}
           agents={agents}
+          assignments={projectAgentAssignments[activeTaskWorkspace.id] || []}
+          pipelineSlots={projectPipelines[activeTaskWorkspace.id] || []}
           allTasks={allTasks}
           siblingTasks={activeTaskSiblings}
           messages={taskSessions[activeTask.id] || []}
@@ -264,6 +276,7 @@ export function UnifiedChatView({
           onSendTurn={onSendTaskSessionTurn}
           onRunTask={onRunTask}
           onApproveTask={onApproveTask}
+          onUpdateTaskStatus={onUpdateTaskStatus}
           onSyncSummaryToGroup={onSyncTaskSummaryToGroup}
           onBackToGroup={onSelectProjectChat}
           onSelectTaskSession={onOpenTaskSession}

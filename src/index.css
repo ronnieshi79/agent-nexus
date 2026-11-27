@@ -13,9 +13,10 @@
 
   body {
     font-family: var(--font-body);
-    background-color: #f8fafc;
-    color: #0f172a;
+    background-color: #ffffff;
+    color: #09090b;
     overflow: hidden;
+    -webkit-font-smoothing: antialiased;
   }
 
   h1, h2, h3, h4, .font-display {

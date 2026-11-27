@@ -966,7 +966,7 @@ export function WorkflowKanbanView({
         <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 @container/view">
         {/* Main Scrollable Content Canvas */}
         <div
-          className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}
+          className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-white ${WORKSPACE_GUTTER_CLASS} py-5`}
         >
           {/* Compact Narrow Strip (visible only when shell < 760px) */}
           <div
@@ -1002,10 +1002,10 @@ export function WorkflowKanbanView({
           {activeTab === 'overview' && (
             <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
               {/* ================= BLOCK 1: SIMPLIFIED GLOBAL SUMMARY + UNIFIED 4-STAGE DONUT & TABLE ================= */}
-              <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <section className="border-b border-slate-200/80 pb-5">
                 <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/80">
                   {/* Left: Clean Unboxed Global Project Summary Metrics */}
-                  <div className="lg:col-span-7 p-4 md:p-5 flex flex-col justify-between gap-4">
+                  <div className="lg:col-span-7 pb-4 lg:pb-0 lg:pr-6 flex flex-col justify-between gap-4">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <h2 className="text-sm font-bold text-slate-900">全项目概要</h2>
@@ -1063,7 +1063,7 @@ export function WorkflowKanbanView({
                   </div>
 
                   {/* Right: Global 4-Stage Donut Chart + Unified Table */}
-                  <div className="lg:col-span-5 p-4 md:p-5 bg-slate-50/40 border-t lg:border-t-0 border-slate-200/80 flex flex-col justify-between gap-3">
+                  <div className="lg:col-span-5 pt-4 lg:pt-0 lg:pl-6 border-t lg:border-t-0 border-slate-200/80 flex flex-col justify-between gap-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-slate-800">
                         全局任务分布（四阶段）
@@ -1259,7 +1259,7 @@ export function WorkflowKanbanView({
                     }
                   />
                 ) : (
-                  <div className="space-y-3.5">
+                  <div className="divide-y divide-slate-200/80 border-t border-slate-200/80">
                     {filteredMyProjects.map((proj) => {
                       const projTasks = allTasks.filter((t) => t.sessionId === proj.id);
                       const projPending = projTasks.filter(
@@ -1390,10 +1390,10 @@ export function WorkflowKanbanView({
                       return (
                         <article
                           key={proj.id}
-                          className="bg-white rounded-xl border border-slate-200 hover:border-slate-300 transition-colors overflow-hidden"
+                          className="py-5 space-y-3.5"
                         >
                           {/* Project Header: Summary, Metadata & Direct Actions */}
-                          <div className="p-4 space-y-2">
+                          <div className="space-y-2">
                             <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
                               <div className="min-w-0 space-y-1">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -1531,9 +1531,9 @@ export function WorkflowKanbanView({
                           </div>
 
                           {/* 3-Column Project-Centric Detail Strip: Task Categories | Task Activity | Active Specialist Agents */}
-                          <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/70 border-t border-slate-100 bg-slate-50/40">
+                          <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/70 pt-3 border-t border-slate-100">
                             {/* Column 1: Project Task Categories & 4-Stage Counts */}
-                            <div className="lg:col-span-4 p-3.5 space-y-2.5">
+                            <div className="lg:col-span-4 pb-3 lg:pb-0 lg:pr-4 space-y-2">
                               <div className="flex items-center justify-between gap-2 text-[11px]">
                                 <span className="font-semibold text-slate-700">项目任务分类</span>
                                 <span className="font-mono tabular-nums text-slate-500">
@@ -1587,7 +1587,7 @@ export function WorkflowKanbanView({
                             </div>
 
                             {/* Column 2: Project Task Activity */}
-                            <div className="lg:col-span-4 p-3.5 border-t lg:border-t-0 border-slate-200/70 space-y-2">
+                            <div className="lg:col-span-4 py-3 lg:py-0 lg:px-4 border-t lg:border-t-0 border-slate-200/70 space-y-2">
                               <div className="flex items-center justify-between gap-2 text-[11px]">
                                 <span className="font-semibold text-slate-700">项目任务动态</span>
                                 <span className="font-mono tabular-nums text-slate-400">
@@ -1638,7 +1638,7 @@ export function WorkflowKanbanView({
                             </div>
 
                             {/* Column 3: Project Specialist Agents Activity */}
-                            <div className="lg:col-span-4 p-3.5 border-t lg:border-t-0 border-slate-200/70 space-y-2">
+                            <div className="lg:col-span-4 pt-3 lg:pt-0 lg:pl-4 border-t lg:border-t-0 border-slate-200/70 space-y-2">
                               <div className="flex items-center justify-between gap-2 text-[11px]">
                                 <span className="font-semibold text-slate-700">
                                   专家 Agent 活跃情况
@@ -1825,11 +1825,11 @@ export function WorkflowKanbanView({
                         </div>
                       )}
 
-                      {/* Part 1: Flat Single-Elevation Split Project Summary (No Nested Cards) */}
-                      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                      {/* Part 1: Flush Single-Plane Split Project Summary (No Floating Card Box) */}
+                      <section className="border-b border-slate-200/80 pb-4">
                         <div className="grid grid-cols-1 lg:grid-cols-12 lg:divide-x lg:divide-slate-200/80">
                           {/* Left Zone: Minimal Project Brief & Core Metrics */}
-                          <div className="lg:col-span-6 p-4 flex flex-col justify-between gap-3">
+                          <div className="lg:col-span-6 pb-3 lg:pb-0 lg:pr-5 flex flex-col justify-between gap-3">
                             <div className="space-y-1.5">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
@@ -1945,7 +1945,7 @@ export function WorkflowKanbanView({
                           </div>
 
                           {/* Right Zone: Compact Vertical Agent Expert Workload Table (Click Row to Filter) */}
-                          <div className="lg:col-span-6 border-t lg:border-t-0 border-slate-200/80 bg-slate-50/40 flex flex-col">
+                          <div className="lg:col-span-6 pt-3 lg:pt-0 lg:pl-5 border-t lg:border-t-0 border-slate-200/80 flex flex-col">
                             {focusedAgentWorkloads.length === 0 ? (
                               <div className="px-4 py-8 text-center text-xs text-slate-400">
                                 暂未分配参与 Agent，可通过「管理阵容」或「任务编排」配置专家 Agent。
@@ -1953,7 +1953,7 @@ export function WorkflowKanbanView({
                             ) : (
                               <div className="overflow-x-auto max-h-[168px] overflow-y-auto clean-scroll">
                                 <table className="w-full text-left border-collapse text-[11px]">
-                                  <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/70 text-[10.5px] font-semibold text-slate-500">
+                                  <thead className="sticky top-0 bg-white border-b border-slate-200/80 text-[10.5px] font-semibold text-slate-400">
                                     <tr>
                                       <th className="py-2 pl-3.5 pr-2 font-semibold">
                                         Agent 专家 ({focusedAgentWorkloads.length})
@@ -2490,7 +2490,7 @@ export function WorkflowKanbanView({
                           </div>
                         </ModalShell>
 
-                        <div className="grid grid-cols-1 @[720px]:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 @[720px]:grid-cols-3 @[720px]:divide-x divide-slate-200/80 border-t border-slate-200/80">
                           {WORK_CARD_STAGES.filter((col) => col.status !== 'done').map((col) => {
                             const colTasks = focusedKanbanTasks.filter((t) =>
                               col.status === 'in_progress'
@@ -2500,30 +2500,30 @@ export function WorkflowKanbanView({
                             return (
                               <div
                                 key={col.status}
-                                className="bg-slate-100/80 border border-slate-200/80 rounded-xl p-3 flex flex-col"
+                                className="py-3.5 @[720px]:px-4 first:@[720px]:pl-0 last:@[720px]:pr-0 flex flex-col"
                               >
-                                <div className="px-1.5 pb-2.5 mb-2.5 border-b border-slate-200 flex items-center justify-between gap-2">
+                                <div className="pb-2.5 mb-2 border-b border-slate-200/70 flex items-center justify-between gap-2">
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
                                       <span
                                         className={`w-2 h-2 rounded-full shrink-0 ${col.activeSegmentCls}`}
                                       />
-                                      <h4 className={`text-sm font-bold ${col.textCls}`}>
+                                      <h4 className={`text-xs font-bold tracking-wide ${col.textCls}`}>
                                         {col.label}
                                       </h4>
                                     </div>
-                                    <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">
                                       {col.hint}
                                     </p>
                                   </div>
-                                  <span className="text-xs font-mono tabular-nums font-bold text-slate-700 bg-white border border-slate-200 px-2 py-0.5 rounded-md shrink-0">
+                                  <span className="text-xs font-mono tabular-nums font-semibold text-slate-400 shrink-0">
                                     {colTasks.length}
                                   </span>
                                 </div>
 
-                                <div className="space-y-3 flex-1">
+                                <div className="divide-y divide-slate-200/65 flex-1">
                                   {colTasks.length === 0 ? (
-                                    <div className="h-28 rounded-lg border border-dashed border-slate-300 flex items-center justify-center text-xs text-slate-400">
+                                    <div className="py-10 text-center text-xs text-slate-400">
                                       暂无{col.label}任务
                                     </div>
                                   ) : (
@@ -2540,7 +2540,7 @@ export function WorkflowKanbanView({
                                       return (
                                         <article
                                           key={task.id}
-                                          className="bg-white rounded-lg p-3.5 border border-slate-200 hover:border-slate-300 transition-colors flex flex-col gap-2.5"
+                                          className="py-3 px-2.5 -mx-2.5 rounded-lg hover:bg-slate-50/90 transition-colors flex flex-col gap-2"
                                         >
                                           <div className="flex items-center justify-between gap-2">
                                             <button

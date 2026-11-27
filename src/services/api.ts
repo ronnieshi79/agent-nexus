@@ -168,6 +168,8 @@ export function sendTaskSessionMessage(payload: {
   workspace: ProjectWorkspace;
   history: TaskSessionMessage[];
   message: string;
+  stageLabel?: string;
+  workflowTeamSummary?: string;
 }): Promise<TaskSessionReplyResult> {
   return postJson<TaskSessionReplyResult>('/api/chat/task-session', payload);
 }

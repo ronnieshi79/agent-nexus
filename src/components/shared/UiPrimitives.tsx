@@ -41,11 +41,11 @@ export function ModalShell({
 
   const content = (
     <>
-      <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
+      <div className="px-5 py-3.5 border-b border-slate-200/80 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0">
           {icon && <span className="shrink-0">{icon}</span>}
           <div className="min-w-0">
-            <h2 className="text-sm font-bold text-slate-900 truncate">{title}</h2>
+            <h2 className="text-sm font-semibold text-slate-950 truncate">{title}</h2>
             {subtitle && (
               <div className="text-[11px] text-slate-500 mt-0.5 truncate">{subtitle}</div>
             )}
@@ -55,7 +55,7 @@ export function ModalShell({
           type="button"
           onClick={onClose}
           aria-label="关闭弹窗"
-          className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center justify-center cursor-pointer shrink-0 transition-colors"
+          className="w-7 h-7 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center justify-center cursor-pointer shrink-0 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
@@ -64,7 +64,7 @@ export function ModalShell({
       <div className="p-5 max-h-[75vh] overflow-y-auto clean-scroll">{children}</div>
 
       {footer && (
-        <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
+        <div className="px-5 py-3 bg-[#FAFAFA] border-t border-slate-200/80 flex items-center justify-between gap-3">
           {footer}
         </div>
       )}
@@ -73,7 +73,7 @@ export function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-slate-950/35 flex items-center justify-center p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -82,14 +82,14 @@ export function ModalShell({
         <form
           onSubmit={onSubmit}
           onClick={(e) => e.stopPropagation()}
-          className={`w-full ${maxWidthClass} bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden`}
+          className={`w-full ${maxWidthClass} bg-white rounded-xl border border-slate-200/90 shadow-xl overflow-hidden`}
         >
           {content}
         </form>
       ) : (
         <div
           onClick={(e) => e.stopPropagation()}
-          className={`w-full ${maxWidthClass} bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden`}
+          className={`w-full ${maxWidthClass} bg-white rounded-xl border border-slate-200/90 shadow-xl overflow-hidden`}
         >
           {content}
         </div>
@@ -107,7 +107,7 @@ interface EmptyStateCardProps {
 }
 
 /**
- * Standardized empty state card used consistently across Kanban, Community, Events, and Space views.
+ * Flush unboxed typographic empty state following Codex/Antigravity flat workspace grammar.
  */
 export function EmptyStateCard({
   icon,
@@ -118,14 +118,14 @@ export function EmptyStateCard({
 }: EmptyStateCardProps) {
   return (
     <div
-      className={`bg-white rounded-xl border border-dashed border-slate-300 text-center ${
-        compact ? 'py-9 px-5 space-y-2' : 'py-12 px-6 space-y-2.5'
+      className={`text-center border-y border-slate-200/70 ${
+        compact ? 'py-10 px-5 space-y-2' : 'py-14 px-6 space-y-2.5'
       }`}
     >
       {icon && <div className="inline-flex items-center justify-center text-slate-400">{icon}</div>}
-      {title && <p className="text-sm font-semibold text-slate-800">{title}</p>}
+      {title && <p className="text-sm font-semibold text-slate-900">{title}</p>}
       <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">{description}</p>
-      {action && <div className="pt-1 flex items-center justify-center gap-2">{action}</div>}
+      {action && <div className="pt-1.5 flex items-center justify-center gap-2">{action}</div>}
     </div>
   );
 }

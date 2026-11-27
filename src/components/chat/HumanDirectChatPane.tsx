@@ -110,9 +110,9 @@ export function HumanDirectChatPane({
         />
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-5 bg-slate-50/40">
-          <div className="max-w-3xl mx-auto space-y-4">
-            <div className="rounded-xl bg-white border border-slate-200 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-6 bg-white">
+          <div className="max-w-3xl mx-auto space-y-5">
+            <div className="pb-3 border-b border-slate-200/80 text-xs text-slate-600 leading-relaxed">
               <span className="font-semibold text-slate-900">{expert.name}</span> · {expert.bio}
             </div>
 
@@ -155,10 +155,10 @@ export function HumanDirectChatPane({
                     </div>
 
                     <div
-                      className={`rounded-xl px-4 py-3 text-sm leading-relaxed space-y-2.5 ${
+                      className={`text-sm leading-relaxed space-y-2.5 ${
                         isEmployer
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-white border border-slate-200 text-slate-800'
+                          ? 'rounded-2xl px-4 py-2.5 bg-slate-100/90 text-slate-900'
+                          : 'text-slate-800'
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{m.content}</p>
@@ -243,8 +243,8 @@ export function HumanDirectChatPane({
 
       {/* Right Context Panel: Owned Agents, Aggregated Task Sessions & Shared Projects */}
       {panelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[320px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
-          <div className="px-4 py-3 border-b border-slate-200 bg-white shrink-0">
+        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[320px] max-w-[88vw] shrink-0 border-l border-slate-200/80 bg-[#FAFAFA] flex flex-col h-full shadow-2xl lg:shadow-none">
+          <div className="px-4 py-3 border-b border-slate-200/80 bg-[#FAFAFA] shrink-0">
             <div className="text-xs font-bold text-slate-900">Agent 主理协作档案</div>
             <div className="text-[11px] text-slate-500 mt-0.5">
               可直达其统筹的专家 Agent 任务 Session 或外包项目群

@@ -41,7 +41,7 @@ export function WorkspacePrimaryRail({
   return (
     <aside
       aria-label={ariaLabel}
-      className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200 bg-white overflow-y-auto clean-scroll px-2.5 py-3.5"
+      className="hidden @[760px]/shell:flex flex-col w-[192px] @[1280px]/shell:w-[208px] shrink-0 border-r border-slate-200/80 bg-[#FAFAFA] overflow-y-auto clean-scroll px-2.5 py-3"
     >
       <div className="space-y-3">{children}</div>
       {showBackdrop && <RailBrandBackdrop />}
@@ -52,7 +52,7 @@ export function WorkspacePrimaryRail({
 
 export function RailSectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="px-2.5 pt-1 pb-1 text-[11px] font-semibold text-slate-400 tracking-wide">
+    <div className="px-2.5 pt-1 pb-1 text-[11px] font-medium text-slate-400 tracking-wide">
       {children}
     </div>
   );
@@ -78,18 +78,18 @@ export function RailNavButton({
   const cls =
     variant === 'primary'
       ? active
-        ? 'bg-slate-900 text-white font-semibold shadow-2xs'
-        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 font-semibold'
+        ? 'bg-slate-200/75 text-slate-950 font-semibold'
+        : 'text-slate-600 hover:bg-slate-200/40 hover:text-slate-900 font-medium'
       : active
-        ? 'bg-slate-100 text-slate-900 font-semibold'
-        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 font-medium';
+        ? 'bg-slate-200/60 text-slate-950 font-semibold'
+        : 'text-slate-500 hover:bg-slate-200/35 hover:text-slate-900 font-medium';
 
   return (
     <button
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${cls}`}
+      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-md text-xs transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed ${cls}`}
     >
       <span className="inline-flex items-center gap-2 min-w-0 truncate">
         {icon}
@@ -98,7 +98,7 @@ export function RailNavButton({
       {count !== undefined && (
         <span
           className={`text-[11px] font-mono tabular-nums shrink-0 ${
-            active && variant === 'primary' ? 'text-slate-300' : 'text-slate-400'
+            active ? 'text-slate-600' : 'text-slate-400'
           }`}
         >
           {count}
@@ -126,7 +126,7 @@ export function ViewToolbar({
   maxWidthClass?: string;
 }) {
   return (
-    <div className={`shrink-0 bg-white border-b border-slate-200 ${WORKSPACE_GUTTER_CLASS} py-2.5`}>
+    <div className={`shrink-0 bg-white border-b border-slate-200/80 ${WORKSPACE_GUTTER_CLASS} py-2`}>
       <div className={`${maxWidthClass} flex flex-wrap items-center justify-between gap-x-3 gap-y-2`}>
         <div className="flex items-center gap-2 flex-wrap min-w-0">{left}</div>
         {right && (

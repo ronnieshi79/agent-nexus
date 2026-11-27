@@ -985,11 +985,11 @@ export function AgentMarketView({
                     )}
                   </div>
 
-                  {/* TAB 1: AGENT SERVICE CATALOG (2-Column Grid) */}
+                  {/* TAB 1: AGENT SERVICE REGISTRY (Flush Codex/Antigravity Directory) */}
                   {entityTab === 'agents' && (
-                    <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
+                    <div className="divide-y divide-slate-200/75 border-t border-slate-200/75">
                 {filteredAgents.length === 0 ? (
-                  <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
+                  <div className="py-12 text-center">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Agent 服务</p>
                     <button
                       type="button"
@@ -999,7 +999,7 @@ export function AgentMarketView({
                         setOwnerFilterId(null);
                         setKeyword('');
                       }}
-                      className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
+                      className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
                     >
                       重置筛选
                     </button>
@@ -1029,222 +1029,185 @@ export function AgentMarketView({
                     return (
                       <article
                         key={agent.id}
-                        className={`rounded-xl p-4 flex flex-col justify-between transition-colors border ${
+                        className={`py-4 px-2.5 -mx-2.5 rounded-lg transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
                           aiReason
-                            ? 'bg-blue-50/40 border-blue-300'
+                            ? 'bg-blue-50/45'
                             : isSelected
-                              ? 'bg-slate-50 border-slate-400'
-                              : 'bg-white border-slate-200 hover:border-slate-300'
+                              ? 'bg-slate-50'
+                              : 'hover:bg-slate-50/75'
                         }`}
                       >
-                        <div>
-                          {/* Top Row: Identity + Rating Tier & Transparent Lease Price */}
-                          <div className="flex items-start justify-between gap-2.5">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <EntityAvatar
-                                kind="agent"
-                                code={agent.avatarCode}
-                                accent={agent.avatarAccent}
-                                size="lg"
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 min-w-0">
-                                  <h3 className="text-sm font-bold text-slate-900 min-w-0 flex">
-                                    <AgentIdentityName
-                                      name={agent.handle}
-                                      runtime={agent.runtimeAgent}
-                                      model={agent.defaultModel}
-                                      showModel
-                                    />
-                                  </h3>
-                                </div>
-                                <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-slate-500">
-                                  <span>{CATEGORY_LABELS[agent.category]}</span>
-                                  <span className="text-slate-300">·</span>
-                                  <span className="font-mono text-slate-600">
-                                    {agent.runtimeAgent}
+                        <div className="flex items-start gap-3 min-w-0 flex-1">
+                          <EntityAvatar
+                            kind="agent"
+                            code={agent.avatarCode}
+                            accent={agent.avatarAccent}
+                            size="md"
+                          />
+                          <div className="min-w-0 flex-1 space-y-1.5">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <h3 className="text-sm font-semibold text-slate-950 min-w-0 flex">
+                                <AgentIdentityName
+                                  name={agent.handle}
+                                  runtime={agent.runtimeAgent}
+                                  model={agent.defaultModel}
+                                  showModel
+                                />
+                              </h3>
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+                              <span className="text-xs text-slate-500">
+                                {CATEGORY_LABELS[agent.category]}
+                              </span>
+                              <span className="text-slate-300" aria-hidden="true">·</span>
+                              <span
+                                className={`text-[11px] font-mono font-semibold ${
+                                  rating.capability === 'S'
+                                    ? 'text-violet-700'
+                                    : rating.capability === 'A+'
+                                      ? 'text-blue-700'
+                                      : 'text-slate-600'
+                                }`}
+                              >
+                                {rating.capability}级
+                              </span>
+                              {activeLease && (
+                                <>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="text-[11px] font-semibold text-emerald-700">
+                                    已租用（{activeLease.expiresLabel}）
                                   </span>
-                                  <span className="text-slate-300">·</span>
-                                  <span
-                                    className={`font-mono font-bold ${
-                                      rating.capability === 'S'
-                                        ? 'text-violet-700'
-                                        : rating.capability === 'A+'
-                                          ? 'text-blue-700'
-                                          : 'text-slate-600'
-                                    }`}
-                                  >
-                                    {rating.capability}级
-                                  </span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Transparent Monthly Lease Pricing */}
-                            <div
-                              className="text-right shrink-0 font-mono tabular-nums"
-                              title={`能力评级 ${rating.capability} · 周租 $${pricing.weeklyUsd} · 月租 $${pricing.monthlyUsd} · 季租 $${pricing.quarterlyUsd}`}
-                            >
-                              <div className="text-sm font-bold text-slate-900 leading-none">
-                                ${pricing.monthlyUsd}
-                                <span className="text-[10px] font-sans font-normal text-slate-500">
-                                  /月
-                                </span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-1 whitespace-nowrap">
-                                周 ${pricing.weeklyUsd} · 季 ${pricing.quarterlyUsd}
-                              </div>
-                            </div>
-                          </div>
-
-                          <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">
-                            {agent.title}
-                          </p>
-
-                          {/* Active Lease Banner if Leased */}
-                          {activeLease && (
-                            <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] bg-emerald-50/80 border border-emerald-200/80 text-emerald-800 rounded-lg px-2.5 py-1.5">
-                              <span className="inline-flex items-center gap-1.5 font-semibold">
-                                <CalendarClock className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span>已租用 · {activeLease.expiresLabel}</span>
-                              </span>
-                              <span className="font-mono tabular-nums text-emerald-700">
-                                ${activeLease.priceUsd}
-                                {LEASE_PERIOD_META[activeLease.period].unitSuffix}
-                              </span>
-                            </div>
-                          )}
-
-                          {/* Principal (所属专家) Attribution Bar */}
-                          {agent.ownerHumanName && (
-                            <div className="mt-2.5 flex items-center justify-between gap-2 text-[11px] bg-slate-50 border border-slate-100 rounded-lg px-2.5 py-1.5">
-                              <span className="inline-flex items-center gap-1.5 text-slate-600 truncate">
-                                <User className="w-3 h-3 text-emerald-600 shrink-0" />
-                                <span>
-                                  所属专家：
-                                  <strong className="font-semibold text-slate-900">
-                                    {agent.ownerHumanName}
-                                  </strong>
-                                </span>
-                              </span>
-                              {agent.ownerHumanId && (
-                                <button
-                                  type="button"
-                                  onClick={() => setOwnerFilterId(agent.ownerHumanId || null)}
-                                  className="text-blue-700 hover:text-blue-900 font-medium whitespace-nowrap shrink-0 cursor-pointer"
-                                >
-                                  内建 {ownerTotalCount} 个
-                                </button>
+                                </>
                               )}
                             </div>
-                          )}
 
-                          {aiReason && (
-                            <p className="mt-2.5 text-xs text-blue-900 bg-blue-100/70 rounded-lg px-2.5 py-1.5 leading-relaxed">
-                              AI 推荐：{aiReason}
+                            <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
+                              {agent.title}
                             </p>
-                          )}
 
-                          {/* Skills & MCP Toolchain */}
-                          <div className="mt-3 space-y-1.5 text-[11px]">
-                            <div className="text-slate-700 truncate" title={agent.skills.join(' · ')}>
-                              <span className="text-slate-400 mr-1.5">技能</span>
-                              {agent.skills.slice(0, 3).join(' · ')}
-                            </div>
-                            <div className="flex items-center gap-1 flex-wrap">
-                              <span className="text-slate-400 mr-0.5 inline-flex items-center gap-0.5">
-                                <Wrench className="w-3 h-3" />
-                                <span>MCP</span>
+                            {aiReason && (
+                              <p className="text-xs text-blue-700 leading-relaxed">
+                                AI 推荐：{aiReason}
+                              </p>
+                            )}
+
+                            {/* Clean Unboxed Metadata Line: Owner, Skills, MCP & Track Record */}
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-500">
+                              {agent.ownerHumanName && (
+                                <>
+                                  <span className="inline-flex items-center gap-1">
+                                    <span>主理 {agent.ownerHumanName}</span>
+                                    {agent.ownerHumanId && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setOwnerFilterId(agent.ownerHumanId || null)}
+                                        className="text-blue-600 hover:underline cursor-pointer"
+                                      >
+                                        ({ownerTotalCount})
+                                      </button>
+                                    )}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                </>
+                              )}
+                              <span className="truncate max-w-[320px]" title={agent.skills.join(' · ')}>
+                                {agent.skills.slice(0, 3).join(' / ')}
                               </span>
-                              {agent.mcpTools.map((tool) => (
-                                <span
-                                  key={tool}
-                                  className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px]"
-                                >
-                                  {tool}
-                                </span>
-                              ))}
+                              {agent.mcpTools.length > 0 && (
+                                <>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="font-mono text-[10.5px] text-slate-500">
+                                    MCP: {agent.mcpTools.join(', ')}
+                                  </span>
+                                </>
+                              )}
                             </div>
-                          </div>
 
-                          {/* Reputation & Track Record */}
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-500 font-mono tabular-nums">
-                            <span>
-                              信誉 {agent.performance.reputationScore} · 复购{' '}
-                              {agent.performance.repeatHireRate}%
-                            </span>
-                            <span>
-                              <span className={`font-sans font-semibold mr-1.5 ${DEMAND_COLOR[agent.performance.demandStatus]}`}>
+                            <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] text-slate-400 font-mono tabular-nums">
+                              <span>信誉 {agent.performance.reputationScore}</span>
+                              <span aria-hidden="true">·</span>
+                              <span>复购 {agent.performance.repeatHireRate}%</span>
+                              <span aria-hidden="true">·</span>
+                              <span className="text-slate-600">★ {agent.performance.rating.toFixed(2)}</span>
+                              <span aria-hidden="true">·</span>
+                              <span className={`font-sans font-medium ${DEMAND_COLOR[agent.performance.demandStatus]}`}>
                                 {agent.performance.demandStatus}
                               </span>
-                              ★ {agent.performance.rating.toFixed(2)}
-                            </span>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Footer Actions: Periodic Leasing + Consult */}
-                        <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
+                        {/* Right Column: Pricing + Crisp Inline Actions */}
+                        <div className="sm:w-[172px] shrink-0 flex sm:flex-col items-center sm:items-end justify-between gap-2.5 sm:text-right">
+                          <div
+                            className="font-mono tabular-nums"
+                            title={`能力评级 ${rating.capability} · 周租 $${pricing.weeklyUsd} · 月租 $${pricing.monthlyUsd} · 季租 $${pricing.quarterlyUsd}`}
+                          >
+                            <div className="text-sm font-bold text-slate-950 leading-none">
+                              ${pricing.monthlyUsd}
+                              <span className="text-[11px] font-sans font-normal text-slate-400">
+                                /月
+                              </span>
+                            </div>
+                            <div className="text-[10.5px] text-slate-400 mt-1 whitespace-nowrap">
+                              周 ${pricing.weeklyUsd} · 季 ${pricing.quarterlyUsd}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => openAgentDrawer(agent.id, 'profile')}
-                              className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                              className="text-xs font-medium text-slate-500 hover:text-slate-950 cursor-pointer whitespace-nowrap"
                             >
                               详情
                             </button>
                             <button
                               type="button"
                               onClick={() => openAgentDrawer(agent.id, 'consult')}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-blue-700 cursor-pointer whitespace-nowrap"
+                              className="text-xs font-medium text-slate-500 hover:text-blue-700 cursor-pointer whitespace-nowrap"
                             >
-                              <MessageCircle className="w-3.5 h-3.5" />
-                              <span>{dmCount > 0 ? `咨询 (${dmCount})` : '咨询'}</span>
+                              {dmCount > 0 ? `咨询(${dmCount})` : '咨询'}
                             </button>
-                          </div>
 
-                          {activeLease || isInMyTeam ? (
-                            <div className="flex items-center gap-1.5">
-                              {isHiredInCurrent ? (
-                                <>
+                            {activeLease || isInMyTeam ? (
+                              isHiredInCurrent ? (
+                                <div className="inline-flex items-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => openAgentDrawer(agent.id, 'lease')}
-                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 whitespace-nowrap cursor-pointer"
+                                    className="px-2.5 py-1 rounded-md border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-xs font-semibold text-emerald-800 whitespace-nowrap cursor-pointer"
                                   >
-                                    <CalendarClock className="w-3.5 h-3.5" />
-                                    <span>{activeLease ? '续租 / 调期' : '已入当前群'}</span>
+                                    {activeLease ? '续租' : '已入群'}
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => onRelease(agent.id)}
                                     title="移出当前项目群"
-                                    className="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                                    className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
                                   >
                                     <UserMinus className="w-3.5 h-3.5" />
                                   </button>
-                                </>
+                                </div>
                               ) : (
                                 <button
                                   type="button"
                                   onClick={() => onHire(agent.id)}
                                   title="该 Agent 已在你的团队中，可直接派驻当前项目"
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
+                                  className="px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white whitespace-nowrap cursor-pointer"
                                 >
-                                  <UserPlus className="w-3.5 h-3.5" />
-                                  <span>派驻当前项目</span>
+                                  派驻项目
                                 </button>
-                              )}
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => openAgentDrawer(agent.id, 'lease')}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
-                            >
-                              <CalendarClock className="w-3.5 h-3.5" />
-                              <span>立即租赁</span>
-                            </button>
-                          )}
+                              )
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => openAgentDrawer(agent.id, 'lease')}
+                                className="px-2.5 py-1 rounded-md text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer"
+                              >
+                                租赁
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </article>
                     );
@@ -1253,11 +1216,11 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* TAB 2: HUMAN EXPERTS (2-Column Grid) */}
+            {/* TAB 2: HUMAN EXPERTS (Flush Antigravity Directory) */}
             {entityTab === 'humans' && (
-              <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
+              <div className="divide-y divide-slate-200/75 border-t border-slate-200/75">
                 {zoneHumans.length === 0 ? (
-                  <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
+                  <div className="py-12 text-center">
                     <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配专家</p>
                     {(categoryFilter !== 'all' || keyword.trim()) && (
                       <button
@@ -1266,7 +1229,7 @@ export function AgentMarketView({
                           setCategoryFilter('all');
                           setKeyword('');
                         }}
-                        className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
+                        className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
                       >
                         重置筛选
                       </button>
@@ -1284,93 +1247,110 @@ export function AgentMarketView({
                     return (
                       <article
                         key={human.id}
-                        className={`rounded-xl border p-5 flex flex-col justify-between space-y-4 transition-colors ${
-                          isSelected
-                            ? 'bg-slate-50 border-slate-400'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        className={`py-5 px-2.5 -mx-2.5 rounded-lg space-y-3 transition-colors ${
+                          isSelected ? 'bg-slate-50' : 'hover:bg-slate-50/70'
                         }`}
                       >
-                        <div>
-                          {/* Human Expert Header */}
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-center gap-3 min-w-0">
-                              <EntityAvatar
-                                kind="human"
-                                code={human.avatarInitials}
-                                accent={human.avatarAccent}
-                                size="lg"
-                              />
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <h3 className="text-sm font-bold text-slate-900">
-                                    {human.name}
-                                  </h3>
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none ${
-                                      expertTier === 'S'
-                                        ? 'bg-violet-50 text-violet-700 border border-violet-200/80'
-                                        : 'bg-blue-50 text-blue-700 border border-blue-200/80'
-                                    }`}
-                                  >
-                                    {expertTier}级专家
-                                  </span>
-                                  {human.isCurrentUser && (
-                                    <span className="text-[11px] font-semibold text-emerald-700">
-                                      · 本人
-                                    </span>
-                                  )}
-                                  <span className="text-[11px] font-semibold text-slate-500 whitespace-nowrap">
-                                    · {CATEGORY_LABELS[human.category]}
-                                  </span>
-                                </div>
-                                <p className="text-xs text-slate-600 mt-0.5 truncate">
-                                  {human.title}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0 font-mono tabular-nums">
-                              <div className="text-xs font-bold text-slate-900">
-                                信誉 {human.reputationScore}
-                              </div>
-                              <div className="text-[11px] text-slate-500">
-                                {human.completedProjects} 交付
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Explicit Specialty Direction & Modes */}
-                          <div className="mt-3 rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2 space-y-1">
-                            <div className="flex items-center justify-between gap-2 text-xs">
-                              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-900 truncate">
-                                <Briefcase className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                                <span className="truncate">
-                                  擅长方向：{human.outsourcingDomain || human.specialties[0]}
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <EntityAvatar
+                              kind="human"
+                              code={human.avatarInitials}
+                              accent={human.avatarAccent}
+                              size="md"
+                            />
+                            <div className="min-w-0 flex-1 space-y-1">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <h3 className="text-sm font-semibold text-slate-950">
+                                  {human.name}
+                                </h3>
+                                <span
+                                  className={`text-[11px] font-mono font-semibold ${
+                                    expertTier === 'S' ? 'text-violet-700' : 'text-blue-700'
+                                  }`}
+                                >
+                                  {expertTier}级专家
                                 </span>
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                              <span>
+                                <span className="text-slate-300" aria-hidden="true">·</span>
+                                <span className="text-xs text-slate-500">
+                                  {CATEGORY_LABELS[human.category]}
+                                </span>
+                                {human.isCurrentUser && (
+                                  <>
+                                    <span className="text-slate-300" aria-hidden="true">·</span>
+                                    <span className="text-[11px] font-semibold text-emerald-700">
+                                      本人
+                                    </span>
+                                  </>
+                                )}
+                                <span className="text-slate-300" aria-hidden="true">·</span>
+                                <span className="text-[11px] font-mono tabular-nums text-slate-400">
+                                  信誉 {human.reputationScore} · {human.completedProjects} 交付
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-700">
+                                {human.title} — 擅长：{human.outsourcingDomain || human.specialties[0]}
+                              </p>
+                              <p className="text-xs text-slate-500 leading-relaxed">
+                                {human.bio}
+                              </p>
+                              <div className="text-[11px] text-slate-400">
                                 {(human.outsourcingModes && human.outsourcingModes.length > 0
                                   ? human.outsourcingModes
                                   : ['项目整包交付', '里程碑验收']
                                 ).join(' · ')}
-                              </span>
-                              <span className="text-slate-300">·</span>
-                              <span>面向结果的外包交付（主理人驱动多 Agent 协同）</span>
+                              </div>
                             </div>
                           </div>
 
-                          <p className="mt-2.5 text-xs text-slate-600 leading-relaxed">
-                            {human.bio}
-                          </p>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {human.isCurrentUser ? (
+                              <span className="text-[11px] text-slate-400">公开主理人名片</span>
+                            ) : (
+                              <>
+                                {teamMember ? (
+                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 whitespace-nowrap">
+                                    <UserCheck className="w-3.5 h-3.5" />
+                                    <span>
+                                      {teamMember.relation === 'mutual_friend' ? '互关好友' : '项目合作'}
+                                    </span>
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      onInviteTeamExpert({
+                                        expertId: human.id,
+                                        relation: 'mutual_friend',
+                                        sourceZoneId: activeZone.id,
+                                        outsourcingScope: human.outsourcingDomain || human.specialties[0] || '',
+                                      })
+                                    }
+                                    className="px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer whitespace-nowrap"
+                                  >
+                                    + 互关
+                                  </button>
+                                )}
 
-                          {/* Owned Built-in Agents List */}
-                          <div className="mt-4 pt-3.5 border-t border-slate-100 space-y-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-semibold text-slate-800 inline-flex items-center gap-1.5">
-                                <Cpu className="w-3.5 h-3.5 text-indigo-600" />
-                                <span>旗下专家 Agent（{displayAgents.length} 个）</span>
+                                <button
+                                  type="button"
+                                  onClick={() => openHumanDrawer(human.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                  <span>{humanMsgCount > 0 ? `咨询 (${humanMsgCount})` : '咨询'}</span>
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Owned Built-in Agents Compact Inline List */}
+                        {displayAgents.length > 0 && (
+                          <div className="pl-11 space-y-1.5">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-medium text-slate-500">
+                                旗下专家 Agent ({displayAgents.length})
                               </span>
                               {ownedInZone.length > 0 && (
                                 <button
@@ -1379,145 +1359,77 @@ export function AgentMarketView({
                                     setOwnerFilterId(human.id);
                                     setEntityTab('agents');
                                   }}
-                                  className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+                                  className="font-medium text-blue-600 hover:underline cursor-pointer"
                                 >
-                                  筛选全部 →
+                                  在市场中查看 →
                                 </button>
                               )}
                             </div>
 
-                            {displayAgents.length === 0 ? (
-                              <p className="text-xs text-slate-400 py-2">
-                                暂未将内建 Agent 上架至服务市场
-                              </p>
-                            ) : (
-                              <div className="space-y-2">
-                                {displayAgents.map((ag) => {
-                                  const agLease = agentLeases[ag.id];
-                                  const agPricing = getAgentLeasePricing({
-                                    runtimeAgent: ag.runtimeAgent,
-                                    defaultModel: ag.defaultModel,
-                                    capabilityTier: ag.performance.capabilityTier,
-                                    ownership: ag.ownership,
-                                    projectPriceUsd: ag.projectPriceUsd,
-                                    monthlyLeaseUsd: ag.monthlyLeaseUsd,
-                                  });
+                            <div className="divide-y divide-slate-100 border-t border-slate-100">
+                              {displayAgents.map((ag) => {
+                                const agLease = agentLeases[ag.id];
+                                const agPricing = getAgentLeasePricing({
+                                  runtimeAgent: ag.runtimeAgent,
+                                  defaultModel: ag.defaultModel,
+                                  capabilityTier: ag.performance.capabilityTier,
+                                  ownership: ag.ownership,
+                                  projectPriceUsd: ag.projectPriceUsd,
+                                  monthlyLeaseUsd: ag.monthlyLeaseUsd,
+                                });
 
-                                  return (
-                                    <div
-                                      key={ag.id}
-                                      className="rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2 flex items-center justify-between gap-2.5"
-                                    >
-                                      <div className="flex items-center gap-2.5 min-w-0">
-                                        <EntityAvatar
-                                          kind="agent"
-                                          code={ag.avatarCode}
-                                          accent={ag.avatarAccent}
-                                          size="sm"
-                                        />
-                                        <div className="min-w-0">
-                                          <div className="flex items-center gap-1.5 min-w-0">
-                                            <AgentIdentityName
-                                              name={ag.handle}
-                                              runtime={ag.runtimeAgent}
-                                              model={ag.defaultModel}
-                                              showModel
-                                              className="text-xs font-bold text-slate-900"
-                                            />
-                                          </div>
-                                          <div className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1.5 font-mono tabular-nums">
-                                            <span className="font-semibold text-slate-700">
-                                              {agPricing.rating.capability}级
-                                            </span>
-                                            <span className="text-slate-300">·</span>
-                                            <span className="text-slate-800 font-semibold">
-                                              ${agPricing.monthlyUsd}/月
-                                            </span>
-                                            {agLease && (
-                                              <>
-                                                <span className="text-slate-300">·</span>
-                                                <span className="font-sans text-emerald-700 font-semibold">
-                                                  已租({LEASE_PERIOD_META[agLease.period].shortLabel})
-                                                </span>
-                                              </>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-
-                                      <div className="flex items-center gap-1.5 shrink-0">
-                                        <button
-                                          type="button"
-                                          onClick={() => openAgentDrawer(ag.id, 'profile')}
-                                          className="px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-100 text-[11px] font-medium text-slate-600 cursor-pointer whitespace-nowrap"
-                                        >
-                                          详情
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => openAgentDrawer(ag.id, 'lease')}
-                                          className={`px-2 py-1 rounded-md text-[11px] font-semibold cursor-pointer whitespace-nowrap ${
-                                            agLease
-                                              ? 'bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                                              : 'bg-slate-900 hover:bg-slate-800 text-white'
-                                          }`}
-                                        >
-                                          {agLease ? '续租' : '租赁'}
-                                        </button>
-                                      </div>
+                                return (
+                                  <div
+                                    key={ag.id}
+                                    className="py-1.5 flex items-center justify-between gap-2.5 text-xs"
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <EntityAvatar
+                                        kind="agent"
+                                        code={ag.avatarCode}
+                                        accent={ag.avatarAccent}
+                                        size="xs"
+                                        showCornerMark={false}
+                                      />
+                                      <AgentIdentityName
+                                        name={ag.handle}
+                                        runtime={ag.runtimeAgent}
+                                        model={ag.defaultModel}
+                                        showModel
+                                        className="font-medium text-slate-900"
+                                      />
+                                      <span className="text-[11px] font-mono tabular-nums text-slate-400 whitespace-nowrap">
+                                        {agPricing.rating.capability}级 · ${agPricing.monthlyUsd}/月
+                                        {agLease ? ` · 已租(${LEASE_PERIOD_META[agLease.period].shortLabel})` : ''}
+                                      </span>
                                     </div>
-                                  );
-                                })}
-                              </div>
-                            )}
+
+                                    <div className="flex items-center gap-2 shrink-0 text-[11px]">
+                                      <button
+                                        type="button"
+                                        onClick={() => openAgentDrawer(ag.id, 'profile')}
+                                        className="text-slate-500 hover:text-slate-900 cursor-pointer"
+                                      >
+                                        详情
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => openAgentDrawer(ag.id, 'lease')}
+                                        className={`font-semibold cursor-pointer ${
+                                          agLease
+                                            ? 'text-emerald-700 hover:underline'
+                                            : 'text-blue-700 hover:underline'
+                                        }`}
+                                      >
+                                        {agLease ? '续租' : '租赁'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           </div>
-                        </div>
-
-                        {/* Human Expert Card Footer: Team Invite + Outsourcing Consultation */}
-                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          {human.isCurrentUser ? (
-                            <span className="text-[11px] text-slate-400">你的公开主理人名片</span>
-                          ) : (
-                            <>
-                              {teamMember ? (
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 whitespace-nowrap">
-                                  <UserCheck className="w-3.5 h-3.5" />
-                                  <span>
-                                    专家团队 ·{' '}
-                                    {teamMember.relation === 'mutual_friend' ? '互关好友' : '项目合作'}
-                                  </span>
-                                </span>
-                              ) : (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    onInviteTeamExpert({
-                                      expertId: human.id,
-                                      relation: 'mutual_friend',
-                                      sourceZoneId: activeZone.id,
-                                      outsourcingScope: human.outsourcingDomain || human.specialties[0] || '',
-                                    })
-                                  }
-                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-                                >
-                                  <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
-                                  <span>互关好友</span>
-                                </button>
-                              )}
-
-                              <button
-                                type="button"
-                                onClick={() => openHumanDrawer(human.id)}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                              >
-                                <MessageCircle className="w-3.5 h-3.5" />
-                                <span>
-                                  {humanMsgCount > 0 ? `咨询 (${humanMsgCount})` : '咨询'}
-                                </span>
-                              </button>
-                            </>
-                          )}
-                        </div>
+                        )}
                       </article>
                     );
                   })
@@ -1525,11 +1437,11 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* TAB 3: SKILLS & MCP MARKETPLACE (2-Column Grid · Free or One-Time Purchase) */}
+            {/* TAB 3: SKILLS & MCP REGISTRY (Flush Antigravity Package List) */}
             {entityTab === 'skills' && (
-              <div className="grid grid-cols-1 @[540px]/center:grid-cols-2 gap-4">
+              <div className="divide-y divide-slate-200/75 border-t border-slate-200/75">
                 {filteredSkills.length === 0 ? (
-                  <div className="col-span-full py-12 text-center border border-dashed border-slate-300 rounded-xl bg-white">
+                  <div className="py-12 text-center">
                     <p className="text-sm font-medium text-slate-700">没有符合筛选条件的 Skills / MCP</p>
                     <button
                       type="button"
@@ -1539,7 +1451,7 @@ export function AgentMarketView({
                         setSkillPriceFilter('all');
                         setKeyword('');
                       }}
-                      className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
+                      className="mt-3 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-800 cursor-pointer"
                     >
                       重置筛选
                     </button>
@@ -1559,146 +1471,112 @@ export function AgentMarketView({
                       skill.origin === 'platform' && !activeZone.isPlatformDefault;
                     const isPlatformOfficial =
                       skill.origin === 'platform' && Boolean(activeZone.isPlatformDefault);
+                    const originText = isPlatformDist
+                      ? '平台分销 · 官方维护'
+                      : isPlatformOfficial
+                        ? '平台官方维护'
+                        : skill.origin === 'custom'
+                          ? '社区自建'
+                          : '社区共创';
 
                     return (
                       <article
                         key={skill.id}
-                        className={`rounded-xl p-4 flex flex-col justify-between transition-colors border ${
-                          isSelected
-                            ? 'bg-slate-50 border-slate-400'
-                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        className={`py-4 px-2.5 -mx-2.5 rounded-lg transition-colors flex flex-col sm:flex-row sm:items-start justify-between gap-4 ${
+                          isSelected ? 'bg-slate-50' : 'hover:bg-slate-50/75'
                         }`}
                       >
-                        <div>
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span
-                                  className={`px-1.5 py-0.5 rounded border text-[10px] font-mono font-semibold leading-none ${SKILL_KIND_STYLES[skill.kind]}`}
-                                >
-                                  {SKILL_KIND_LABELS[skill.kind]}
-                                </span>
-                                {isPlatformDist ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-semibold leading-none">
-                                    平台分销 · 官方维护
-                                  </span>
-                                ) : isPlatformOfficial ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-semibold leading-none">
-                                    平台官方维护
-                                  </span>
-                                ) : skill.origin === 'custom' ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-emerald-50 border border-emerald-200 text-emerald-700 text-[10px] font-semibold leading-none">
-                                    社区自建
-                                  </span>
-                                ) : (
-                                  <span className="px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-semibold leading-none">
-                                    社区共创
-                                  </span>
-                                )}
-                                <span
-                                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold leading-none ${
-                                    skillPricing.ratingTier === 'S'
-                                      ? 'bg-violet-50 text-violet-700 border border-violet-200/80'
-                                      : skillPricing.ratingTier === 'A+'
-                                        ? 'bg-blue-50 text-blue-700 border border-blue-200/80'
-                                        : 'bg-slate-100 text-slate-600 border border-slate-200/80'
-                                  }`}
-                                >
-                                  {skillPricing.ratingTier}级
-                                </span>
-                                <span className="text-[10px] font-mono text-slate-400">
-                                  {skill.version}
-                                </span>
-                              </div>
-                              <h3 className="text-sm font-bold text-slate-900 mt-1.5 leading-snug">
-                                {skill.name}
-                              </h3>
-                              <div className="text-[11px] font-mono text-slate-500 mt-0.5 truncate">
-                                {skill.slug}
-                              </div>
-                            </div>
-
-                            <div className="text-right shrink-0 font-mono tabular-nums">
-                              <div
-                                className={`text-sm font-bold leading-none ${
-                                  skillPricing.isFree ? 'text-emerald-700' : 'text-slate-900'
-                                }`}
-                              >
-                                {skillPricing.priceLabel}
-                              </div>
-                              <div className="text-[10px] font-sans text-slate-400 mt-1 whitespace-nowrap">
-                                {skillPricing.isFree ? '免费开源' : '一次买断'}
-                              </div>
-                            </div>
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                            <h3 className="text-sm font-semibold text-slate-950 leading-snug">
+                              {skill.name}
+                            </h3>
+                            <span className="font-mono text-[11px] text-slate-400">
+                              {skill.slug}
+                            </span>
+                            <span className="text-slate-300" aria-hidden="true">·</span>
+                            <span className="font-mono text-[11px] font-medium text-slate-600">
+                              {SKILL_KIND_LABELS[skill.kind]} {skill.version}
+                            </span>
+                            <span className="text-slate-300" aria-hidden="true">·</span>
+                            <span className="text-[11px] text-blue-700 font-medium">
+                              {originText}
+                            </span>
+                            <span className="text-slate-300" aria-hidden="true">·</span>
+                            <span className="font-mono text-[11px] font-semibold text-slate-600">
+                              {skillPricing.ratingTier}级
+                            </span>
                           </div>
 
-                          <p className="text-xs text-slate-600 mt-2.5 line-clamp-2 leading-relaxed">
+                          <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">
                             {skill.summary}
                           </p>
 
-                          {/* Compatible Agent Bases */}
-                          <div className="mt-3 flex items-center gap-1 flex-wrap">
-                            <span className="text-[11px] text-slate-400 mr-0.5">适配底座</span>
-                            {skill.compatibleRuntimes.map((rt) => (
-                              <span
-                                key={rt}
-                                className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 font-mono text-[10px] font-medium"
-                              >
-                                {formatShortRuntime(rt)}
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                            <span>
+                              适配{' '}
+                              <span className="font-mono text-slate-600">
+                                {skill.compatibleRuntimes.map((rt) => formatShortRuntime(rt)).join(' / ')}
                               </span>
-                            ))}
-                          </div>
-
-                          {/* Author & Usage Metrics */}
-                          <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                            <span className="truncate">作者：{skill.authorName}</span>
-                            <span className="font-mono tabular-nums shrink-0">
+                            </span>
+                            <span aria-hidden="true">·</span>
+                            <span>作者 {skill.authorName}</span>
+                            <span aria-hidden="true">·</span>
+                            <span className="font-mono tabular-nums">
                               {formatInstalls(skill.installs)} 安装 · ★ {skill.rating.toFixed(2)}
                             </span>
                           </div>
                         </div>
 
-                        <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-                          <button
-                            type="button"
-                            onClick={() => openSkillDrawer(skill.id)}
-                            className="text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
-                          >
-                            文档 / 装配{mountedCount > 0 ? ` (${mountedCount})` : ''}
-                          </button>
+                        <div className="sm:w-[172px] shrink-0 flex sm:flex-col items-center sm:items-end justify-between gap-2.5 sm:text-right">
+                          <div className="font-mono tabular-nums">
+                            <div
+                              className={`text-sm font-bold leading-none ${
+                                skillPricing.isFree ? 'text-emerald-700' : 'text-slate-950'
+                              }`}
+                            >
+                              {skillPricing.priceLabel}
+                            </div>
+                            <div className="text-[10.5px] font-sans text-slate-400 mt-1">
+                              {skillPricing.isFree ? '免费开源' : '一次买断'}
+                            </div>
+                          </div>
 
-                          {isOwned ? (
+                          <div className="flex items-center gap-2">
                             <button
                               type="button"
                               onClick={() => openSkillDrawer(skill.id)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                              className="text-xs font-medium text-slate-500 hover:text-slate-950 cursor-pointer whitespace-nowrap"
                             >
-                              <Check className="w-3.5 h-3.5" />
-                              <span>{skillPricing.isFree ? '已免费获取' : '已买断 · 装配'}</span>
+                              文档{mountedCount > 0 ? `(${mountedCount})` : ''}
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onAcquireSkill(
-                                  skill.id,
-                                  skill.name,
-                                  skillPricing.priceUsd,
-                                  activeZone.id,
-                                )
-                              }
-                              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
-                            >
-                              {skillPricing.isFree ? (
-                                <Blocks className="w-3.5 h-3.5" />
-                              ) : (
-                                <ShoppingBag className="w-3.5 h-3.5" />
-                              )}
-                              <span>
-                                {skillPricing.isFree ? '免费获取' : `购买 ${skillPricing.priceLabel}`}
-                              </span>
-                            </button>
-                          )}
+
+                            {isOwned ? (
+                              <button
+                                type="button"
+                                onClick={() => openSkillDrawer(skill.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold cursor-pointer whitespace-nowrap"
+                              >
+                                <Check className="w-3 h-3" />
+                                <span>已获取</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onAcquireSkill(
+                                    skill.id,
+                                    skill.name,
+                                    skillPricing.priceUsd,
+                                    activeZone.id,
+                                  )
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer whitespace-nowrap"
+                              >
+                                <span>{skillPricing.isFree ? '获取' : `购买 ${skillPricing.priceLabel}`}</span>
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </article>
                     );

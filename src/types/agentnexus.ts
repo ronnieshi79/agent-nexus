@@ -398,6 +398,8 @@ export interface WorkflowTask {
   description: string;
   assigneeId: string;
   assigneeHandle: string;
+  /** Multi-agent workflow stage owners: 计划 / 执行 / 验收 */
+  stageAgents?: Partial<Record<ActiveWorkflowStage, string>>;
   status: TaskStatus;
   priority: '高' | '中' | '低';
   dependsOnTaskId?: string;
@@ -408,10 +410,24 @@ export interface WorkflowTask {
   sourceMessageId?: string;
 }
 
+export interface TaskStageHandoffMeta {
+  fromStage: ActiveWorkflowStage;
+  toStage: ActiveWorkflowStage;
+  fromAgentId?: string;
+  toAgentId?: string;
+}
+
 export interface TaskSessionMessage {
   id: string;
   taskId: string;
   sender: 'employer' | 'agent' | 'system';
+  /** Specialist Agent who produced this turn in a multi-agent workflow task session */
+  agentId?: string;
+  agentHandle?: string;
+  /** Workflow stage this turn belongs to (计划 / 执行 / 验收) */
+  workflowStage?: ActiveWorkflowStage;
+  /** Stage handoff metadata for system transition dividers */
+  handoff?: TaskStageHandoffMeta;
   content: string;
   timestamp: string;
   /** Concise remote Agent execution steps (e.g. Codex file reads, patch gen, tests) */

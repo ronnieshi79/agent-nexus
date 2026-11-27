@@ -655,7 +655,7 @@ ${recentMessages
     }
   });
 
-  // 7. Dedicated 1v1 Task Card Multi-Turn Agent Session (Codex-style remote execution & confirmation)
+  // 7. Dedicated Multi-Agent Workflow Task Session (Codex-style remote execution, stage handoff & confirmation)
   app.post('/api/chat/task-session', async (req, res) => {
     try {
       const {
@@ -664,27 +664,45 @@ ${recentMessages
         workspace,
         history = [],
         message = '',
+        stageLabel = '',
+        workflowTeamSummary = '',
       } = req.body ?? {};
       const ai = getGeminiClient();
 
       const historyText = history
-        .slice(-10)
-        .map((m: { sender: string; content: string; artifactPath?: string }) => {
-          const speaker = m.sender === 'employer' ? '雇主' : m.sender === 'system' ? '系统' : agent?.handle || '专家Agent';
-          return `${speaker}: ${m.content}${m.artifactPath ? ` [产物: ${m.artifactPath}]` : ''}`;
-        })
+        .slice(-12)
+        .map(
+          (m: {
+            sender: string;
+            agentHandle?: string;
+            workflowStage?: string;
+            content: string;
+            artifactPath?: string;
+          }) => {
+            const speaker =
+              m.sender === 'employer'
+                ? '雇主'
+                : m.sender === 'system'
+                  ? '工作流交棒'
+                  : m.agentHandle || agent?.handle || '专家Agent';
+            const stageSuffix = m.workflowStage ? `[${m.workflowStage}]` : '';
+            return `${speaker}${stageSuffix}: ${m.content}${m.artifactPath ? ` [产物: ${m.artifactPath}]` : ''}`;
+          },
+        )
         .join('\n');
 
       const prompt = `
-你正在 AgentNexus 的「任务卡片 1v1 专聊模式（Task Session）」中，直接与雇主进行多轮深度执行对话（类似远程 Codex / 专业研发审查 Agent 的独立工作会话，所有中间过程与方案确认都在本专聊内完成，不刷屏项目群）。
+你正在 AgentNexus 的「项目任务多 Agent 协作对话（Workflow Task Session）」中。同一个项目任务由多位异构专家 Agent 按工作流接力完成（计划 → 执行 → 验收），所有细节讨论与方案确认都收敛在本任务会话内，不会刷屏项目群（项目群仅以精简任务卡片同步状态）。
 
-你的身份：
-- 角色：${agent?.handle ?? '@全栈开发员'}（${agent?.name ?? '专业执行专家'}）
+当前由你接棒回应：
+- 你的角色：${agent?.handle ?? '@全栈开发员'}（${agent?.name ?? '专业执行专家'}）
+- 当前所在阶段：${stageLabel || task?.status || '执行'}
 - 服务模式：${agent?.serviceMode === 'human-agent' ? '人+Agent 协同' : '纯 Agent 租用'}
 - 擅长技能：${(agent?.skills ?? []).join('、')}
 - 已装配 MCP 工具：${(agent?.mcpTools ?? []).join('、')}
+${workflowTeamSummary ? `- 本任务协同专家分工：${workflowTeamSummary}` : ''}
 
-当前任务卡片上下文：
+当前任务上下文（任务目标保持锚定）：
 - 所属项目：${workspace?.name ?? ''}（目标：${workspace?.goal ?? ''}）
 - 所属模块：${task?.featureModule ?? '核心模块'}
 - 任务标题：${task?.title ?? ''}
@@ -692,16 +710,16 @@ ${recentMessages
 - 当前状态：${task?.status ?? 'in_progress'}
 - 已有产物：${task?.deliverableArtifact ?? '尚未生成'}
 
-历史 1v1 专聊记录：
-${historyText || '（刚刚开启本任务卡片的 1v1 专聊）'}
+本任务历史多 Agent 协作记录：
+${historyText || '（刚刚开启本任务的多 Agent 协作会话）'}
 
 雇主刚刚发送的最新指令/反馈：
 "${message}"
 
 请严格遵循以下协作行为：
-1. 像真实的远程工程/产品/架构/测试 Agent（如 Codex）一样，直接回应雇主的具体问题、给出本轮执行的 2~4 个简明步骤（executionSteps），以及必要时的真实代码片段/伪代码/接口契约/测试用例（artifactSnippet）和对应产物路径（artifactPath）。
+1. 结合前面其他阶段专家已产出的上下文，站在你当前阶段（${stageLabel || '执行'}）的专业视角直接回应雇主，给出本轮执行的 2~4 个简明步骤（executionSteps），以及必要时的真实代码片段/接口契约/评审清单/测试用例（artifactSnippet）和对应产物路径（artifactPath）。
 2. 如果仍存在值得雇主拍板的边界条件、方案二选一，或刚改完待确认，请给出 2~3 个简短可直接点击发送的下一步快捷选项（suggestedActions，每项 6~18 字），并设 awaitingConfirmation = true。
-3. 如果雇主明确要求「准备提交验收」「定稿提交」「没问题了收尾」或本轮已完成完整可验收交付，则设 readyForReview = true，并在 groupMilestoneSummary 中输出一条 35~65 字的精炼中文里程碑汇报（系统会自动将其摘要回写到所属项目群聊）；否则 readyForReview = false，groupMilestoneSummary 留空字符串。
+3. 如果雇主明确要求「准备提交验收」「定稿提交」「交棒下一阶段」「没问题了收尾」或本轮已完成当前阶段可交付产出，则设 readyForReview = true，并在 groupMilestoneSummary 中输出一条 30~55 字的精炼中文摘要（用于同步项目群卡片）；否则 readyForReview = false，groupMilestoneSummary 留空字符串。
 4. 严禁提及任何 Token 消耗或按次任务几美元计费，全程使用专业、自然、高效的中文工程口吻。
 `;
 

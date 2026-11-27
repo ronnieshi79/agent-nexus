@@ -157,8 +157,8 @@ export function PlatformAssistantPane({
         />
 
         {/* Messages Stream */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-5 space-y-5 bg-slate-50/40">
-          <div className="max-w-3xl mx-auto space-y-5">
+        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-6 bg-white">
+          <div className="max-w-3xl mx-auto space-y-6">
             {messages.map((msg) => {
               const isUser = msg.sender === 'user';
               const catMeta = msg.category ? CATEGORY_LABELS[msg.category] : CATEGORY_LABELS.general;
@@ -168,8 +168,8 @@ export function PlatformAssistantPane({
                   key={msg.id}
                   className={`flex flex-col ${isUser ? 'items-end' : 'items-start'}`}
                 >
-                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-1">
-                    <span className="font-semibold text-slate-700">
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mb-1.5">
+                    <span className="font-semibold text-slate-800">
                       {isUser ? account?.name || '我' : 'Nexa 平台助理'}
                     </span>
                     {!isUser && (
@@ -182,22 +182,22 @@ export function PlatformAssistantPane({
                   </div>
 
                   <div
-                    className={`rounded-xl px-4 py-3 text-sm leading-relaxed max-w-[92%] sm:max-w-[85%] ${
+                    className={`text-sm leading-relaxed max-w-[92%] sm:max-w-[88%] ${
                       isUser
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-white border border-slate-200 text-slate-800'
+                        ? 'rounded-2xl px-4 py-2.5 bg-slate-100/90 text-slate-900'
+                        : 'w-full text-slate-800'
                     }`}
                   >
                     <p className="whitespace-pre-wrap">{msg.content}</p>
 
                     {msg.cards && msg.cards.length > 0 && (
-                      <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5">
+                      <div className="mt-3 space-y-2">
                         {msg.cards.map((card) => {
                           const cardCat = CATEGORY_LABELS[card.category] || CATEGORY_LABELS.general;
                           return (
                             <div
                               key={card.id}
-                              className="rounded-lg bg-slate-50 border border-slate-200/90 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                              className="rounded-lg bg-[#FAFAFA] border border-slate-200/80 p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                             >
                               <div className="min-w-0">
                                 <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
@@ -326,8 +326,8 @@ export function PlatformAssistantPane({
 
       {/* Right Docked Platform Concierge Service Desk */}
       {panelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
-          <div className="p-3.5 border-b border-slate-200 bg-white shrink-0">
+        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200/80 bg-[#FAFAFA] flex flex-col h-full shadow-2xl lg:shadow-none">
+          <div className="p-3.5 border-b border-slate-200/80 bg-[#FAFAFA] shrink-0">
             <div className="text-xs font-bold text-slate-900">平台服务台</div>
             <div className="mt-2.5 grid grid-cols-3 gap-1 p-1 bg-slate-100 rounded-lg">
               <button

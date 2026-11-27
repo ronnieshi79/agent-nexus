@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
+  ArrowRight,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -8,11 +9,9 @@ import {
   FileCode2,
   FolderKanban,
   Lock,
-  MessageSquare,
   PanelRightClose,
   PanelRightOpen,
   Play,
-  Plus,
   RotateCcw,
   Send,
   Share2,
@@ -22,20 +21,27 @@ import {
 } from 'lucide-react';
 import type { CreateWorkCardInput } from '../../hooks/useAgentNexusStore';
 import type {
+  ActiveWorkflowStage,
   AgentNexusAccount,
   ExpertAgent,
+  ProjectAgentAssignment,
+  ProjectStageSlot,
   ProjectWorkspace,
   TaskSessionMessage,
+  TaskStatus,
   WorkCardType,
   WorkflowTask,
 } from '../../types/agentnexus';
+import { STAGE_LABEL_MAP, resolveTaskWorkflowTeam } from '../../utils/taskWorkflow';
 import {
   AgentIdentityName,
   EntityAvatar,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
-import { ModalShell } from '../shared/UiPrimitives';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
+import { TaskAgentSelector } from './TaskAgentSelector';
+import { TaskSessionInspectorRail } from './TaskSessionInspectorRail';
+import { TaskWorkflowBar } from './TaskWorkflowBar';
 
 interface TaskSessionPaneProps {
   task: WorkflowTask;
@@ -43,6 +49,8 @@ interface TaskSessionPaneProps {
   workspaces: ProjectWorkspace[];
   agent: ExpertAgent | null;
   agents: ExpertAgent[];
+  assignments?: ProjectAgentAssignment[];
+  pipelineSlots?: ProjectStageSlot[];
   allTasks: WorkflowTask[];
   siblingTasks: WorkflowTask[];
   messages: TaskSessionMessage[];
@@ -52,9 +60,10 @@ interface TaskSessionPaneProps {
   isExecuting: boolean;
   error: string | null;
   onClearError: () => void;
-  onSendTurn: (taskId: string, text: string) => Promise<void>;
+  onSendTurn: (taskId: string, text: string, targetAgentId?: string) => Promise<void>;
   onRunTask: (taskId: string) => Promise<void>;
   onApproveTask: (taskId: string) => void;
+  onUpdateTaskStatus?: (taskId: string, status: TaskStatus) => void;
   onSyncSummaryToGroup: (taskId: string) => void;
   onBackToGroup: (projectId: string) => void;
   onSelectTaskSession: (taskId: string) => void;
@@ -72,13 +81,11 @@ const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
 export function TaskSessionPane({
   task,
   workspace,
-  workspaces,
   agent,
   agents,
-  allTasks,
-  siblingTasks,
+  assignments = [],
+  pipelineSlots = [],
   messages,
-  allTaskSessions,
   account,
   isBusy,
   isExecuting,
@@ -87,66 +94,79 @@ export function TaskSessionPane({
   onSendTurn,
   onRunTask,
   onApproveTask,
+  onUpdateTaskStatus,
   onSyncSummaryToGroup,
   onBackToGroup,
-  onSelectTaskSession,
-  onCreateAndOpenTaskSession,
   onReactivateProject,
 }: TaskSessionPaneProps) {
   const isReadOnly =
     workspace.lifecycleStatus === 'completed' || workspace.lifecycleStatus === 'archived';
   const [draft, setDraft] = useState('');
   const [panelOpen, setPanelOpen] = useState(true);
-  const [railTab, setRailTab] = useState<'agent_tasks' | 'project_tasks'>('agent_tasks');
   const [collapsedSteps, setCollapsedSteps] = useState<Record<string, boolean>>({});
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
-
-  // Quick inline spawn new Task Session for this locked Agent
-  const [showNewSession, setShowNewSession] = useState(false);
-  const [newTaskProjectId, setNewTaskProjectId] = useState(workspace.id);
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskType, setNewTaskType] = useState<WorkCardType>('development');
+  const [selectedTargetAgentId, setSelectedTargetAgentId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  const st = WORK_STATUS_META[task.status];
-  const lastMsg = messages[messages.length - 1];
-  const isWaitingReply = Boolean(lastMsg?.awaitingConfirmation && task.status !== 'done');
+  const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
 
-  const workspaceMap = useMemo(() => new Map(workspaces.map((w) => [w.id, w])), [workspaces]);
-
-  // All task sessions aggregated across different projects for THIS specific Agent
-  const agentAggregatedTasks = useMemo(() => {
-    const statusWeight: Record<WorkflowTask['status'], number> = {
-      in_progress: 0,
-      review: 1,
-      pending: 2,
-      done: 3,
-    };
-    return allTasks
-      .filter((t) => t.assigneeId === task.assigneeId)
-      .sort((a, b) => statusWeight[a.status] - statusWeight[b.status]);
-  }, [allTasks, task.assigneeId]);
-
-  const distinctAgentProjectCount = useMemo(
-    () => new Set(agentAggregatedTasks.map((t) => t.sessionId)).size,
-    [agentAggregatedTasks],
+  // Multi-agent workflow resolution: 计划 -> 执行 -> 验收
+  const workflow = useMemo(
+    () => resolveTaskWorkflowTeam(task, workspace, agents, assignments, pipelineSlots),
+    [task, workspace, agents, assignments, pipelineSlots],
   );
 
+  // Reset explicit specialist override when switching tasks or advancing workflow stages
   useEffect(() => {
-    setNewTaskProjectId(workspace.id);
-  }, [workspace.id]);
+    setSelectedTargetAgentId(null);
+  }, [task.id, task.status]);
+
+  const activeStageAgent = workflow.activeAgent || agent;
+  const effectiveTargetAgent =
+    (selectedTargetAgentId ? agentMap.get(selectedTargetAgentId) || null : null) ||
+    activeStageAgent;
+
+  const extraWorkspaceAgents = useMemo(() => {
+    const participantIds = new Set(workflow.participants.map((p) => p.id));
+    return workspace.hiredAgentIds
+      .filter((id) => !participantIds.has(id))
+      .map((id) => agentMap.get(id))
+      .filter((a): a is ExpertAgent => Boolean(a));
+  }, [agentMap, workflow.participants, workspace.hiredAgentIds]);
+
+  const st = WORK_STATUS_META[task.status];
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, isBusy, task.id]);
 
+  const handleSelectTargetAgent = (targetId: string | null) => {
+    if (!targetId || targetId === activeStageAgent?.id) {
+      setSelectedTargetAgentId(null);
+    } else {
+      setSelectedTargetAgentId(targetId);
+    }
+    inputRef.current?.focus();
+  };
+
+  const handleAdvanceStage = (nextStatus: TaskStatus) => {
+    if (isReadOnly) return;
+    if (nextStatus === 'done') {
+      onApproveTask(task.id);
+      return;
+    }
+    if (onUpdateTaskStatus) {
+      onUpdateTaskStatus(task.id, nextStatus);
+    }
+  };
+
   const submitTurn = async (textOverride?: string) => {
     const cleaned = (textOverride ?? draft).trim();
     if (!cleaned || isBusy || isReadOnly) return;
     if (!textOverride) setDraft('');
-    await onSendTurn(task.id, cleaned);
+    await onSendTurn(task.id, cleaned, selectedTargetAgentId || undefined);
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -169,42 +189,40 @@ export function TaskSessionPane({
     }
   };
 
-  const handleCreateAgentTask = (e: FormEvent) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-    onCreateAndOpenTaskSession({
-      sessionId: newTaskProjectId || workspace.id,
-      featureModule: '专项任务',
-      workType: newTaskType,
-      title: newTaskTitle.trim(),
-      description: `在 ${agent?.handle || task.assigneeHandle} 任务模式中直接发起的专项任务 Session。`,
-      assigneeId: task.assigneeId,
-      priority: '高',
-    });
-    setNewTaskTitle('');
-    setShowNewSession(false);
-  };
-
-  const quickDirectives =
-    task.status === 'done'
-      ? ['帮我复盘本次交付的关键边界与潜在风险', '如果要做二期扩展，预留哪些接口最合适？']
-      : [
-          '输出当前实现的核心边界测试用例',
-          '检查并发异常与降级兜底逻辑',
-          '当前方案已确认，请收尾定稿并提交验证',
-        ];
+  const quickDirectives = useMemo(() => {
+    if (task.status === 'done') {
+      return ['复盘本次多阶段交付的关键边界与潜在风险', '二期扩展建议预留哪些核心接口？'];
+    }
+    const stagePrompts: Record<ActiveWorkflowStage, string[]> = {
+      planning: [
+        '补充关键异常场景与验收边界',
+        '当前方案已确认，请收尾并交棒研发执行',
+      ],
+      development: [
+        '输出当前实现的核心边界测试用例',
+        '检查并发异常与降级兜底逻辑',
+        '核心实现已确认，请收尾定稿并提交验收',
+      ],
+      testing: [
+        '列出高风险边界用例与压测回归项',
+        '复核安全审计与幂等边界是否达标',
+        '验收通过，请归档交付产物并同步项目群',
+      ],
+    };
+    return stagePrompts[workflow.currentStage];
+  }, [task.status, workflow.currentStage]);
 
   return (
     <div className="h-full flex min-h-0 bg-white relative">
-      {/* Main Codex / Antigravity-Style Single-Agent Task Session Column */}
+      {/* Main Codex / Claude Code-Style Multi-Agent Workflow Task Session Column */}
       <div className="flex-1 min-w-0 flex flex-col h-full">
-        {/* Session Header: Locked Agent + Source Project + Dual Mode Switcher */}
-        <div className="h-[60px] px-4 sm:px-6 border-b border-slate-200 bg-white flex items-center justify-between gap-3 shrink-0">
+        {/* Session Header: Anchored Task + Participating Specialists Stack + Source Project */}
+        <div className="h-[60px] px-4 sm:px-6 border-b border-slate-200/80 bg-white flex items-center justify-between gap-3 shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <EntityAvatar
               kind="agent"
-              code={agent?.avatarCode || 'AI'}
-              accent={agent?.avatarAccent || '#0f172a'}
+              code={activeStageAgent?.avatarCode || 'AI'}
+              accent={activeStageAgent?.avatarAccent || '#0f172a'}
               sessionCorner
             />
 
@@ -216,13 +234,23 @@ export function TaskSessionPane({
                 </span>
               </div>
               <div className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5 truncate">
-                <AgentIdentityName
-                  name={agent?.handle || task.assigneeHandle}
-                  runtime={agent?.runtimeAgent}
-                  model={agent?.defaultModel}
-                  showModel
-                  className="font-semibold text-slate-800"
-                />
+                <span className="inline-flex items-center gap-1 shrink-0">
+                  <span className="flex -space-x-1">
+                    {workflow.participants.map((p) => (
+                      <span
+                        key={p.id}
+                        title={p.handle}
+                        className="w-3.5 h-3.5 rounded-full ring-1 ring-white text-[8px] font-bold text-white inline-flex items-center justify-center"
+                        style={{ backgroundColor: p.avatarAccent }}
+                      >
+                        {p.avatarCode.slice(0, 1)}
+                      </span>
+                    ))}
+                  </span>
+                  <span className="font-medium text-slate-700">
+                    {workflow.participants.length} 位专家接力
+                  </span>
+                </span>
                 <span aria-hidden="true" className="text-slate-300 shrink-0">
                   ·
                 </span>
@@ -254,20 +282,31 @@ export function TaskSessionPane({
               ) : (
                 <PanelRightOpen className="w-3.5 h-3.5 text-blue-600" />
               )}
-              <span className="hidden xl:inline">Session 导航</span>
+              <span className="hidden xl:inline">交付物与专家</span>
             </button>
           </div>
         </div>
 
-        {/* Codex / Antigravity Execution Stream */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-4 sm:px-8 py-5 bg-slate-50/50">
+        {/* Anchored 3-Stage Multi-Agent Workflow Bar: 计划 -> 执行 -> 验收 */}
+        <TaskWorkflowBar
+          status={task.status}
+          stageAgents={workflow.stageAgents}
+          selectedTargetAgentId={selectedTargetAgentId}
+          isExecuting={isExecuting}
+          isReadOnly={isReadOnly}
+          onSelectTargetAgent={(id) => handleSelectTargetAgent(id)}
+          onAdvanceStage={handleAdvanceStage}
+        />
+
+        {/* Multi-Agent Workflow Execution Stream */}
+        <div className="flex-1 overflow-y-auto clean-scroll px-4 sm:px-8 py-6 bg-white">
           <div className="max-w-3xl mx-auto space-y-5">
-            {/* Anchored Single-Agent Session Contract Header */}
-            <div className="rounded-xl bg-white border border-slate-200 p-4 space-y-3">
+            {/* Anchored Task Scope Contract (Flush Hairline Style) */}
+            <div className="pb-4 border-b border-slate-200/80 space-y-2.5">
               <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
                 <div className="flex items-center gap-1.5 text-slate-600 min-w-0">
                   <Terminal className="w-3.5 h-3.5 text-slate-900 shrink-0" />
-                  <span className="font-semibold text-slate-900">单 Agent 任务 Session</span>
+                  <span className="font-semibold text-slate-900">多 Agent 协同任务 Session</span>
                   <span className="text-slate-300" aria-hidden="true">
                     ·
                   </span>
@@ -280,66 +319,71 @@ export function TaskSessionPane({
                 <div className="flex items-center gap-2 shrink-0">
                   <WorkStatusBadge status={task.status} executing={isExecuting} />
                   <span className="font-mono tabular-nums text-[11px] text-slate-400">
-                    {messages.length} 轮对话
+                    {messages.length} 条记录
                   </span>
                 </div>
               </div>
 
               <p className="text-xs text-slate-600 leading-relaxed">{task.description}</p>
-
-              <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-3 flex-wrap text-[11px] text-slate-500">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
-                    <span>锁定专家：</span>
-                    <AgentIdentityName
-                      name={agent?.handle || task.assigneeHandle}
-                      runtime={agent?.runtimeAgent}
-                      model={agent?.defaultModel}
-                      className="font-semibold text-slate-800"
-                    />
-                  </span>
-                  {agent?.mcpTools && agent.mcpTools.length > 0 && (
-                    <>
-                      <span className="text-slate-300" aria-hidden="true">
-                        ·
-                      </span>
-                      <span className="font-mono text-slate-500">
-                        MCP: {agent.mcpTools.slice(0, 3).join(', ')}
-                      </span>
-                    </>
-                  )}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => onBackToGroup(workspace.id)}
-                  className="text-blue-700 hover:text-blue-900 font-medium cursor-pointer whitespace-nowrap"
-                >
-                  来源项目：{workspace.name} →
-                </button>
-              </div>
             </div>
 
-            {/* Turn-by-Turn Thread */}
+            {/* Multi-Agent Turn-by-Turn Thread with Stage Handoff Dividers */}
             {messages.map((msg, idx) => {
               const isLast = idx === messages.length - 1;
+
               if (msg.sender === 'system') {
+                if (msg.handoff) {
+                  return (
+                    <div key={msg.id} className="flex items-center gap-3 py-1">
+                      <div className="h-px flex-1 bg-slate-200/80" />
+                      <div className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 whitespace-nowrap">
+                        <span className="font-semibold text-slate-700">
+                          {STAGE_LABEL_MAP[msg.handoff.fromStage]}
+                        </span>
+                        <ArrowRight className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span className="font-semibold text-blue-700">
+                          {STAGE_LABEL_MAP[msg.handoff.toStage]}
+                        </span>
+                        <span className="text-slate-300" aria-hidden="true">
+                          ·
+                        </span>
+                        <span>{msg.content}</span>
+                        <span className="font-mono tabular-nums text-slate-400">
+                          {msg.timestamp}
+                        </span>
+                      </div>
+                      <div className="h-px flex-1 bg-slate-200/80" />
+                    </div>
+                  );
+                }
+
                 return (
-                  <div key={msg.id} className="flex justify-center">
-                    <div className="text-xs text-slate-500 bg-slate-100 px-3.5 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                  <div key={msg.id} className="flex items-center gap-3 py-1">
+                    <div className="h-px flex-1 bg-slate-100" />
+                    <div className="text-[11px] text-slate-500 inline-flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                       <span>{msg.content}</span>
                       <span className="font-mono tabular-nums text-slate-400">
                         · {msg.timestamp}
                       </span>
                     </div>
+                    <div className="h-px flex-1 bg-slate-100" />
                   </div>
                 );
               }
 
               const isEmployer = msg.sender === 'employer';
-              const hasSteps = Boolean(!isEmployer && msg.executionSteps && msg.executionSteps.length > 0);
-              // Expand steps by default for the latest turn, compact toggle for earlier turns
+              const turnAgent = !isEmployer
+                ? (msg.agentId ? agentMap.get(msg.agentId) || null : null) ||
+                  activeStageAgent ||
+                  agent
+                : null;
+              const turnStageLabel = msg.workflowStage
+                ? STAGE_LABEL_MAP[msg.workflowStage]
+                : null;
+              const hasSteps = Boolean(
+                !isEmployer && msg.executionSteps && msg.executionSteps.length > 0,
+              );
               const isStepsExpanded =
                 collapsedSteps[msg.id] !== undefined ? !collapsedSteps[msg.id] : isLast;
 
@@ -358,8 +402,8 @@ export function TaskSessionPane({
                     ) : (
                       <EntityAvatar
                         kind="agent"
-                        code={agent?.avatarCode || 'AI'}
-                        accent={agent?.avatarAccent || '#334155'}
+                        code={turnAgent?.avatarCode || 'AI'}
+                        accent={turnAgent?.avatarAccent || '#334155'}
                         showCornerMark={false}
                       />
                     )}
@@ -370,37 +414,45 @@ export function TaskSessionPane({
                       isEmployer ? 'items-end' : 'items-start'
                     }`}
                   >
-                    <div className="flex items-center gap-1.5 text-xs mb-1">
+                    <div className="flex items-center gap-1.5 text-xs mb-1 flex-wrap">
                       {isEmployer ? (
                         <span className="font-semibold text-slate-900">
                           {account?.name || '我（指令）'}
                         </span>
                       ) : (
-                        <AgentIdentityName
-                          name={agent?.handle || task.assigneeHandle}
-                          runtime={agent?.runtimeAgent}
-                          model={agent?.defaultModel}
-                          className="font-semibold text-slate-900"
-                        />
+                        <>
+                          <AgentIdentityName
+                            name={turnAgent?.handle || msg.agentHandle || task.assigneeHandle}
+                            runtime={turnAgent?.runtimeAgent}
+                            model={turnAgent?.defaultModel}
+                            showModel
+                            className="font-semibold text-slate-900"
+                          />
+                          {turnStageLabel && (
+                            <span className="text-[11px] font-medium text-slate-500">
+                              · {turnStageLabel}阶段
+                            </span>
+                          )}
+                        </>
                       )}
                       <span className="text-slate-400 font-mono tabular-nums">{msg.timestamp}</span>
                       {msg.milestoneSynced && (
                         <span className="text-[11px] font-medium text-emerald-700">
-                          · 已同步任务卡至项目群
+                          · 结果已同步项目群
                         </span>
                       )}
                     </div>
 
                     <div
-                      className={`rounded-xl px-4 py-3 text-sm leading-relaxed space-y-3 ${
+                      className={`text-sm leading-relaxed space-y-3 ${
                         isEmployer
-                          ? 'bg-slate-900 text-white'
-                          : 'bg-white text-slate-800 border border-slate-200 w-full'
+                          ? 'rounded-xl px-3.5 py-2.5 bg-slate-100/90 text-slate-900'
+                          : 'w-full pt-0.5 text-slate-800'
                       }`}
                     >
-                      {/* Collapsible Codex/Claude Code Execution Steps BEFORE conclusion */}
+                      {/* Collapsible Codex/Antigravity Execution Trace */}
                       {hasSteps && msg.executionSteps && (
-                        <div className="rounded-lg bg-slate-50 border border-slate-200/80 overflow-hidden">
+                        <div className="space-y-1.5">
                           <button
                             type="button"
                             onClick={() =>
@@ -409,30 +461,28 @@ export function TaskSessionPane({
                                 [msg.id]: isStepsExpanded,
                               }))
                             }
-                            className="w-full px-3 py-1.5 flex items-center justify-between gap-2 text-[11px] font-medium text-slate-600 hover:bg-slate-100/80 transition-colors cursor-pointer"
+                            className="inline-flex items-center gap-1.5 text-[11px] font-medium text-slate-500 hover:text-slate-900 transition-colors cursor-pointer"
                           >
-                            <span className="inline-flex items-center gap-1.5">
-                              {isStepsExpanded ? (
-                                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-                              ) : (
-                                <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                              )}
-                              <Terminal className="w-3 h-3 text-slate-500" />
-                              <span>
-                                沙箱执行轨迹 · 已完成 {msg.executionSteps.length} 步操作
-                              </span>
+                            {isStepsExpanded ? (
+                              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                            )}
+                            <Terminal className="w-3 h-3 text-slate-400" />
+                            <span>
+                              沙箱执行轨迹 · 已完成 {msg.executionSteps.length} 步操作
                             </span>
-                            <span className="text-[10px] text-slate-400">
+                            <span className="text-[10px] text-slate-400 ml-1">
                               {isStepsExpanded ? '收起' : '展开'}
                             </span>
                           </button>
 
                           {isStepsExpanded && (
-                            <ul className="px-3 py-2 border-t border-slate-200/70 space-y-1.5 bg-white/70">
+                            <ul className="pl-3 ml-1.5 border-l border-slate-200/90 space-y-1 py-0.5">
                               {msg.executionSteps.map((step, stepIdx) => (
                                 <li
                                   key={stepIdx}
-                                  className="flex items-start gap-2 text-xs text-slate-600"
+                                  className="flex items-start gap-2 text-xs text-slate-500"
                                 >
                                   <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
                                   <span>{step}</span>
@@ -490,7 +540,7 @@ export function TaskSessionPane({
                           <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
                             <div className="text-[11px] font-semibold text-blue-700">
                               {msg.awaitingConfirmation
-                                ? 'Agent 等待你的决策确认（点击直接发送回复）'
+                                ? '当前阶段专家等待确认（点击直接回复）'
                                 : '快捷后续操作'}
                             </div>
                             <div className="flex flex-wrap gap-1.5">
@@ -517,9 +567,9 @@ export function TaskSessionPane({
             {isBusy && (
               <div className="text-xs text-slate-500 pl-11">
                 {formatAgentDisplayName(
-                  agent?.handle || task.assigneeHandle,
-                  agent?.runtimeAgent,
-                  agent?.defaultModel,
+                  effectiveTargetAgent?.handle || task.assigneeHandle,
+                  effectiveTargetAgent?.runtimeAgent,
+                  effectiveTargetAgent?.defaultModel,
                 )}{' '}
                 正在独立沙箱中执行本轮指令...
               </div>
@@ -542,8 +592,8 @@ export function TaskSessionPane({
           </div>
         </div>
 
-        {/* Bottom Single-Agent Task Composer */}
-        <div className="shrink-0 border-t border-slate-200 bg-white px-4 sm:px-8 py-3">
+        {/* Bottom Claude Code / Codex-Style Composer: Inline Specialist Selector (No @ Mentions) */}
+        <div className="shrink-0 border-t border-slate-200/80 bg-white px-4 sm:px-8 py-3">
           <div className="max-w-3xl mx-auto space-y-2">
             {isReadOnly && (
               <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-3.5 py-2 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
@@ -566,73 +616,32 @@ export function TaskSessionPane({
               </div>
             )}
 
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                {quickDirectives.map((q, idx) => (
-                  <button
-                    key={idx}
-                    type="button"
-                    disabled={isBusy || isReadOnly}
-                    onClick={() => {
-                      setDraft(q);
-                      inputRef.current?.focus();
-                    }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200/70 text-[11px] font-medium text-slate-700 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-                  >
-                    <Sparkles className="w-3 h-3 text-slate-400" />
-                    <span>{q}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-1.5 shrink-0">
-                {task.status === 'pending' && (
-                  <button
-                    type="button"
-                    disabled={isExecuting || isBusy || isReadOnly}
-                    onClick={() => void onRunTask(task.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-blue-600 hover:bg-blue-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    <Play className="w-3 h-3" />
-                    <span>{isExecuting ? '执行中...' : '一键自主执行'}</span>
-                  </button>
-                )}
-
-                {task.status === 'review' && (
-                  <button
-                    type="button"
-                    disabled={isReadOnly}
-                    onClick={() => onApproveTask(task.id)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
-                  >
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>验证通过并回写群聊</span>
-                  </button>
-                )}
-
+            {/* Stage-Aware Quick Directives */}
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              {quickDirectives.map((q, idx) => (
                 <button
+                  key={idx}
                   type="button"
-                  disabled={isReadOnly}
-                  onClick={() => onSyncSummaryToGroup(task.id)}
-                  title={
-                    isReadOnly
-                      ? '项目已只读锁定'
-                      : '将当前任务 Session 阶段结论以任务卡片形式同步到所属项目群'
-                  }
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-medium text-slate-700 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+                  disabled={isBusy || isReadOnly}
+                  onClick={() => {
+                    setDraft(q);
+                    inputRef.current?.focus();
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100/80 hover:bg-slate-200/70 text-[11px] font-medium text-slate-600 hover:text-slate-900 whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                 >
-                  <Share2 className="w-3 h-3 text-slate-500" />
-                  <span>同步结论到项目群</span>
+                  <Sparkles className="w-3 h-3 text-slate-400" />
+                  <span>{q}</span>
                 </button>
-              </div>
+              ))}
             </div>
 
+            {/* Unified Codex / Claude Code Composer Box */}
             <form
               onSubmit={handleSubmit}
-              className={`rounded-xl border border-slate-300 bg-slate-50/60 transition-all flex items-end gap-2 p-2 ${
+              className={`rounded-xl border border-slate-300 bg-slate-50/50 transition-all ${
                 isReadOnly
                   ? 'opacity-65'
-                  : 'focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15'
+                  : 'focus-within:bg-white focus-within:border-slate-900 focus-within:ring-2 focus-within:ring-slate-900/10'
               }`}
             >
               <textarea
@@ -646,311 +655,87 @@ export function TaskSessionPane({
                   isReadOnly
                     ? '所属项目已结项/归档，当前仅支持只读查阅。重新激活项目后可继续指令协作。'
                     : `向 ${formatAgentDisplayName(
-                        agent?.handle || task.assigneeHandle,
-                        agent?.runtimeAgent,
-                        agent?.defaultModel,
-                      )} 发送本任务指令、确认边界或要求修正...`
+                        effectiveTargetAgent?.handle || task.assigneeHandle,
+                        effectiveTargetAgent?.runtimeAgent,
+                        effectiveTargetAgent?.defaultModel,
+                      )} 下达本任务指令、确认边界或要求修正...（Enter 发送）`
                 }
-                className="flex-1 min-w-0 bg-transparent px-2 py-1 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
+                className="w-full bg-transparent px-3.5 pt-3 pb-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
               />
-              <button
-                type="submit"
-                disabled={isBusy || isReadOnly || !draft.trim()}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{isBusy ? '执行中...' : '发送指令'}</span>
-              </button>
+
+              {/* Composer Footer Bar: Left = Inline Agent Specialist Selector; Right = Utility + Send */}
+              <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <TaskAgentSelector
+                    stageAgents={workflow.stageAgents}
+                    currentStage={workflow.currentStage}
+                    extraWorkspaceAgents={extraWorkspaceAgents}
+                    activeStageAgent={activeStageAgent}
+                    selectedTargetAgentId={selectedTargetAgentId}
+                    disabled={isReadOnly}
+                    onSelectAgent={handleSelectTargetAgent}
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {task.status === 'pending' && (
+                    <button
+                      type="button"
+                      disabled={isExecuting || isBusy || isReadOnly}
+                      onClick={() => void onRunTask(task.id)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <Play className="w-3 h-3" />
+                      <span>{isExecuting ? '执行中...' : '自主执行'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={isReadOnly}
+                    onClick={() => onSyncSummaryToGroup(task.id)}
+                    title={
+                      isReadOnly
+                        ? '项目已只读锁定'
+                        : '将本阶段执行结果同步至所属项目群'
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 text-xs font-medium cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap"
+                  >
+                    <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="hidden sm:inline">同步结果到群</span>
+                  </button>
+
+                  <button
+                    type="submit"
+                    disabled={isBusy || isReadOnly || !draft.trim()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{isBusy ? '执行中...' : '发送指令'}</span>
+                  </button>
+                </div>
+              </div>
             </form>
           </div>
         </div>
       </div>
 
-      {/* Right Dual-Dimension Navigation Rail: Aggregated by Agent (Cross-Project) vs. Same Project */}
+      {/* Right Rail: Artifacts / Deliverables + Participating Specialist Agents */}
       {panelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
-          {/* Dual-Dimension Tab Switcher */}
-          <div className="p-3 border-b border-slate-200 bg-white shrink-0 space-y-2.5">
-            <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
-              <button
-                type="button"
-                onClick={() => setRailTab('agent_tasks')}
-                className={`py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                  railTab === 'agent_tasks'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                该 Agent 任务 ({agentAggregatedTasks.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setRailTab('project_tasks')}
-                className={`py-1.5 px-2 text-xs font-semibold rounded-md transition-colors cursor-pointer whitespace-nowrap ${
-                  railTab === 'project_tasks'
-                    ? 'bg-white text-slate-900 shadow-2xs'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                本项目任务 ({siblingTasks.length})
-              </button>
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto clean-scroll p-3.5 space-y-4">
-            {/* Compact Deliverable & Status Card */}
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-900">当前任务产物</span>
-                <WorkStatusBadge status={task.status} executing={isExecuting} />
-              </div>
-              {task.deliverableArtifact ? (
-                <div className="flex items-center gap-1.5 text-xs font-mono text-blue-700 truncate">
-                  <FileCode2 className="w-3.5 h-3.5 shrink-0" />
-                  <span className="truncate">{task.deliverableArtifact}</span>
-                </div>
-              ) : (
-                <div className="text-xs text-slate-400">尚未产出归档文件，执行后自动更新</div>
-              )}
-              {task.deliverableSummary && (
-                <p className="text-[11px] text-slate-600 leading-relaxed">
-                  {task.deliverableSummary}
-                </p>
-              )}
-              {isWaitingReply && (
-                <div className="text-[11px] font-semibold text-blue-700">
-                  状态：专家正在等待你的本轮确认回复
-                </div>
-              )}
-            </div>
-
-            {railTab === 'agent_tasks' ? (
-              /* Dimension 1: All cross-project sessions aggregated on THIS specific Agent */
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between gap-2 px-0.5">
-                  <div className="min-w-0">
-                    <div className="text-xs font-bold text-slate-900 flex items-center gap-1 min-w-0">
-                      <AgentIdentityName
-                        name={agent?.handle || task.assigneeHandle}
-                        runtime={agent?.runtimeAgent}
-                        model={agent?.defaultModel}
-                        className="text-xs font-bold text-slate-900"
-                      />
-                      <span className="shrink-0">跨项目汇聚</span>
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      共 {distinctAgentProjectCount} 个项目 · {agentAggregatedTasks.length} 个任务 Session
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setShowNewSession(true)}
-                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap bg-white border border-slate-200 hover:bg-slate-100 text-slate-700"
-                  >
-                    <Plus className="w-3 h-3" />
-                    <span>新任务</span>
-                  </button>
-                </div>
-
-                {/* New Task Session Modal for this Agent */}
-                <ModalShell
-                  open={showNewSession}
-                  onClose={() => setShowNewSession(false)}
-                  icon={<Plus className="w-4 h-4 text-blue-600" />}
-                  title={`向 ${formatAgentDisplayName(
-                    agent?.handle || task.assigneeHandle,
-                    agent?.runtimeAgent,
-                    agent?.defaultModel,
-                  )} 新派任务`}
-                  subtitle="创建后自动生成看板卡片并切入该任务会话"
-                  maxWidthClass="max-w-md"
-                  onSubmit={handleCreateAgentTask}
-                  footer={
-                    <>
-                      <span className="text-[11px] text-slate-500">同步绑定至所选项目</span>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => setShowNewSession(false)}
-                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                        >
-                          取消
-                        </button>
-                        <button
-                          type="submit"
-                          className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                        >
-                          创建并进入任务对话
-                        </button>
-                      </div>
-                    </>
-                  }
-                >
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-700">来源项目</label>
-                      <select
-                        value={newTaskProjectId}
-                        onChange={(e) => setNewTaskProjectId(e.target.value)}
-                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
-                      >
-                        {workspaces.map((w) => (
-                          <option key={w.id} value={w.id}>
-                            {w.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-700">任务类型</label>
-                      <select
-                        value={newTaskType}
-                        onChange={(e) => setNewTaskType(e.target.value as WorkCardType)}
-                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
-                      >
-                        <option value="development">功能开发</option>
-                        <option value="planning">产品策划</option>
-                        <option value="testing">功能测试</option>
-                        <option value="review">架构评审</option>
-                      </select>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs font-semibold text-slate-700">任务标题 *</label>
-                      <input
-                        type="text"
-                        required
-                        autoFocus
-                        value={newTaskTitle}
-                        onChange={(e) => setNewTaskTitle(e.target.value)}
-                        placeholder="输入任务标题，立即开启 Session..."
-                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                      />
-                    </div>
-                  </div>
-                </ModalShell>
-
-                <div className="space-y-1.5">
-                  {agentAggregatedTasks.map((t) => {
-                    const active = t.id === task.id;
-                    const tWs = workspaceMap.get(t.sessionId);
-                    const tSt = WORK_STATUS_META[t.status];
-                    const tMsgs = allTaskSessions[t.id] || [];
-                    const tWait = Boolean(
-                      t.status !== 'done' && tMsgs[tMsgs.length - 1]?.awaitingConfirmation,
-                    );
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => onSelectTaskSession(t.id)}
-                        className={`w-full text-left p-2.5 rounded-lg border transition-colors cursor-pointer space-y-1 ${
-                          active
-                            ? 'bg-slate-900 border-slate-900 text-white'
-                            : 'bg-white border-slate-200 hover:border-slate-300 text-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
-                          <span
-                            className={`inline-flex items-center gap-1 truncate ${
-                              active ? 'text-slate-300' : 'text-slate-500'
-                            }`}
-                          >
-                            <FolderKanban className="w-3 h-3 shrink-0" />
-                            <span className="truncate">{tWs?.name || '项目'}</span>
-                          </span>
-                          <span
-                            className={`font-semibold shrink-0 whitespace-nowrap ${
-                              active
-                                ? 'text-sky-300'
-                                : tWait
-                                  ? 'text-blue-700'
-                                  : tSt.textCls
-                            }`}
-                          >
-                            {tWait ? '待确认' : tSt.label}
-                          </span>
-                        </div>
-                        <div className="text-xs font-semibold truncate">{t.title}</div>
-                        <div
-                          className={`text-[10px] font-mono tabular-nums flex items-center justify-between ${
-                            active ? 'text-slate-400' : 'text-slate-400'
-                          }`}
-                        >
-                          <span>#{t.id} · {WORK_TYPE_LABELS[t.workType]}</span>
-                          <span>{tMsgs.length} 轮</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              /* Dimension 2: Sibling Task Cards within the Same Source Project */
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between px-0.5 text-xs">
-                  <span className="font-bold text-slate-900 truncate">{workspace.name}</span>
-                  <button
-                    type="button"
-                    onClick={() => onBackToGroup(workspace.id)}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer shrink-0 whitespace-nowrap"
-                  >
-                    <MessageSquare className="w-3 h-3" />
-                    <span>回项目群</span>
-                  </button>
-                </div>
-
-                <div className="space-y-1.5">
-                  {siblingTasks.map((t) => {
-                    const active = t.id === task.id;
-                    const tSt = WORK_STATUS_META[t.status];
-                    const tMsgs = allTaskSessions[t.id] || [];
-                    const tWait = Boolean(
-                      t.status !== 'done' && tMsgs[tMsgs.length - 1]?.awaitingConfirmation,
-                    );
-                    const siblingAgent = agents.find((a) => a.id === t.assigneeId);
-
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => onSelectTaskSession(t.id)}
-                        className={`w-full text-left p-2.5 rounded-lg border transition-colors cursor-pointer space-y-1 ${
-                          active
-                            ? 'bg-slate-900 border-slate-900 text-white'
-                            : 'bg-white border-slate-200 hover:border-slate-300 text-slate-800'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2 text-[11px]">
-                          <AgentIdentityName
-                            name={t.assigneeHandle}
-                            runtime={siblingAgent?.runtimeAgent}
-                            model={siblingAgent?.defaultModel}
-                            inverted={active}
-                            className={
-                              active ? 'text-slate-200 font-medium' : 'text-slate-700 font-medium'
-                            }
-                          />
-                          <span
-                            className={`font-semibold shrink-0 whitespace-nowrap ${
-                              active
-                                ? 'text-sky-300'
-                                : tWait
-                                  ? 'text-blue-700'
-                                  : tSt.textCls
-                            }`}
-                          >
-                            {tWait ? '待确认' : tSt.label}
-                          </span>
-                        </div>
-                        <div className="text-xs font-semibold truncate">{t.title}</div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </aside>
+        <TaskSessionInspectorRail
+          task={task}
+          workspace={workspace}
+          stageAgents={workflow.stageAgents}
+          currentStage={workflow.currentStage}
+          participants={workflow.participants}
+          messages={messages}
+          agentMap={agentMap}
+          effectiveTargetAgentId={effectiveTargetAgent?.id || null}
+          isExecuting={isExecuting}
+          isReadOnly={isReadOnly}
+          onSelectTargetAgent={handleSelectTargetAgent}
+          onBackToGroup={onBackToGroup}
+        />
       )}
     </div>
   );

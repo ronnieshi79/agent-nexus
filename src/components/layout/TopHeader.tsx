@@ -60,17 +60,15 @@ export function TopbarProjectSelector({
         aria-label={ariaLabel}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`inline-flex items-center justify-between gap-2 h-9 pl-2 pr-2.5 rounded-lg border text-left transition-colors cursor-pointer ${
+        className={`inline-flex items-center justify-between gap-2 h-8 pl-2 pr-2 rounded-md border text-left transition-colors cursor-pointer ${
           open
-            ? 'bg-white border-slate-900 ring-2 ring-slate-900/10'
-            : 'bg-slate-50/80 border-slate-200 hover:border-slate-300 hover:bg-slate-100/70'
+            ? 'bg-slate-100 border-slate-300'
+            : 'bg-transparent border-transparent hover:bg-slate-100/80 hover:border-slate-200/80'
         }`}
       >
         <div className="flex items-center gap-2 min-w-0">
-          <span className="w-5 h-5 rounded bg-blue-600 text-white inline-flex items-center justify-center shrink-0">
-            <FolderKanban className="w-3 h-3" />
-          </span>
-          <span className="text-[13px] font-bold text-slate-900 whitespace-nowrap truncate max-w-[150px] sm:max-w-[240px]">
+          <FolderKanban className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+          <span className="text-[13px] font-semibold text-slate-900 whitespace-nowrap truncate max-w-[160px] sm:max-w-[240px]">
             {activeOpt.label}
           </span>
           {activeOpt.hint && (
@@ -161,7 +159,7 @@ export function TopHeader({
 }: TopHeaderProps) {
   return (
     <header
-      className={`h-14 shrink-0 bg-white border-b border-slate-200 ${WORKSPACE_GUTTER_CLASS} flex sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center justify-between gap-3 relative z-30`}
+      className={`h-12 shrink-0 bg-white border-b border-slate-200/80 ${WORKSPACE_GUTTER_CLASS} flex sm:grid sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center justify-between gap-3 relative z-30`}
     >
       {/* Left Zone: Mobile Toggle + Sidebar Expand + Unified 1st-Level Navigation */}
       <div className="flex items-center gap-2.5 min-w-0">

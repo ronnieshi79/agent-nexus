@@ -55,6 +55,11 @@ import {
   syncSlotsFromAssignments,
   type TaskTemplatePackId,
 } from '../utils/pipelineSync';
+import {
+  STAGE_LABEL_MAP,
+  getTaskCurrentStage,
+  resolveTaskWorkflowTeam,
+} from '../utils/taskWorkflow';
 import type {
   ActiveChatChannel,
   ActiveWorkflowStage,
@@ -3156,116 +3161,8 @@ export function useAgentNexusStore() {
     [activeZone.id, agents, zones],
   );
 
-  const sendGroupMessage = useCallback(
-    async (text: string) => {
-      const trimmed = text.trim();
-      if (!trimmed) return;
-      if (isWorkspaceReadOnly(activeWorkspace)) {
-        setAiError('该项目已完成或归档，请先重新激活项目后再发起群聊协作。');
-        return;
-      }
-      setAiError(null);
+  // (sendGroupMessage defined right after updateTaskStatus to support @-driven workflow advancement)
 
-      const userMsgId = `msg_user_${Date.now()}`;
-      const userMsg: ChatMessage = {
-        id: userMsgId,
-        sessionId: activeWorkspace.id,
-        senderType: 'employer',
-        senderId: 'employer',
-        senderName: '我（项目负责人）',
-        senderHandle: '@指挥官',
-        content: trimmed,
-        timestamp: nowTimeStr(),
-      };
-
-      const nextSessionMessages = [...sessionMessages, userMsg];
-      setAllMessages((prev) => [...prev, userMsg]);
-      setIsAiBusy(true);
-
-      const curAssignments = projectAgentAssignments[activeWorkspace.id] || [];
-      const curTaskTypes = projectTaskTypes[activeWorkspace.id] || DEFAULT_PROJECT_TASK_TYPES;
-
-      try {
-        const result = await orchestrateGroupChat({
-          message: trimmed,
-          workspace: activeWorkspace,
-          hiredAgents,
-          projectAssignments: curAssignments,
-          projectTaskTypes: curTaskTypes,
-          recentMessages: nextSessionMessages,
-          existingTasks: sessionTasks,
-        });
-
-        const ts = nowTimeStr();
-        const validTypes = new Set<WorkCardType>(['planning', 'development', 'testing', 'review']);
-        const planningFallback = pickLoadBalancedStageAgent(
-          activeWorkspace.id,
-          'planning',
-          undefined,
-          curAssignments,
-          agents,
-          allTasks,
-        );
-        const createdTasks: WorkflowTask[] = (result.newTasks || []).map((nt, idx) => {
-          const validAssignee =
-            hiredAgents.find((a) => a.id === nt.assigneeId) ||
-            planningFallback ||
-            hiredAgents[0];
-          const wType: WorkCardType = validTypes.has(nt.workType) ? nt.workType : 'development';
-          return {
-            id: `tsk_${Date.now().toString().slice(-4)}_${idx + 1}`,
-            sessionId: activeWorkspace.id,
-            featureModule: nt.featureModule?.trim() || `${activeWorkspace.name} · 核心模块`,
-            workType: wType,
-            title: nt.title,
-            description: nt.description,
-            assigneeId: validAssignee ? validAssignee.id : 'butler',
-            assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Nexa',
-            status: 'pending',
-            priority: nt.priority === '高' || nt.priority === '低' ? nt.priority : '中',
-            createdAt: ts,
-            updatedAt: ts,
-            sourceMessageId: userMsgId,
-          };
-        });
-
-        if (createdTasks.length > 0) {
-          setAllTasks((prev) => [...createdTasks, ...prev]);
-        }
-
-        const aiReplies: ChatMessage[] = (result.replies || []).map((r, idx) => ({
-          id: `msg_ai_${Date.now()}_${idx}`,
-          sessionId: activeWorkspace.id,
-          senderType: r.senderType === 'butler' ? 'butler' : 'agent',
-          senderId: r.senderId,
-          senderName: r.senderName,
-          senderHandle: r.senderHandle,
-          content: r.content,
-          timestamp: ts,
-          linkedTaskIds:
-            idx === result.replies.length - 1 ? createdTasks.map((t) => t.id) : undefined,
-        }));
-
-        if (aiReplies.length > 0) {
-          setAllMessages((prev) => [...prev, ...aiReplies]);
-        }
-      } catch (err) {
-        setAiError(err instanceof Error ? err.message : '群聊智能体响应失败');
-      } finally {
-        setIsAiBusy(false);
-      }
-    },
-    [
-      activeWorkspace,
-      agents,
-      allTasks,
-      hiredAgents,
-      projectAgentAssignments,
-      projectTaskTypes,
-      sessionMessages,
-      sessionTasks,
-    ],
-  );
 
   const updateTaskStatus = useCallback(
     (taskId: string, nextStatus: TaskStatus) => {
@@ -3274,27 +3171,34 @@ export function useAgentNexusStore() {
       const proj = workspaces.find((w) => w.id === target.sessionId);
       if (isWorkspaceReadOnly(proj)) return;
       const ts = nowTimeStr();
+      const fromStage = getTaskCurrentStage(target.status);
       const targetStage = STATUS_TO_STAGE[nextStatus];
       const stageMeta = getPipelineStageMetaByStatus(nextStatus);
       const assignments = projectAgentAssignments[target.sessionId] || [];
       const slots = projectPipelines[target.sessionId] || getDefaultProjectPipelineSlots();
       const targetSlot = slots.find((s) => s.stage === targetStage);
+      const workflowTeam = resolveTaskWorkflowTeam(target, proj, agents, assignments, slots);
 
       let targetStageAgent: ExpertAgent | undefined;
       const activeTargetStage = mapStatusToActiveStage(nextStatus);
       if (activeTargetStage) {
-        const balanced = pickLoadBalancedStageAgent(
-          target.sessionId,
-          activeTargetStage,
-          target.assigneeId,
-          assignments,
-          agents,
-          allTasks,
-        );
-        if (balanced) {
-          targetStageAgent = balanced;
-        } else if (targetSlot?.agentId) {
-          targetStageAgent = agents.find((a) => a.id === targetSlot.agentId);
+        const mappedStageAgent = workflowTeam.stageAgents[activeTargetStage];
+        if (mappedStageAgent) {
+          targetStageAgent = mappedStageAgent;
+        } else {
+          const balanced = pickLoadBalancedStageAgent(
+            target.sessionId,
+            activeTargetStage,
+            target.assigneeId,
+            assignments,
+            agents,
+            allTasks,
+          );
+          if (balanced) {
+            targetStageAgent = balanced;
+          } else if (targetSlot?.agentId) {
+            targetStageAgent = agents.find((a) => a.id === targetSlot.agentId);
+          }
         }
       }
 
@@ -3334,16 +3238,20 @@ export function useAgentNexusStore() {
             ts,
           );
         }
+        const verifierAgent =
+          workflowTeam.stageAgents.testing || agents.find((a) => a.id === nextAssigneeId);
         setAllMessages((prev) => [
           ...prev,
           {
             id: `msg_approve_${Date.now()}`,
             sessionId: target.sessionId,
-            senderType: 'system',
-            senderId: 'system',
-            senderName: '项目看板同步',
-            senderHandle: '任务编排',
-            content: `任务卡片「${target.title}」（${nextAssigneeHandle}）已通过验证并归档至「已完成」，任务编排进度已同步更新。`,
+            senderType: 'agent',
+            senderId: verifierAgent?.id || nextAssigneeId,
+            senderName: verifierAgent?.name || nextAssigneeHandle,
+            senderHandle: verifierAgent?.handle || nextAssigneeHandle,
+            content: `已完成「${target.title}」验收核查并归档交付物${
+              updatedTask.deliverableArtifact ? `（${updatedTask.deliverableArtifact}）` : ''
+            }，任务状态已更新为「已完成」。`,
             timestamp: ts,
             linkedTaskIds: [taskId],
           },
@@ -3353,12 +3261,15 @@ export function useAgentNexusStore() {
           return {
             ...prev,
             [taskId]: [
-              ...existing,
+              ...existing.map((m) =>
+                m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m,
+              ),
               {
                 id: `tsm_done_${Date.now()}`,
                 taskId,
                 sender: 'system',
-                content: `「${target.title}」已验证通过并流转至「已完成」，产物归档完成，结论已自动摘要回写至项目群聊。`,
+                workflowStage: 'testing',
+                content: `「${target.title}」已验证通过并流转至「已完成」，产物归档完成，结论已同步至项目群卡片。`,
                 timestamp: ts,
                 milestoneSynced: true,
               },
@@ -3377,13 +3288,101 @@ export function useAgentNexusStore() {
           ...prev,
         ]);
       } else {
+        if (activeTargetStage && activeTargetStage !== fromStage) {
+          const toLabel = STAGE_LABEL_MAP[activeTargetStage];
+          const fromLabel = STAGE_LABEL_MAP[fromStage];
+          const nextAgentObj = targetStageAgent || agents.find((a) => a.id === nextAssigneeId);
+          const nextAgentName = nextAgentObj
+            ? formatAgentDisplayName(
+                nextAgentObj.handle,
+                nextAgentObj.runtimeAgent,
+                nextAgentObj.defaultModel,
+              )
+            : nextAssigneeHandle;
+
+          setTaskSessions((prev) => {
+            const existing = (prev[taskId] || []).map((m) =>
+              m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m,
+            );
+            const handoffMsg: TaskSessionMessage = {
+              id: `tsm_ho_${Date.now()}`,
+              taskId,
+              sender: 'system',
+              workflowStage: activeTargetStage,
+              handoff: {
+                fromStage,
+                toStage: activeTargetStage,
+                fromAgentId: target.assigneeId,
+                toAgentId: nextAssigneeId,
+              },
+              content: `${fromLabel}阶段已确认，交棒给 ${nextAgentName} 进入${toLabel}阶段`,
+              timestamp: ts,
+            };
+            const pickupMsg: TaskSessionMessage = {
+              id: `tsm_pk_${Date.now() + 1}`,
+              taskId,
+              sender: 'agent',
+              agentId: nextAssigneeId,
+              agentHandle: nextAssigneeHandle,
+              workflowStage: activeTargetStage,
+              content:
+                activeTargetStage === 'development'
+                  ? `已接棒「${fromLabel}」阶段产出并进入执行。我将围绕任务目标「${target.title}」落地实现与单测，如有额外约束请直接告诉我，或点击下方快捷指令开始执行。`
+                  : activeTargetStage === 'testing'
+                    ? `已接棒「${fromLabel}」阶段交付物进入验收。我将核验核心边界、回归用例与代码质量，如需重点关注某项风险可以直接指示，或确认后放行结项。`
+                    : `已切回「${toLabel}」阶段，请说明需要补充或调整的规划边界。`,
+              timestamp: ts,
+              suggestedActions:
+                activeTargetStage === 'development'
+                  ? ['按计划规格直接开始实现并产出初版代码', '先确认核心接口签名与异常处理边界']
+                  : activeTargetStage === 'testing'
+                    ? ['执行边界审查并输出验收结论', '直接验收通过并归档任务']
+                    : ['重新梳理任务范围与验收标准'],
+              awaitingConfirmation: true,
+            };
+            return {
+              ...prev,
+              [taskId]: [...existing, handoffMsg, pickupMsg],
+            };
+          });
+
+          // Broadcast concise stage execution result & status change to the Project Group Chat from the finishing specialist
+          const prevStageAgent =
+            workflowTeam.stageAgents[fromStage] ||
+            agents.find((a) => a.id === target.assigneeId) ||
+            nextAgentObj;
+          const groupStageResult =
+            activeTargetStage === 'development'
+              ? `已完成「${target.title}」计划拆解与边界确认，状态推进至「执行中」，已交棒 ${nextAssigneeHandle} 进入实现。`
+              : activeTargetStage === 'testing'
+                ? `已完成「${target.title}」核心实现与自测${
+                    updatedTask.deliverableArtifact ? `（产物：${updatedTask.deliverableArtifact}）` : ''
+                  }，状态推进至「待验收」，已交棒 ${nextAssigneeHandle} 复核。`
+                : `已将「${target.title}」调整至「${toLabel}」阶段，当前由 ${nextAssigneeHandle} 负责跟进。`;
+
+          setAllMessages((prev) => [
+            ...prev,
+            {
+              id: `msg_stage_${Date.now()}`,
+              sessionId: target.sessionId,
+              senderType: 'agent',
+              senderId: prevStageAgent?.id || target.assigneeId,
+              senderName: prevStageAgent?.name || target.assigneeHandle,
+              senderHandle: prevStageAgent?.handle || target.assigneeHandle,
+              content: groupStageResult,
+              timestamp: ts,
+              linkedTaskIds: [taskId],
+            },
+          ]);
+        }
+
         setAuditLogs((prev) => [
           {
             id: `aud_sync_${Date.now()}`,
             category: 'audit',
             title: `任务流转至「${stageMeta.label}」`,
             detail: `${proj?.name || '项目'} · 「${target.title}」已进入「${TASK_STATUS_LABEL_MAP[nextStatus]}」${
-              shouldReassign ? `，已按负载均衡交接给阶段专业 Agent ${nextAssigneeHandle}` : ''
+              shouldReassign ? `，已交棒给阶段专业 Agent ${nextAssigneeHandle}` : ''
             }，任务编排阶段进度已实时同步。`,
             severity: 'info',
             timestamp: ts,
@@ -3402,11 +3401,253 @@ export function useAgentNexusStore() {
     ],
   );
 
+  const sendGroupMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+      if (isWorkspaceReadOnly(activeWorkspace)) {
+        setAiError('该项目已完成或归档，请先重新激活项目后再发起群聊协作。');
+        return;
+      }
+      setAiError(null);
+
+      const userTs = nowTimeStr();
+      const userMsgId = `msg_user_${Date.now()}`;
+      const userMsg: ChatMessage = {
+        id: userMsgId,
+        sessionId: activeWorkspace.id,
+        senderType: 'employer',
+        senderId: 'employer',
+        senderName: account?.name || '我（项目负责人）',
+        senderHandle: account ? `@${account.name}` : '@指挥官',
+        content: trimmed,
+        timestamp: userTs,
+      };
+
+      const nextSessionMessages = [...sessionMessages, userMsg];
+      setAllMessages((prev) => [...prev, userMsg]);
+
+      const curAssignments = projectAgentAssignments[activeWorkspace.id] || [];
+      const curSlots = projectPipelines[activeWorkspace.id] || getDefaultProjectPipelineSlots();
+      const curTaskTypes = projectTaskTypes[activeWorkspace.id] || DEFAULT_PROJECT_TASK_TYPES;
+
+      // Support human @-driven workflow progression right inside Project Group Chat
+      const wantsCreateNew = /新增|新建|拆解|拆成|创建新/.test(trimmed);
+      const wantsApprove = /验收通过|确认通过|验证通过|放行归档|放行验收|确认归档/.test(trimmed);
+      const wantsReview = /提交验收|进入验收|去验收|开始验收|复核|评审/.test(trimmed);
+      const wantsExecute = /交棒|接棒|进入执行|开始执行|开始开发|推进|开干|自动接力|自动推进/.test(
+        trimmed,
+      );
+      const mentionedAgent = agents.find(
+        (a) =>
+          trimmed.includes(a.handle) ||
+          trimmed.includes(`@${a.handle.replace(/^@/, '')}`),
+      );
+
+      if (!wantsCreateNew && (wantsApprove || wantsReview || wantsExecute)) {
+        const nonDoneTasks = sessionTasks.filter((t) => t.status !== 'done');
+        const explicitlyReferenced = nonDoneTasks.find(
+          (t) =>
+            trimmed.includes(t.id) ||
+            trimmed.includes(`#${t.id}`) ||
+            (t.title.length >= 4 && trimmed.includes(t.title.slice(0, 6))),
+        );
+
+        let targetTask = explicitlyReferenced;
+        if (!targetTask) {
+          if (wantsApprove) {
+            targetTask = nonDoneTasks.find((t) => t.status === 'review');
+          } else if (wantsReview) {
+            targetTask =
+              nonDoneTasks.find((t) => t.status === 'in_progress') ||
+              nonDoneTasks.find((t) => t.status === 'pending');
+          } else if (wantsExecute) {
+            targetTask =
+              nonDoneTasks.find((t) => t.status === 'pending') ||
+              nonDoneTasks.find((t) => t.status === 'in_progress') ||
+              nonDoneTasks.find((t) => t.status === 'review');
+          }
+        }
+
+        if (targetTask) {
+          let nextStatus: TaskStatus | null = null;
+          if (wantsApprove && targetTask.status === 'review') {
+            nextStatus = 'done';
+          } else if (wantsReview && targetTask.status !== 'review') {
+            nextStatus = 'review';
+          } else if (wantsExecute) {
+            if (targetTask.status === 'pending') nextStatus = 'in_progress';
+            else if (targetTask.status === 'in_progress') nextStatus = 'review';
+            else if (targetTask.status === 'review') nextStatus = 'done';
+          }
+
+          if (nextStatus && nextStatus !== targetTask.status) {
+            const targetId = targetTask.id;
+            setTaskSessions((prev) => ({
+              ...prev,
+              [targetId]: [
+                ...(prev[targetId] || []),
+                {
+                  id: `tsm_grp_u_${Date.now()}`,
+                  taskId: targetId,
+                  sender: 'employer',
+                  workflowStage: getTaskCurrentStage(targetTask!.status),
+                  content: `【来自项目群指令】${trimmed}`,
+                  timestamp: userTs,
+                },
+              ],
+            }));
+            updateTaskStatus(targetId, nextStatus);
+            return;
+          }
+        }
+      }
+
+      setIsAiBusy(true);
+
+      try {
+        const result = await orchestrateGroupChat({
+          message: trimmed,
+          workspace: activeWorkspace,
+          hiredAgents,
+          projectAssignments: curAssignments,
+          projectTaskTypes: curTaskTypes,
+          recentMessages: nextSessionMessages,
+          existingTasks: sessionTasks,
+        });
+
+        const ts = nowTimeStr();
+        const validTypes = new Set<WorkCardType>(['planning', 'development', 'testing', 'review']);
+        const planningFallback = pickLoadBalancedStageAgent(
+          activeWorkspace.id,
+          'planning',
+          undefined,
+          curAssignments,
+          agents,
+          allTasks,
+        );
+        const createdTasks: WorkflowTask[] = (result.newTasks || []).map((nt, idx) => {
+          const validAssignee =
+            hiredAgents.find((a) => a.id === nt.assigneeId) ||
+            mentionedAgent ||
+            planningFallback ||
+            hiredAgents[0];
+          const wType: WorkCardType = validTypes.has(nt.workType) ? nt.workType : 'development';
+          const draftTask: WorkflowTask = {
+            id: `tsk_${Date.now().toString().slice(-4)}_${idx + 1}`,
+            sessionId: activeWorkspace.id,
+            featureModule: nt.featureModule?.trim() || `${activeWorkspace.name} · 核心模块`,
+            workType: wType,
+            title: nt.title,
+            description: nt.description,
+            assigneeId: validAssignee ? validAssignee.id : 'butler',
+            assigneeHandle: validAssignee ? validAssignee.handle : nt.assigneeHandle || '@Nexa',
+            status: 'pending',
+            priority: nt.priority === '高' || nt.priority === '低' ? nt.priority : '中',
+            createdAt: ts,
+            updatedAt: ts,
+            sourceMessageId: userMsgId,
+          };
+          const wf = resolveTaskWorkflowTeam(
+            draftTask,
+            activeWorkspace,
+            agents,
+            curAssignments,
+            curSlots,
+          );
+          return {
+            ...draftTask,
+            stageAgents: {
+              planning: wf.stageAgents.planning?.id,
+              development: wf.stageAgents.development?.id,
+              testing: wf.stageAgents.testing?.id,
+            },
+          };
+        });
+
+        if (createdTasks.length > 0) {
+          setAllTasks((prev) => [...createdTasks, ...prev]);
+          // Seed each new task session with the human's original prompt + starting specialist kickoff
+          setTaskSessions((prev) => {
+            const next = { ...prev };
+            createdTasks.forEach((t, idx) => {
+              const startAgent = agents.find((a) => a.id === t.assigneeId);
+              next[t.id] = [
+                {
+                  id: `tsm_seed_u_${Date.now()}_${idx}`,
+                  taskId: t.id,
+                  sender: 'employer',
+                  workflowStage: 'planning',
+                  content: trimmed,
+                  timestamp: userTs,
+                },
+                {
+                  id: `tsm_seed_a_${Date.now()}_${idx}`,
+                  taskId: t.id,
+                  sender: 'agent',
+                  agentId: startAgent?.id || t.assigneeId,
+                  agentHandle: startAgent?.handle || t.assigneeHandle,
+                  workflowStage: 'planning',
+                  content: `已接收项目群需求并启动「${t.title}」多阶段协作工作流（计划 → 执行 → 验收）。请确认核心边界或直接点击「交棒执行」推进下一步。`,
+                  timestamp: ts,
+                  suggestedActions: [
+                    '确认方案并交棒研发进入执行阶段',
+                    '补充异常边界与验收口径',
+                  ],
+                  awaitingConfirmation: true,
+                },
+              ];
+            });
+            return next;
+          });
+        }
+
+        const aiReplies: ChatMessage[] = (result.replies || []).map((r, idx) => ({
+          id: `msg_ai_${Date.now()}_${idx}`,
+          sessionId: activeWorkspace.id,
+          senderType: r.senderType === 'butler' ? 'butler' : 'agent',
+          senderId: r.senderId,
+          senderName: r.senderName,
+          senderHandle: r.senderHandle,
+          content: r.content,
+          timestamp: ts,
+          linkedTaskIds:
+            idx === result.replies.length - 1 ? createdTasks.map((t) => t.id) : undefined,
+        }));
+
+        if (aiReplies.length > 0) {
+          setAllMessages((prev) => [...prev, ...aiReplies]);
+        }
+      } catch (err) {
+        setAiError(err instanceof Error ? err.message : '群聊智能体响应失败');
+      } finally {
+        setIsAiBusy(false);
+      }
+    },
+    [
+      account,
+      activeWorkspace,
+      agents,
+      allTasks,
+      hiredAgents,
+      projectAgentAssignments,
+      projectPipelines,
+      projectTaskTypes,
+      sessionMessages,
+      sessionTasks,
+      updateTaskStatus,
+    ],
+  );
+
   const openTaskSession = useCallback(
     (taskId: string) => {
       const target = allTasks.find((t) => t.id === taskId);
       if (!target) return;
-      const agent = agents.find((a) => a.id === target.assigneeId);
+      const proj = workspaces.find((w) => w.id === target.sessionId);
+      const assignments = projectAgentAssignments[target.sessionId] || [];
+      const slots = projectPipelines[target.sessionId] || getDefaultProjectPipelineSlots();
+      const workflowTeam = resolveTaskWorkflowTeam(target, proj, agents, assignments, slots);
+      const activeAg = workflowTeam.activeAgent || agents.find((a) => a.id === target.assigneeId);
 
       setTaskSessions((prev) => {
         if (prev[taskId] && prev[taskId].length > 0) return prev;
@@ -3417,11 +3658,14 @@ export function useAgentNexusStore() {
               id: `tsm_init_${Date.now()}`,
               taskId,
               sender: 'agent',
-              content: `已进入 ${agent?.handle || target.assigneeHandle} 的任务执行 Session（#${target.id} · ${target.title}）。本 Session 支持多轮细节确认、代码/方案微调与边界追问，不会刷屏项目群；关键里程碑与验收节点我会自动摘要回写至项目群。请直接告诉我你最关心的约束条件或点击下方快捷选项开工。`,
+              agentId: activeAg?.id || target.assigneeId,
+              agentHandle: activeAg?.handle || target.assigneeHandle,
+              workflowStage: workflowTeam.currentStage,
+              content: `已进入任务「${target.title}」（#${target.id}）的多 Agent 协同工作流。当前处于「${STAGE_LABEL_MAP[workflowTeam.currentStage]}」阶段，由我接棒推进；你可以直接发送指令，或随时 @ 本任务其他阶段专家一起协作，所有过程细节均收敛在本会话内。`,
               timestamp: nowTimeStr(),
               suggestedActions: [
-                '请先输出执行计划与需要确认的边界条件',
-                '按卡片规格直接开始执行并产出初版方案',
+                '请先输出本阶段执行计划与待确认边界',
+                '按任务规格直接开始执行并产出初版方案',
               ],
               awaitingConfirmation: target.status !== 'done',
             },
@@ -3640,18 +3884,39 @@ export function useAgentNexusStore() {
   }, [agents, negotiations, startOrOpenNegotiation]);
 
   const sendTaskSessionTurn = useCallback(
-    async (taskId: string, rawText: string) => {
+    async (taskId: string, rawText: string, targetAgentId?: string) => {
       const cleaned = rawText.trim();
       if (!cleaned) return;
       const task = allTasks.find((t) => t.id === taskId);
       if (!task) return;
 
-      const assignedAgent = agents.find((a) => a.id === task.assigneeId);
       const taskWorkspace = workspaces.find((w) => w.id === task.sessionId) || activeWorkspace;
       if (isWorkspaceReadOnly(taskWorkspace)) {
         setTaskSessionError('该项目已完成或归档，请先重新激活项目后再继续任务会话。');
         return;
       }
+
+      const assignments = projectAgentAssignments[task.sessionId] || [];
+      const slots = projectPipelines[task.sessionId] || getDefaultProjectPipelineSlots();
+      const workflowTeam = resolveTaskWorkflowTeam(task, taskWorkspace, agents, assignments, slots);
+
+      // Route to explicitly selected specialist from Codex-style selector, or fallback to current stage specialist
+      const explicitlySelectedAgent = targetAgentId
+        ? agents.find((a) => a.id === targetAgentId)
+        : undefined;
+      const respondingAgent =
+        explicitlySelectedAgent ||
+        workflowTeam.activeAgent ||
+        agents.find((a) => a.id === task.assigneeId);
+
+      // Determine the workflow stage context for this turn
+      const matchedStage = (['planning', 'development', 'testing'] as ActiveWorkflowStage[]).find(
+        (st) => workflowTeam.stageAgents[st]?.id === respondingAgent?.id,
+      );
+      const turnStage: ActiveWorkflowStage = explicitlySelectedAgent
+        ? matchedStage || workflowTeam.currentStage
+        : workflowTeam.currentStage;
+
       const prevHistory = taskSessions[taskId] || [];
       const ts = nowTimeStr();
 
@@ -3662,6 +3927,7 @@ export function useAgentNexusStore() {
         id: `tsm_u_${Date.now()}`,
         taskId,
         sender: 'employer',
+        workflowStage: turnStage,
         content: cleaned,
         timestamp: ts,
       };
@@ -3677,34 +3943,89 @@ export function useAgentNexusStore() {
         [taskId]: nextHistory,
       }));
 
-      // If task was pending, move to in_progress and emit one concise milestone start broadcast to project group
-      if (task.status === 'pending') {
+      // Build concise team roster context for the backend prompt
+      const workflowTeamSummary = (['planning', 'development', 'testing'] as ActiveWorkflowStage[])
+        .map((st) => {
+          const ag = workflowTeam.stageAgents[st];
+          return ag ? `${STAGE_LABEL_MAP[st]}: ${ag.handle}` : '';
+        })
+        .filter(Boolean)
+        .join(' → ');
+
+      // If user explicitly confirms final acceptance in review stage, complete directly
+      if (
+        task.status === 'review' &&
+        (cleaned.includes('验收通过') || cleaned.includes('归档任务') || cleaned.includes('确认通过')) &&
+        !explicitlySelectedAgent
+      ) {
+        setTaskSessionBusyId(null);
+        updateTaskStatus(taskId, 'done');
+        return;
+      }
+
+      // If task was pending and user signals handoff to execution, advance cleanly with a handoff divider
+      let effectiveStatus = task.status;
+      let effectiveAgent = respondingAgent;
+      let effectiveStage = turnStage;
+      if (
+        task.status === 'pending' &&
+        (cleaned.includes('交棒执行') || cleaned.includes('直接开跑') || cleaned.includes('立即执行'))
+      ) {
+        const execAgent = workflowTeam.stageAgents.development || respondingAgent;
+        effectiveStatus = 'in_progress';
+        effectiveAgent = execAgent || respondingAgent;
+        effectiveStage = 'development';
+        const execName = effectiveAgent
+          ? formatAgentDisplayName(
+              effectiveAgent.handle,
+              effectiveAgent.runtimeAgent,
+              effectiveAgent.defaultModel,
+            )
+          : task.assigneeHandle;
+
         setAllTasks((prev) =>
-          prev.map((t) => (t.id === taskId ? { ...t, status: 'in_progress', updatedAt: ts } : t)),
+          prev.map((t) =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  status: 'in_progress',
+                  assigneeId: effectiveAgent?.id || t.assigneeId,
+                  assigneeHandle: effectiveAgent?.handle || t.assigneeHandle,
+                  updatedAt: ts,
+                }
+              : t,
+          ),
         );
-        setAllMessages((prev) => [
-          ...prev,
-          {
-            id: `msg_ts_start_${Date.now()}`,
-            sessionId: task.sessionId,
-            senderType: 'system',
-            senderId: 'system',
-            senderName: 'Agent 任务里程碑同步',
-            senderHandle: '里程碑同步',
-            content: `${assignedAgent?.handle || task.assigneeHandle} 已在 Agent 任务 Session #${task.id} 启动执行「${task.title}」（过程细节保留在 Session 内，待验证时自动回写结论）。`,
-            timestamp: ts,
-            linkedTaskIds: [taskId],
+        const handoffLine: TaskSessionMessage = {
+          id: `tsm_ho_start_${Date.now()}`,
+          taskId,
+          sender: 'system',
+          workflowStage: 'development',
+          handoff: {
+            fromStage: 'planning',
+            toStage: 'development',
+            fromAgentId: workflowTeam.stageAgents.planning?.id,
+            toAgentId: effectiveAgent?.id,
           },
-        ]);
+          content: `计划阶段已确认，交棒给 ${execName} 进入执行阶段`,
+          timestamp: ts,
+        };
+        nextHistory.push(handoffLine);
+        setTaskSessions((prev) => ({
+          ...prev,
+          [taskId]: [...nextHistory],
+        }));
       }
 
       try {
         const result = await sendTaskSessionMessage({
-          task: { ...task, status: task.status === 'pending' ? 'in_progress' : task.status },
-          agent: assignedAgent,
+          task: { ...task, status: effectiveStatus },
+          agent: effectiveAgent || undefined,
           workspace: taskWorkspace,
           history: nextHistory,
           message: cleaned,
+          stageLabel: STAGE_LABEL_MAP[effectiveStage],
+          workflowTeamSummary,
         });
 
         const replyTs = nowTimeStr();
@@ -3714,6 +4035,9 @@ export function useAgentNexusStore() {
           id: `tsm_a_${Date.now()}`,
           taskId,
           sender: 'agent',
+          agentId: effectiveAgent?.id || task.assigneeId,
+          agentHandle: effectiveAgent?.handle || task.assigneeHandle,
+          workflowStage: effectiveStage,
           content: result.reply,
           timestamp: replyTs,
           executionSteps: (result.executionSteps || []).filter(Boolean),
@@ -3724,30 +4048,40 @@ export function useAgentNexusStore() {
           milestoneSynced: shouldSyncMilestone,
         };
 
-        setTaskSessions((prev) => ({
-          ...prev,
-          [taskId]: [...(prev[taskId] || nextHistory), agentTurn],
-        }));
+        const appendedTurns: TaskSessionMessage[] = [agentTurn];
 
         if (shouldSyncMilestone) {
           const finalArtifact =
             result.artifactPath?.trim() || task.deliverableArtifact || `artifacts/${task.id}_deliverable.md`;
-          const assignments = projectAgentAssignments[task.sessionId] || [];
-          const currentAssignment = assignments.find((a) => a.agentId === task.assigneeId);
-          const isAutoHandoff = currentAssignment?.handoffMode === 'auto';
-          const verifierAgent = isAutoHandoff
-            ? pickLoadBalancedStageAgent(
-                task.sessionId,
-                'testing',
-                task.assigneeId,
-                assignments,
-                agents,
-                allTasks,
-              )
-            : undefined;
-          const handedOff = Boolean(verifierAgent && verifierAgent.id !== task.assigneeId);
-          const nextAssigneeId = handedOff ? verifierAgent!.id : task.assigneeId;
-          const nextAssigneeHandle = handedOff ? verifierAgent!.handle : task.assigneeHandle;
+          const verifierAgent = workflowTeam.stageAgents.testing;
+          const handedOff = Boolean(
+            effectiveStage !== 'testing' && verifierAgent && verifierAgent.id !== effectiveAgent?.id,
+          );
+          const nextAssigneeId = handedOff ? verifierAgent!.id : effectiveAgent?.id || task.assigneeId;
+          const nextAssigneeHandle = handedOff
+            ? verifierAgent!.handle
+            : effectiveAgent?.handle || task.assigneeHandle;
+
+          if (handedOff && verifierAgent) {
+            appendedTurns.push({
+              id: `tsm_ho_rev_${Date.now() + 1}`,
+              taskId,
+              sender: 'system',
+              workflowStage: 'testing',
+              handoff: {
+                fromStage: effectiveStage,
+                toStage: 'testing',
+                fromAgentId: effectiveAgent?.id,
+                toAgentId: verifierAgent.id,
+              },
+              content: `${STAGE_LABEL_MAP[effectiveStage]}产物已提交，交棒给 ${formatAgentDisplayName(
+                verifierAgent.handle,
+                verifierAgent.runtimeAgent,
+                verifierAgent.defaultModel,
+              )} 进入验收阶段`,
+              timestamp: replyTs,
+            });
+          }
 
           const updatedTask: WorkflowTask = {
             ...task,
@@ -3759,16 +4093,9 @@ export function useAgentNexusStore() {
             updatedAt: replyTs,
           };
 
-          const handoffNote = handedOff
-            ? `（已按自动流转规则交接给验证专家 ${nextAssigneeHandle}）`
-            : isAutoHandoff
-              ? ''
-              : '（当前为「人工确认」交接模式，待雇主在看板确认后流转）';
-
           const milestoneText =
-            (result.groupMilestoneSummary?.trim() ||
-              `已完成「${task.title}」本轮 Agent Session 迭代并提交待验证（产物：${finalArtifact}）。`) +
-            handoffNote;
+            result.groupMilestoneSummary?.trim() ||
+            `已完成当前阶段产出并交棒进入「验收」，点击下方任务卡片查看协作详情。`;
 
           setAllTasks((prev) => prev.map((t) => (t.id === taskId ? updatedTask : t)));
           upsertTaskDeliverableArtifact(updatedTask, finalArtifact, result.reply, replyTs);
@@ -3779,10 +4106,10 @@ export function useAgentNexusStore() {
               id: `msg_ts_rev_${Date.now()}`,
               sessionId: task.sessionId,
               senderType: 'agent',
-              senderId: assignedAgent?.id || 'butler',
-              senderName: assignedAgent?.name || 'Nexa 助理',
-              senderHandle: assignedAgent?.handle || task.assigneeHandle,
-              content: `【Agent 任务里程碑】${milestoneText}`,
+              senderId: effectiveAgent?.id || 'butler',
+              senderName: effectiveAgent?.name || 'Nexa 助理',
+              senderHandle: effectiveAgent?.handle || task.assigneeHandle,
+              content: milestoneText,
               timestamp: replyTs,
               linkedTaskIds: [taskId],
             },
@@ -3792,9 +4119,9 @@ export function useAgentNexusStore() {
             {
               id: `aud_ts_${Date.now()}`,
               category: 'audit',
-              title: `Agent 任务交付就绪待验证：${task.title}`,
-              detail: `${taskWorkspace.name} · ${task.assigneeHandle} 已在 Session #${task.id} 完成迭代${
-                handedOff ? `并自动交接给 ${nextAssigneeHandle}` : ''
+              title: `任务交付就绪待验收：${task.title}`,
+              detail: `${taskWorkspace.name} · ${effectiveAgent?.handle || task.assigneeHandle} 已完成迭代${
+                handedOff ? `并交棒给 ${nextAssigneeHandle}` : ''
               }，产物已沉淀至 Artifacts。`,
               severity: 'warning',
               timestamp: replyTs,
@@ -3810,6 +4137,11 @@ export function useAgentNexusStore() {
           setAllTasks((prev) => prev.map((t) => (t.id === taskId ? updatedTask : t)));
           upsertTaskDeliverableArtifact(updatedTask, result.artifactPath.trim(), result.reply, replyTs);
         }
+
+        setTaskSessions((prev) => ({
+          ...prev,
+          [taskId]: [...(prev[taskId] || nextHistory), ...appendedTurns],
+        }));
       } catch (err) {
         setTaskSessionError(err instanceof Error ? err.message : 'Agent 任务 Session 调用失败');
       } finally {
@@ -3821,7 +4153,9 @@ export function useAgentNexusStore() {
       agents,
       allTasks,
       projectAgentAssignments,
+      projectPipelines,
       taskSessions,
+      updateTaskStatus,
       upsertTaskDeliverableArtifact,
       workspaces,
     ],
@@ -3978,28 +4312,64 @@ export function useAgentNexusStore() {
             ? '已流转至「任务验证」阶段。'
             : '当前专家配置为「人工确认」交接模式，待雇主复核确认后交接下一阶段。';
 
-        setTaskSessions((prev) => ({
-          ...prev,
-          [taskId]: [
-            ...(prev[taskId] || []).map((m) =>
-              m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m,
-            ),
-            {
-              id: `tsm_exec_${Date.now()}`,
+        setTaskSessions((prev) => {
+          const base = (prev[taskId] || []).map((m) =>
+            m.awaitingConfirmation ? { ...m, awaitingConfirmation: false } : m,
+          );
+          const execTurn: TaskSessionMessage = {
+            id: `tsm_exec_${Date.now()}`,
+            taskId,
+            sender: 'agent',
+            agentId: runningAssigneeId,
+            agentHandle: runningAssigneeHandle,
+            workflowStage: 'development',
+            content: `${result.deliverableSummary}\n\n本轮自动执行已完成，产物已沉淀至工作区。${handoffSuffix}`,
+            timestamp: ts,
+            artifactPath: result.deliverableArtifact,
+            suggestedActions: handedOffToVerifier
+              ? undefined
+              : ['补充高并发边界单测后再定稿', '验收通过并归档任务'],
+            awaitingConfirmation: !handedOffToVerifier,
+            milestoneSynced: true,
+          };
+          const extraTurns: TaskSessionMessage[] = [execTurn];
+          if (handedOffToVerifier && verifierAgent) {
+            extraTurns.push({
+              id: `tsm_exec_ho_${Date.now() + 1}`,
+              taskId,
+              sender: 'system',
+              workflowStage: 'testing',
+              handoff: {
+                fromStage: 'development',
+                toStage: 'testing',
+                fromAgentId: runningAssigneeId,
+                toAgentId: verifierAgent.id,
+              },
+              content: `执行阶段已完成，交棒给 ${formatAgentDisplayName(
+                verifierAgent.handle,
+                verifierAgent.runtimeAgent,
+                verifierAgent.defaultModel,
+              )} 进入验收阶段`,
+              timestamp: ts,
+            });
+            extraTurns.push({
+              id: `tsm_exec_ver_${Date.now() + 2}`,
               taskId,
               sender: 'agent',
-              content: `${result.deliverableSummary}\n\n本轮自动执行已进入「待验证」，产物已自动沉淀至 Artifacts。${handoffSuffix}`,
+              agentId: verifierAgent.id,
+              agentHandle: verifierAgent.handle,
+              workflowStage: 'testing',
+              content: `已接棒「${task.title}」产物（${result.deliverableArtifact}）并完成初步扫描，请确认是否直接验收通过，或补充特定边界检查。`,
               timestamp: ts,
-              artifactPath: result.deliverableArtifact,
-              suggestedActions: [
-                '补充高并发边界单测后再定稿',
-                '已复核产物，确认验证通过',
-              ],
+              suggestedActions: ['验收通过并归档任务', '补充高并发边界审查后再放行'],
               awaitingConfirmation: true,
-              milestoneSynced: true,
-            },
-          ],
-        }));
+            });
+          }
+          return {
+            ...prev,
+            [taskId]: [...base, ...extraTurns],
+          };
+        });
 
         setAuditLogs((prev) => [
           {

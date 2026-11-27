@@ -353,10 +353,10 @@ export function NewSessionLauncherPane({
         {/* Simplified Command Composer: Top = Project Context, Bottom = Expert Agent + Skill + Launch */}
         <div
           ref={dropdownContainerRef}
-          className="rounded-2xl border border-slate-200 bg-white shadow-sm focus-within:border-slate-400 focus-within:ring-4 focus-within:ring-slate-900/5 transition-all"
+          className="rounded-2xl border border-slate-200/90 bg-white shadow-[0_2px_10px_rgba(15,23,42,0.03)] focus-within:border-slate-400 focus-within:ring-4 focus-within:ring-slate-900/[0.04] transition-all"
         >
           {/* Top Bar: Project Workspace Context + Sync to Group Toggle */}
-          <div className="px-3.5 py-2 border-b border-slate-100 bg-slate-50/70 rounded-t-2xl flex items-center justify-between gap-2">
+          <div className="px-3.5 py-2 border-b border-slate-100 flex items-center justify-between gap-2">
             {/* Project Selector */}
             <div className="relative min-w-0">
               <button
@@ -718,60 +718,41 @@ export function NewSessionLauncherPane({
           </form>
         </div>
 
-        {/* Compact Onboarding Guidance Strip (Positioned Cleanly Below Composer) */}
-        <div className="mt-10 sm:mt-12 max-w-[540px] mx-auto w-full">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setShowInlineCreateProject(true)}
-              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
-                  <FolderPlus className="w-3 h-3 text-blue-600/80 shrink-0" />
-                  <span className="truncate">创建新项目</span>
-                </span>
-                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
-              </div>
-              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
-                新建工作区并建群
-              </p>
-            </button>
+        {/* Minimalist Unboxed Onboarding Action Strip (Codex / Antigravity Style) */}
+        <div className="mt-8 sm:mt-10 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-500">
+          <button
+            type="button"
+            onClick={() => setShowInlineCreateProject(true)}
+            className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
+          >
+            <FolderPlus className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" />
+            <span className="font-medium">创建新项目</span>
+            <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </button>
 
-            <button
-              type="button"
-              onClick={onJumpToMarket}
-              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
-                  <Compass className="w-3 h-3 text-emerald-600/80 shrink-0" />
-                  <span className="truncate">招募 Agent 专家</span>
-                </span>
-                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
-              </div>
-              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
-                按期租赁隔离切片
-              </p>
-            </button>
+          <span className="hidden sm:inline text-slate-200 select-none" aria-hidden="true">·</span>
 
-            <button
-              type="button"
-              onClick={() => (onJumpToCommunity ? onJumpToCommunity() : onJumpToMarket())}
-              className="group rounded-lg border border-slate-200/75 bg-slate-50/45 hover:bg-white hover:border-slate-300 px-2.5 py-1.5 text-left transition-colors cursor-pointer"
-            >
-              <div className="flex items-center justify-between gap-1">
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 group-hover:text-slate-900 transition-colors truncate">
-                  <MessageSquare className="w-3 h-3 text-indigo-600/80 shrink-0" />
-                  <span className="truncate">去社区交流</span>
-                </span>
-                <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
-              </div>
-              <p className="mt-0.5 text-[10px] text-slate-400 truncate">
-                交流实战与共创项目
-              </p>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onJumpToMarket}
+            className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
+          >
+            <Compass className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition-colors shrink-0" />
+            <span className="font-medium">招募 Agent 专家</span>
+            <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </button>
+
+          <span className="hidden sm:inline text-slate-200 select-none" aria-hidden="true">·</span>
+
+          <button
+            type="button"
+            onClick={() => (onJumpToCommunity ? onJumpToCommunity() : onJumpToMarket())}
+            className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors shrink-0" />
+            <span className="font-medium">去社区交流</span>
+            <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
+          </button>
         </div>
       </div>
     </div>

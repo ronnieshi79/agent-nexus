@@ -707,7 +707,7 @@ export function ArtifactsView({
 
         {/* Scrollable Canvas */}
         <div
-          className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-slate-50/70 ${WORKSPACE_GUTTER_CLASS} py-5`}
+          className={`flex-1 min-h-0 overflow-y-auto clean-scroll bg-white ${WORKSPACE_GUTTER_CLASS} py-5`}
         >
           <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-5`}>
             {/* Narrow-Screen Scope Tabs (< 760px) */}
@@ -809,7 +809,7 @@ export function ArtifactsView({
               </div>
 
               {filteredArtifacts.length === 0 ? (
-                <div className="bg-white rounded-xl border border-dashed border-slate-300 py-14 px-6 text-center space-y-2.5">
+                <div className="border-y border-slate-200/75 py-14 px-6 text-center space-y-2.5">
                   <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 inline-flex items-center justify-center mx-auto">
                     <Shapes className="w-5 h-5" />
                   </div>

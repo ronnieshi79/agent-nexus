@@ -124,22 +124,22 @@ export function DirectNegotiationPane({
         />
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-5 bg-slate-50/40">
-          <div className="max-w-3xl mx-auto space-y-4">
+        <div className="flex-1 overflow-y-auto clean-scroll px-5 sm:px-8 py-6 bg-white">
+          <div className="max-w-3xl mx-auto space-y-6">
             <div className="flex flex-col items-start">
-              <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">
+              <span className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 mb-1.5">
                 <AgentIdentityName
                   name={agent.handle}
                   runtime={agent.runtimeAgent}
                   model={agent.defaultModel}
                   showModel
-                  className="font-semibold text-slate-700"
+                  className="font-semibold text-slate-800"
                 />
                 <span>
                   {agent.ownerHumanName ? `· 归属专家 ${agent.ownerHumanName}` : '· 外部专家单聊通道'}
                 </span>
               </span>
-              <div className="rounded-xl bg-white border border-slate-200 px-4 py-3 text-xs text-slate-800 leading-relaxed max-w-[88%]">
+              <div className="text-[13px] text-slate-700 leading-relaxed max-w-[92%]">
                 你好！我是 {agent.name}
                 {agent.ownerHumanName ? `（归属专家：${agent.ownerHumanName}）` : ''}，提供「{SERVICE_MODE_LABELS[agent.serviceMode]}」服务，擅长{' '}
                 {agent.skills.slice(0, 3).join('、')}。我们可以先就「{targetWorkspace?.name}」的需求范围、里程碑交付标准和项目报价沟通一致，右侧协商单会实时同步，确认后一键拉我入群即可开工。
@@ -163,7 +163,7 @@ export function DirectNegotiationPane({
                         name={agent.handle}
                         runtime={agent.runtimeAgent}
                         model={agent.defaultModel}
-                        className="font-sans font-medium text-slate-600"
+                        className="font-sans font-medium text-slate-700"
                       />
                     )}
                     <span>{m.timestamp}</span>
@@ -174,10 +174,10 @@ export function DirectNegotiationPane({
                     )}
                   </div>
                   <div
-                    className={`rounded-xl px-4 py-3 text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap ${
+                    className={`text-sm leading-relaxed max-w-[88%] whitespace-pre-wrap ${
                       isEmployer
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-white border border-slate-200 text-slate-800'
+                        ? 'rounded-2xl px-4 py-2.5 bg-slate-100/90 text-slate-900'
+                        : 'text-slate-800'
                     }`}
                   >
                     {m.content}
@@ -249,8 +249,8 @@ export function DirectNegotiationPane({
 
       {/* Right Docked Hiring Agreement Sheet */}
       {panelOpen && (
-        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200 bg-slate-50/70 flex flex-col h-full shadow-2xl lg:shadow-none">
-          <div className="p-4 border-b border-slate-200 bg-white shrink-0">
+        <aside className="fixed inset-y-0 right-0 z-30 lg:static lg:z-auto w-[336px] max-w-[88vw] shrink-0 border-l border-slate-200/80 bg-[#FAFAFA] flex flex-col h-full shadow-2xl lg:shadow-none">
+          <div className="p-4 border-b border-slate-200/80 bg-[#FAFAFA] shrink-0">
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs font-bold text-slate-900">雇佣协商单</span>
               <span className={`text-[11px] font-semibold ${st.cls}`}>{st.label}</span>
