@@ -16,7 +16,6 @@ import {
   Terminal,
   Trash2,
   UserCheck,
-  X,
 } from 'lucide-react';
 import type {
   CliAuthMode,
@@ -28,6 +27,7 @@ import type {
   NodeOsType,
   StorageVolume,
 } from '../../types/agentnexus';
+import { ModalShell } from '../shared/UiPrimitives';
 
 const OS_META: Record<
   NodeOsType,
@@ -752,13 +752,7 @@ export function SpaceNodesPanel({
                           <span>存储：</span>
                         </span>
                         {storageVolumes.length === 0 ? (
-                          <button
-                            type="button"
-                            onClick={onJumpToStorage}
-                            className="text-blue-700 hover:underline font-medium cursor-pointer"
-                          >
-                            去配置 →
-                          </button>
+                          <span className="text-slate-400">暂无存储卷</span>
                         ) : (
                           storageVolumes.map((vol) => {
                             const mounted = node.mountedStorageIds.includes(vol.id);
@@ -938,13 +932,6 @@ export function SpaceNodesPanel({
                                     </span>
                                   )}
                                 </span>
-                                <button
-                                  type="button"
-                                  onClick={onJumpToAgents}
-                                  className="text-slate-500 hover:text-blue-700 font-medium cursor-pointer whitespace-nowrap shrink-0"
-                                >
-                                  配专家模型与 Skills →
-                                </button>
                               </div>
 
                               {/* Inline Auth Editor (Expanded Only When Clicked) */}
@@ -1014,318 +1001,286 @@ export function SpaceNodesPanel({
         </div>
       )}
 
-      {/* Slide-in Drawer A: Self-Mount Private Device Node (Free) */}
-      {mountDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/30"
-            onClick={() => onChangeMountDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">挂载自有设备节点</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  将自己的 Windows 11、Linux 或 macOS 主机免费挂载为 Agent 节点，零月租费用。
-                </p>
-              </div>
+      {/* Modal A: Self-Mount Private Device Node (Free) */}
+      <ModalShell
+        open={mountDrawerOpen}
+        onClose={() => onChangeMountDrawerOpen(false)}
+        icon={<Server className="w-4 h-4 text-blue-600" />}
+        title="挂载自有设备节点"
+        subtitle="将自己的 Windows 11、Linux 或 macOS 主机免费挂载为 Agent 节点，零月租费用。"
+        maxWidthClass="max-w-lg"
+        onSubmit={handlePrivateSubmit}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                onChangeMountDrawerOpen(false);
+                onOpenPurchasePage();
+              }}
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+            >
+              没有闲置设备？去平台采购云节点 →
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onChangeMountDrawerOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
-                aria-label="关闭挂载抽屉"
+                className="h-8 px-3.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                确认挂载并上线
               </button>
             </div>
-
-            <form
-              onSubmit={handlePrivateSubmit}
-              className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-            >
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">设备操作系统</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(['win11', 'linux', 'macos'] as NodeOsType[]).map((osKey) => {
-                    const m = OS_META[osKey];
-                    const Icon = m.icon;
-                    const active = privOs === osKey;
-                    return (
-                      <button
-                        key={osKey}
-                        type="button"
-                        onClick={() => setPrivOs(osKey)}
-                        className={`p-2.5 rounded-lg border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-colors ${
-                          active
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{m.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">节点名称 *</label>
-                  <input
-                    type="text"
-                    required
-                    value={privName}
-                    onChange={(e) => setPrivName(e.target.value)}
-                    placeholder={`例如：我的 ${OS_META[privOs].short} 开发机`}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">位置 / 网络备注</label>
-                  <input
-                    type="text"
-                    value={privRegion}
-                    onChange={(e) => setPrivRegion(e.target.value)}
-                    placeholder="自有设备 · 办公室"
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-3 gap-2.5">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">CPU 核数</label>
-                  <input
-                    type="number"
-                    min={2}
-                    max={128}
-                    value={privCpu}
-                    onChange={(e) => setPrivCpu(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">内存 (GB)</label>
-                  <input
-                    type="number"
-                    min={4}
-                    max={512}
-                    value={privMem}
-                    onChange={(e) => setPrivMem(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">可用磁盘 (GB)</label>
-                  <input
-                    type="number"
-                    min={50}
-                    max={4000}
-                    value={privDisk}
-                    onChange={(e) => setPrivDisk(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">用途说明（可选）</label>
-                <input
-                  type="text"
-                  value={privDesc}
-                  onChange={(e) => setPrivDesc(e.target.value)}
-                  placeholder="例如：运行 Claude Code / Antigravity CLI 做日常前端和全栈交付"
-                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                />
-              </div>
-
-              <div className="rounded-lg bg-slate-900 text-slate-100 p-3 space-y-2">
-                <div className="flex items-center justify-between text-[11px] text-slate-400">
-                  <span className="inline-flex items-center gap-1.5 font-semibold text-slate-200">
-                    <Terminal className="w-3.5 h-3.5 text-sky-400" />
-                    <span>在目标 {OS_META[privOs].label} 终端运行挂载命令</span>
-                  </span>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">设备操作系统</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(['win11', 'linux', 'macos'] as NodeOsType[]).map((osKey) => {
+                const m = OS_META[osKey];
+                const Icon = m.icon;
+                const active = privOs === osKey;
+                return (
                   <button
+                    key={osKey}
                     type="button"
-                    onClick={handleCopyCli}
-                    className="inline-flex items-center gap-1 text-sky-300 hover:text-white cursor-pointer"
+                    onClick={() => setPrivOs(osKey)}
+                    className={`p-2.5 rounded-lg border text-xs font-semibold flex flex-col items-center gap-1.5 cursor-pointer transition-colors ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
                   >
-                    {copiedCmd ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                    <span>{copiedCmd ? '已复制' : '复制'}</span>
+                    <Icon className="w-4 h-4" />
+                    <span>{m.label}</span>
                   </button>
-                </div>
-                <code className="block font-mono text-[11px] text-sky-200 break-all leading-relaxed">
-                  {cliJoinCommand}
-                </code>
-              </div>
+                );
+              })}
+            </div>
+          </div>
 
-              <div className="pt-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChangeMountDrawerOpen(false);
-                    onOpenPurchasePage();
-                  }}
-                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                >
-                  没有闲置设备？去平台采购云节点 →
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onChangeMountDrawerOpen(false)}
-                    className="h-9 px-3.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    确认挂载并上线
-                  </button>
-                </div>
-              </div>
-            </form>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">节点名称 *</label>
+              <input
+                type="text"
+                required
+                autoFocus
+                value={privName}
+                onChange={(e) => setPrivName(e.target.value)}
+                placeholder={`例如：我的 ${OS_META[privOs].short} 开发机`}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">位置 / 网络备注</label>
+              <input
+                type="text"
+                value={privRegion}
+                onChange={(e) => setPrivRegion(e.target.value)}
+                placeholder="自有设备 · 办公室"
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">CPU 核数</label>
+              <input
+                type="number"
+                min={2}
+                max={128}
+                value={privCpu}
+                onChange={(e) => setPrivCpu(Number(e.target.value))}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">内存 (GB)</label>
+              <input
+                type="number"
+                min={4}
+                max={512}
+                value={privMem}
+                onChange={(e) => setPrivMem(Number(e.target.value))}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">可用磁盘 (GB)</label>
+              <input
+                type="number"
+                min={50}
+                max={4000}
+                value={privDisk}
+                onChange={(e) => setPrivDisk(Number(e.target.value))}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">用途说明（可选）</label>
+            <input
+              type="text"
+              value={privDesc}
+              onChange={(e) => setPrivDesc(e.target.value)}
+              placeholder="例如：运行 Claude Code / Antigravity CLI 做日常前端和全栈交付"
+              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+            />
+          </div>
+
+          <div className="rounded-lg bg-slate-900 text-slate-100 p-3 space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-400">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-200">
+                <Terminal className="w-3.5 h-3.5 text-sky-400" />
+                <span>在目标 {OS_META[privOs].label} 终端运行挂载命令</span>
+              </span>
+              <button
+                type="button"
+                onClick={handleCopyCli}
+                className="inline-flex items-center gap-1 text-sky-300 hover:text-white cursor-pointer"
+              >
+                {copiedCmd ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedCmd ? '已复制' : '复制'}</span>
+              </button>
+            </div>
+            <code className="block font-mono text-[11px] text-sky-200 break-all leading-relaxed">
+              {cliJoinCommand}
+            </code>
           </div>
         </div>
-      )}
+      </ModalShell>
 
-      {/* Slide-in Drawer B: Add Agent CLI directly to a Node */}
-      {cliDrawerNode && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/30"
-            onClick={() => setCliDrawerNodeId(null)}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <Terminal className="w-4 h-4 text-blue-600" />
-                  <span>为节点添加 Agent CLI</span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  目标节点：<strong className="text-slate-800">{cliDrawerNode.name}</strong> · 配置 CLI 工具、认证凭证与并发沙箱数。
-                </p>
-              </div>
+      {/* Modal B: Add Agent CLI directly to a Node */}
+      <ModalShell
+        open={Boolean(cliDrawerNode)}
+        onClose={() => setCliDrawerNodeId(null)}
+        icon={<Terminal className="w-4 h-4 text-blue-600" />}
+        title="为节点添加 Agent CLI"
+        subtitle={
+          cliDrawerNode ? (
+            <>
+              目标节点：<strong className="text-slate-800">{cliDrawerNode.name}</strong> · 配置 CLI 工具、认证凭证与并发沙箱数。
+            </>
+          ) : undefined
+        }
+        maxWidthClass="max-w-lg"
+        onSubmit={handleAddCliSubmit}
+        footer={
+          <>
+            <span className="text-[11px] text-slate-500">凭证仅保存在本节点内，绝不对外共享</span>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setCliDrawerNodeId(null)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                className="h-8 px-3.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                <Terminal className="w-3.5 h-3.5" />
+                <span>安装并启用 {selectedCliPreset.label}</span>
               </button>
             </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">选择要安装的 Agent CLI 底座</label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {CLI_TOOL_PRESETS.map((preset) => {
+                const active = cliTool === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setCliTool(preset.id)}
+                    className={`p-2.5 rounded-lg border text-left cursor-pointer transition-colors ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold truncate">{preset.label}</div>
+                    <div className="text-[10px] font-mono opacity-75 truncate mt-0.5">
+                      $ {preset.cliCmd}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-            <form
-              onSubmit={handleAddCliSubmit}
-              className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-            >
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">选择要安装的 Agent CLI 底座</label>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                  {CLI_TOOL_PRESETS.map((preset) => {
-                    const active = cliTool === preset.id;
-                    return (
-                      <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => setCliTool(preset.id)}
-                        className={`p-2.5 rounded-lg border text-left cursor-pointer transition-colors ${
-                          active
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="text-xs font-bold truncate">{preset.label}</div>
-                        <div className="text-[10px] font-mono opacity-75 truncate mt-0.5">
-                          $ {preset.cliCmd}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">
+              并发沙箱数（可承载的 Agent 专家上限）
+            </label>
+            <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50">
+              <input
+                type="range"
+                min={1}
+                max={12}
+                value={cliConcurrency}
+                onChange={(e) => setCliConcurrency(Number(e.target.value))}
+                className="flex-1"
+              />
+              <span className="font-mono tabular-nums text-xs font-bold text-slate-900 w-14 text-right">
+                {cliConcurrency} 沙箱
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              节点仅管 CLI 底座、登录账号与并发额度；不同专家可共用同一 CLI 自由搭配 Opus / DeepSeek Flash 等模型。
+            </p>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">
-                  并发沙箱数（可承载的 Agent 专家上限）
-                </label>
-                <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50">
-                  <input
-                    type="range"
-                    min={1}
-                    max={12}
-                    value={cliConcurrency}
-                    onChange={(e) => setCliConcurrency(Number(e.target.value))}
-                    className="flex-1"
-                  />
-                  <span className="font-mono tabular-nums text-xs font-bold text-slate-900 w-14 text-right">
-                    {cliConcurrency} 沙箱
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500">
-                  节点仅管 CLI 底座、登录账号与并发额度；不同专家可共用同一 CLI 自由搭配 Opus / DeepSeek Flash 等模型。
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-semibold text-slate-800">CLI 账号 / Key 认证信息</span>
-                  <div className="inline-flex rounded-md bg-slate-200/80 p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setCliAuthMode('account_oauth')}
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
-                        cliAuthMode === 'account_oauth' ? 'bg-white text-slate-900' : 'text-slate-600'
-                      }`}
-                    >
-                      账号登录
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCliAuthMode('api_key')}
-                      className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
-                        cliAuthMode === 'api_key' ? 'bg-white text-slate-900' : 'text-slate-600'
-                      }`}
-                    >
-                      API Key
-                    </button>
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  value={cliCredLabel}
-                  onChange={(e) => setCliCredLabel(e.target.value)}
-                  placeholder={selectedCliPreset.defaultCredPlaceholder}
-                  className="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
-
-              <div className="pt-2 flex justify-end gap-2">
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-800">CLI 账号 / Key 认证信息</span>
+              <div className="inline-flex rounded-md bg-slate-200/80 p-0.5">
                 <button
                   type="button"
-                  onClick={() => setCliDrawerNodeId(null)}
-                  className="h-9 px-4 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  onClick={() => setCliAuthMode('account_oauth')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
+                    cliAuthMode === 'account_oauth' ? 'bg-white text-slate-900' : 'text-slate-600'
+                  }`}
                 >
-                  取消
+                  账号登录
                 </button>
                 <button
-                  type="submit"
-                  className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
+                  type="button"
+                  onClick={() => setCliAuthMode('api_key')}
+                  className={`px-2 py-0.5 rounded text-[11px] font-semibold cursor-pointer ${
+                    cliAuthMode === 'api_key' ? 'bg-white text-slate-900' : 'text-slate-600'
+                  }`}
                 >
-                  <Terminal className="w-3.5 h-3.5" />
-                  <span>安装并启用 {selectedCliPreset.label}</span>
+                  API Key
                 </button>
               </div>
-            </form>
+            </div>
+            <input
+              type="text"
+              value={cliCredLabel}
+              onChange={(e) => setCliCredLabel(e.target.value)}
+              placeholder={selectedCliPreset.defaultCredPlaceholder}
+              className="w-full h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-mono text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            />
           </div>
         </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

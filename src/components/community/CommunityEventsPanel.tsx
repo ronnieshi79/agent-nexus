@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import {
   CalendarDays,
   CheckCircle2,
@@ -11,9 +11,9 @@ import {
   Radio,
   Ticket,
   Users,
-  X,
 } from 'lucide-react';
 import { EntityAvatar } from '../shared/EntityIdentity';
+import { EmptyStateCard, ModalShell } from '../shared/UiPrimitives';
 import type { CommunityEvent, CommunityEventFormat } from '../../types/agentnexus';
 
 export const EVENT_FORMAT_META: Record<
@@ -64,15 +64,6 @@ export function CommunityEventsPanel({
 
   const modalEvent = modalEventId ? events.find((e) => e.id === modalEventId) || null : null;
 
-  useEffect(() => {
-    if (!modalEventId) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setModalEventId(null);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [modalEventId]);
-
   const handleOpenRegistrationModal = (ev: CommunityEvent) => {
     setContactNote(ev.registrationNote || '');
     setModalEventId(ev.id);
@@ -89,20 +80,20 @@ export function CommunityEventsPanel({
 
   if (events.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 px-6 text-center space-y-2.5">
-        <CalendarDays className="w-6 h-6 text-slate-400 mx-auto" />
-        <p className="text-xs text-slate-500">
-          「{communityName}」当前筛选下暂无主题活动，主理人可发起线下交流、线上直播分享或收费实战培训。
-        </p>
-        <button
-          type="button"
-          onClick={onOpenPublishEvent}
-          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>发布主题活动</span>
-        </button>
-      </div>
+      <EmptyStateCard
+        icon={<CalendarDays className="w-6 h-6" />}
+        description={`「${communityName}」当前筛选下暂无主题活动，主理人可发起线下交流、线上直播分享或收费实战培训。`}
+        action={
+          <button
+            type="button"
+            onClick={onOpenPublishEvent}
+            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>发布主题活动</span>
+          </button>
+        }
+      />
     );
   }
 
@@ -304,156 +295,133 @@ export function CommunityEventsPanel({
       </div>
 
       {/* Registration & Ticket Pass Modal */}
-      {modalEvent && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-[1px] flex items-center justify-center p-4"
-          onClick={() => setModalEventId(null)}
-        >
-          <form
-            onSubmit={handleConfirmRegistration}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden"
-          >
-            {/* Header */}
-            <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <Ticket className="w-4 h-4 text-violet-600 shrink-0" />
-                <span className="text-sm font-bold text-slate-900 truncate">
-                  {modalEvent.registeredByMe ? '活动入场凭证' : '确认活动报名'}
-                </span>
-              </div>
+      <ModalShell
+        open={Boolean(modalEvent)}
+        onClose={() => setModalEventId(null)}
+        title={modalEvent?.registeredByMe ? '活动入场凭证' : '确认活动报名'}
+        icon={<Ticket className="w-4 h-4 text-violet-600" />}
+        maxWidthClass="max-w-md"
+        onSubmit={handleConfirmRegistration}
+        footer={
+          modalEvent?.registeredByMe ? (
+            <>
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-xs font-semibold text-rose-700 cursor-pointer"
+              >
+                取消报名
+              </button>
               <button
                 type="button"
                 onClick={() => setModalEventId(null)}
-                className="p-1 rounded-md text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer"
-                aria-label="关闭弹窗"
+                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                完成
               </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => setModalEventId(null)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+              >
+                <Ticket className="w-3.5 h-3.5" />
+                <span>
+                  {modalEvent && (modalEvent.isFree || modalEvent.priceCny <= 0)
+                    ? '确认免费报名'
+                    : `确认报名并支付 ¥${modalEvent?.priceCny ?? 0}`}
+                </span>
+              </button>
+            </>
+          )
+        }
+      >
+        {modalEvent && (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2 text-[11px]">
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-semibold ${EVENT_FORMAT_META[modalEvent.format].badgeCls}`}
+                >
+                  {EVENT_FORMAT_META[modalEvent.format].label}
+                </span>
+                <span className="text-slate-500">主理：{modalEvent.hostName}</span>
+              </div>
+              <h4 className="text-sm font-bold text-slate-900 leading-snug">
+                {modalEvent.title}
+              </h4>
             </div>
 
-            {/* Body */}
-            <div className="p-5 space-y-4">
+            <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 space-y-2 text-xs text-slate-700">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500">活动时间</span>
+                <span className="font-medium text-right">{modalEvent.startTimeLabel}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-slate-500">
+                  {modalEvent.format === 'online_live' ? '直播入口' : '活动地点'}
+                </span>
+                <span className="font-medium text-right">{modalEvent.location}</span>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
+                <span className="text-slate-500">报名费用</span>
+                <span className="font-bold font-mono tabular-nums text-slate-900">
+                  {modalEvent.isFree || modalEvent.priceCny <= 0
+                    ? '免费（¥0）'
+                    : `¥${modalEvent.priceCny}`}
+                </span>
+              </div>
+            </div>
+
+            {modalEvent.registeredByMe ? (
+              <div className="rounded-xl bg-emerald-50/70 border border-emerald-200 p-4 space-y-2 text-center">
+                <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>报名成功 · 席位已锁定</span>
+                </div>
+                <div className="text-lg font-bold font-mono tracking-wider text-slate-900 bg-white border border-emerald-200 rounded-lg py-2 px-3">
+                  {modalEvent.registrationCode || 'AGN-EV-8820'}
+                </div>
+                <p className="text-[11px] text-emerald-800/80">
+                  {modalEvent.format === 'online_live'
+                    ? '开播前 15 分钟将通过 AGN 站内消息发送直播间直达链接'
+                    : '线下签到或入群交流时出示此入场凭证码即可核验'}
+                </p>
+                {modalEvent.registrationNote && (
+                  <div className="text-[11px] text-slate-600 pt-1">
+                    备注：{modalEvent.registrationNote}
+                  </div>
+                )}
+              </div>
+            ) : (
               <div className="space-y-1.5">
-                <div className="flex items-center gap-2 text-[11px]">
-                  <span
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border font-semibold ${EVENT_FORMAT_META[modalEvent.format].badgeCls}`}
-                  >
-                    {EVENT_FORMAT_META[modalEvent.format].label}
-                  </span>
-                  <span className="text-slate-500">主理：{modalEvent.hostName}</span>
-                </div>
-                <h4 className="text-sm font-bold text-slate-900 leading-snug">
-                  {modalEvent.title}
-                </h4>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5 space-y-2 text-xs text-slate-700">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">活动时间</span>
-                  <span className="font-medium text-right">{modalEvent.startTimeLabel}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-slate-500">
-                    {modalEvent.format === 'online_live' ? '直播入口' : '活动地点'}
-                  </span>
-                  <span className="font-medium text-right">{modalEvent.location}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/80">
-                  <span className="text-slate-500">报名费用</span>
-                  <span className="font-bold font-mono tabular-nums text-slate-900">
-                    {modalEvent.isFree || modalEvent.priceCny <= 0
-                      ? '免费（¥0）'
-                      : `¥${modalEvent.priceCny}`}
-                  </span>
-                </div>
-              </div>
-
-              {modalEvent.registeredByMe ? (
-                <div className="rounded-xl bg-emerald-50/70 border border-emerald-200 p-4 space-y-2 text-center">
-                  <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                    <span>报名成功 · 席位已锁定</span>
-                  </div>
-                  <div className="text-lg font-bold font-mono tracking-wider text-slate-900 bg-white border border-emerald-200 rounded-lg py-2 px-3">
-                    {modalEvent.registrationCode || 'AGN-EV-8820'}
-                  </div>
-                  <p className="text-[11px] text-emerald-800/80">
-                    {modalEvent.format === 'online_live'
-                      ? '开播前 15 分钟将通过 AGN 站内消息发送直播间直达链接'
-                      : '线下签到或入群交流时出示此入场凭证码即可核验'}
+                <label className="block text-[11px] font-medium text-slate-600">
+                  报名备注 / 关注议题（选填）
+                </label>
+                <input
+                  type="text"
+                  value={contactNote}
+                  onChange={(e) => setContactNote(e.target.value)}
+                  placeholder="例：希望交流多 Agent 商业化定价与客户交付案例"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                />
+                {!modalEvent.isFree && modalEvent.priceCny > 0 && (
+                  <p className="text-[11px] text-slate-500">
+                    付费活动报名将计入主理人社区结算台账，活动开始前 24 小时支持原路取消。
                   </p>
-                  {modalEvent.registrationNote && (
-                    <div className="text-[11px] text-slate-600 pt-1">
-                      备注：{modalEvent.registrationNote}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-slate-600">
-                    报名备注 / 关注议题（选填）
-                  </label>
-                  <input
-                    type="text"
-                    value={contactNote}
-                    onChange={(e) => setContactNote(e.target.value)}
-                    placeholder="例：希望交流多 Agent 商业化定价与客户交付案例"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                  {!modalEvent.isFree && modalEvent.priceCny > 0 && (
-                    <p className="text-[11px] text-slate-500">
-                      付费活动报名将计入主理人社区结算台账，活动开始前 24 小时支持原路取消。
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2">
-              {modalEvent.registeredByMe ? (
-                <>
-                  <button
-                    type="submit"
-                    className="px-3 py-1.5 rounded-lg border border-rose-200 bg-white hover:bg-rose-50 text-xs font-semibold text-rose-700 cursor-pointer"
-                  >
-                    取消报名
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setModalEventId(null)}
-                    className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    完成
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setModalEventId(null)}
-                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    <Ticket className="w-3.5 h-3.5" />
-                    <span>
-                      {modalEvent.isFree || modalEvent.priceCny <= 0
-                        ? '确认免费报名'
-                        : `确认报名并支付 ¥${modalEvent.priceCny}`}
-                    </span>
-                  </button>
-                </>
-              )}
-            </div>
-          </form>
-        </div>
-      )}
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </ModalShell>
     </>
   );
 }

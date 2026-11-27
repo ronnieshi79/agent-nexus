@@ -34,6 +34,7 @@ import {
   EntityAvatar,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface TaskSessionPaneProps {
@@ -743,79 +744,90 @@ export function TaskSessionPane({
                   </div>
                   <button
                     type="button"
-                    onClick={() => setShowNewSession((v) => !v)}
-                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
-                      showNewSession
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-white border border-slate-200 hover:bg-slate-100 text-slate-700'
-                    }`}
+                    onClick={() => setShowNewSession(true)}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer shrink-0 whitespace-nowrap bg-white border border-slate-200 hover:bg-slate-100 text-slate-700"
                   >
                     <Plus className="w-3 h-3" />
                     <span>新任务</span>
                   </button>
                 </div>
 
-                {/* Inline New Task Session Form for this Agent */}
-                {showNewSession && (
-                  <form
-                    onSubmit={handleCreateAgentTask}
-                    className="bg-white rounded-xl border border-slate-300 p-3 space-y-2"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-800 truncate">
-                        向{' '}
-                        {formatAgentDisplayName(
-                          agent?.handle || task.assigneeHandle,
-                          agent?.runtimeAgent,
-                          agent?.defaultModel,
-                        )}{' '}
-                        新派任务 Session
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowNewSession(false)}
-                        className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                {/* New Task Session Modal for this Agent */}
+                <ModalShell
+                  open={showNewSession}
+                  onClose={() => setShowNewSession(false)}
+                  icon={<Plus className="w-4 h-4 text-blue-600" />}
+                  title={`向 ${formatAgentDisplayName(
+                    agent?.handle || task.assigneeHandle,
+                    agent?.runtimeAgent,
+                    agent?.defaultModel,
+                  )} 新派任务`}
+                  subtitle="创建后自动生成看板卡片并切入该任务会话"
+                  maxWidthClass="max-w-md"
+                  onSubmit={handleCreateAgentTask}
+                  footer={
+                    <>
+                      <span className="text-[11px] text-slate-500">同步绑定至所选项目</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowNewSession(false)}
+                          className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                        >
+                          取消
+                        </button>
+                        <button
+                          type="submit"
+                          className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                        >
+                          创建并进入任务对话
+                        </button>
+                      </div>
+                    </>
+                  }
+                >
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">来源项目</label>
+                      <select
+                        value={newTaskProjectId}
+                        onChange={(e) => setNewTaskProjectId(e.target.value)}
+                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
+                        {workspaces.map((w) => (
+                          <option key={w.id} value={w.id}>
+                            {w.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                    <select
-                      value={newTaskProjectId}
-                      onChange={(e) => setNewTaskProjectId(e.target.value)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
-                    >
-                      {workspaces.map((w) => (
-                        <option key={w.id} value={w.id}>
-                          来源项目：{w.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      value={newTaskType}
-                      onChange={(e) => setNewTaskType(e.target.value as WorkCardType)}
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
-                    >
-                      <option value="development">类型：功能开发</option>
-                      <option value="planning">类型：产品策划</option>
-                      <option value="testing">类型：功能测试</option>
-                      <option value="review">类型：架构评审</option>
-                    </select>
-                    <input
-                      type="text"
-                      required
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      placeholder="输入任务标题，立即开启 Session..."
-                      className="w-full bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                    />
-                    <button
-                      type="submit"
-                      className="w-full py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                    >
-                      创建并进入任务对话
-                    </button>
-                  </form>
-                )}
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">任务类型</label>
+                      <select
+                        value={newTaskType}
+                        onChange={(e) => setNewTaskType(e.target.value as WorkCardType)}
+                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
+                      >
+                        <option value="development">功能开发</option>
+                        <option value="planning">产品策划</option>
+                        <option value="testing">功能测试</option>
+                        <option value="review">架构评审</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs font-semibold text-slate-700">任务标题 *</label>
+                      <input
+                        type="text"
+                        required
+                        autoFocus
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        placeholder="输入任务标题，立即开启 Session..."
+                        className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                      />
+                    </div>
+                  </div>
+                </ModalShell>
 
                 <div className="space-y-1.5">
                   {agentAggregatedTasks.map((t) => {

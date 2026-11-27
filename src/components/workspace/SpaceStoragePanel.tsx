@@ -6,7 +6,6 @@ import {
   Plus,
   Server,
   ShoppingBag,
-  X,
 } from 'lucide-react';
 import type {
   ComputeNode,
@@ -15,6 +14,7 @@ import type {
   StorageBillingMode,
   StorageVolume,
 } from '../../types/agentnexus';
+import { ModalShell } from '../shared/UiPrimitives';
 
 interface StoragePlanPreset {
   id: string;
@@ -557,159 +557,140 @@ export function SpaceStoragePanel({
         </div>
       )}
 
-      {/* Slide-in Drawer: Self-Mount Private Storage (NAS / S3 / OSS) */}
-      {mountDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/30"
-            onClick={() => onChangeMountDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">挂载自有存储空间</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  接入团队自有 S3、OSS、NFS 或局域网 NAS 目录供多 Agent 共享读写，零平台月租。
-                </p>
-              </div>
+      {/* Modal: Self-Mount Private Storage (NAS / S3 / OSS) */}
+      <ModalShell
+        open={mountDrawerOpen}
+        onClose={() => onChangeMountDrawerOpen(false)}
+        icon={<Database className="w-4 h-4 text-blue-600" />}
+        title="挂载自有存储空间"
+        subtitle="接入团队自有 S3、OSS、NFS 或局域网 NAS 目录供多 Agent 共享读写，零平台月租。"
+        maxWidthClass="max-w-lg"
+        onSubmit={handleSelfMountSubmit}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                onChangeMountDrawerOpen(false);
+                onOpenPurchasePage();
+              }}
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+            >
+              需要免运维高速云盘？去平台采购 →
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onChangeMountDrawerOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
-                aria-label="关闭挂载存储抽屉"
+                className="h-8 px-3.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                确认挂载
               </button>
             </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">存储空间名称 *</label>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={customName}
+              onChange={(e) => setCustomName(e.target.value)}
+              placeholder="例如：研发内网 NAS 共享仓 / 自建 MinIO 资产桶"
+              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
 
-            <form
-              onSubmit={handleSelfMountSubmit}
-              className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-            >
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">存储空间名称 *</label>
-                <input
-                  type="text"
-                  required
-                  value={customName}
-                  onChange={(e) => setCustomName(e.target.value)}
-                  placeholder="例如：研发内网 NAS 共享仓 / 自建 MinIO 资产桶"
-                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">接入协议</label>
+              <select
+                value={customProtocol}
+                onChange={(e) => setCustomProtocol(e.target.value)}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              >
+                <option value="S3 / OSS 对象存储">S3 / OSS 对象存储</option>
+                <option value="局域网 NAS / NFS">局域网 NAS / NFS</option>
+                <option value="WebDAV / SMB 共享盘">WebDAV / SMB 共享盘</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">可用容量配额 (GB)</label>
+              <input
+                type="number"
+                min={20}
+                max={20000}
+                value={customQuotaGb}
+                onChange={(e) => setCustomQuotaGb(Number(e.target.value))}
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">接入协议</label>
-                  <select
-                    value={customProtocol}
-                    onChange={(e) => setCustomProtocol(e.target.value)}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                  >
-                    <option value="S3 / OSS 对象存储">S3 / OSS 对象存储</option>
-                    <option value="局域网 NAS / NFS">局域网 NAS / NFS</option>
-                    <option value="WebDAV / SMB 共享盘">WebDAV / SMB 共享盘</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">可用容量配额 (GB)</label>
-                  <input
-                    type="number"
-                    min={20}
-                    max={20000}
-                    value={customQuotaGb}
-                    onChange={(e) => setCustomQuotaGb(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-              </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">位置 / Endpoint 备注</label>
+            <input
+              type="text"
+              value={customRegion}
+              onChange={(e) => setCustomRegion(e.target.value)}
+              placeholder="例如：内网 10.0.12.88 · /mnt/agn-shared"
+              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+            />
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">位置 / Endpoint 备注</label>
-                <input
-                  type="text"
-                  value={customRegion}
-                  onChange={(e) => setCustomRegion(e.target.value)}
-                  placeholder="例如：内网 10.0.12.88 · /mnt/agn-shared"
-                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">默认授权接入节点</label>
-                <div className="space-y-1.5 max-h-32 overflow-y-auto clean-scroll">
-                  {nodes.map((n) => (
-                    <label
-                      key={n.id}
-                      className="flex items-center justify-between gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/70 text-xs cursor-pointer hover:bg-slate-100/70"
-                    >
-                      <span className="inline-flex items-center gap-2 min-w-0">
-                        <input
-                          type="checkbox"
-                          checked={customNodeIds.includes(n.id)}
-                          onChange={() => toggleSelection(customNodeIds, n.id, setCustomNodeIds)}
-                        />
-                        <span className="font-medium text-slate-800 truncate">{n.name}</span>
-                      </span>
-                      <span className="text-[11px] text-slate-500 shrink-0">{n.osVersion}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">关联工作项目（可选）</label>
-                <div className="space-y-1.5 max-h-28 overflow-y-auto clean-scroll">
-                  {workspaces.map((w) => (
-                    <label
-                      key={w.id}
-                      className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/70 text-xs cursor-pointer hover:bg-slate-100/70"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={customProjectIds.includes(w.id)}
-                        onChange={() =>
-                          toggleSelection(customProjectIds, w.id, setCustomProjectIds)
-                        }
-                      />
-                      <span className="font-medium text-slate-800 truncate">{w.name}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChangeMountDrawerOpen(false);
-                    onOpenPurchasePage();
-                  }}
-                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">默认授权接入节点</label>
+            <div className="space-y-1.5 max-h-32 overflow-y-auto clean-scroll">
+              {nodes.map((n) => (
+                <label
+                  key={n.id}
+                  className="flex items-center justify-between gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/70 text-xs cursor-pointer hover:bg-slate-100/70"
                 >
-                  需要免运维高速云盘？去平台采购 →
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => onChangeMountDrawerOpen(false)}
-                    className="h-9 px-3.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    确认挂载
-                  </button>
-                </div>
-              </div>
-            </form>
+                  <span className="inline-flex items-center gap-2 min-w-0">
+                    <input
+                      type="checkbox"
+                      checked={customNodeIds.includes(n.id)}
+                      onChange={() => toggleSelection(customNodeIds, n.id, setCustomNodeIds)}
+                    />
+                    <span className="font-medium text-slate-800 truncate">{n.name}</span>
+                  </span>
+                  <span className="text-[11px] text-slate-500 shrink-0">{n.osVersion}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">关联工作项目（可选）</label>
+            <div className="space-y-1.5 max-h-28 overflow-y-auto clean-scroll">
+              {workspaces.map((w) => (
+                <label
+                  key={w.id}
+                  className="flex items-center gap-2 p-2 rounded-lg border border-slate-200 bg-slate-50/70 text-xs cursor-pointer hover:bg-slate-100/70"
+                >
+                  <input
+                    type="checkbox"
+                    checked={customProjectIds.includes(w.id)}
+                    onChange={() =>
+                      toggleSelection(customProjectIds, w.id, setCustomProjectIds)
+                    }
+                  />
+                  <span className="font-medium text-slate-800 truncate">{w.name}</span>
+                </label>
+              ))}
+            </div>
           </div>
         </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

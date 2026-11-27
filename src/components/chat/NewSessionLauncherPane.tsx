@@ -12,7 +12,6 @@ import {
   Plus,
   Sparkles,
   Users,
-  X,
 } from 'lucide-react';
 import type {
   AgentCategory,
@@ -27,6 +26,13 @@ import {
   EntityAvatar,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { ModalShell, SloganCarousel } from '../shared/UiPrimitives';
+
+const HOMEPAGE_SLOGANS = [
+  '雇佣专业Agent团队，做高效OPC/FDE',
+  '一个App管理Claude/GPT/Gemini所有Agent工作',
+  '组建自己的Agent团队，做专业OPC/FDE',
+];
 
 interface NewSessionLauncherPaneProps {
   workspaces: ProjectWorkspace[];
@@ -264,52 +270,64 @@ export function NewSessionLauncherPane({
   return (
     <div className="h-full w-full overflow-y-auto clean-scroll bg-white">
       <div className="min-h-full max-w-3xl mx-auto px-5 sm:px-8 pt-8 pb-16 sm:pb-20 flex flex-col justify-center">
-        {/* Product Slogan + Two-line Positioning */}
+        {/* Product Slogan + Rotating Subtitle Carousel */}
         <div className="text-center mb-8 sm:mb-10">
           <h1 className="font-display text-2xl sm:text-[32px] font-extrabold tracking-tight text-slate-900">
             AgentNexus，专家Agents 协同网络
           </h1>
-          <p className="mt-2.5 text-xs sm:text-sm font-medium text-slate-500 tracking-wide">
-            组建自己的Agent团队，做专业OPC/FDE
-          </p>
+          <SloganCarousel items={HOMEPAGE_SLOGANS} />
         </div>
 
-        {/* Inline Quick-Create Project Card */}
-        {showInlineCreateProject && (
-          <form
-            onSubmit={handleCreateInlineProject}
-            className="mb-4 rounded-xl border border-blue-200 bg-blue-50/40 p-4 space-y-3"
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <FolderPlus className="w-4 h-4 text-blue-700" />
-                <span className="text-xs font-bold text-slate-900">
-                  快速创建新项目并自动建群
-                </span>
+        {/* Quick-Create Project Modal */}
+        <ModalShell
+          open={showInlineCreateProject}
+          onClose={() => setShowInlineCreateProject(false)}
+          icon={<FolderPlus className="w-4 h-4 text-blue-600" />}
+          title="快速创建新项目并自动建群"
+          subtitle="创建后自动切换为当前会话项目，并同步建立多 Agent 项目群"
+          maxWidthClass="max-w-md"
+          onSubmit={handleCreateInlineProject}
+          footer={
+            <>
+              <span className="text-[11px] text-slate-500">支持随时在工作台编排专家</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowInlineCreateProject(false)}
+                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                >
+                  创建并选中
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowInlineCreateProject(false)}
-                className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                aria-label="关闭创建项目表单"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            </>
+          }
+        >
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">项目名称 *</label>
               <input
                 type="text"
                 required
+                autoFocus
                 value={newProjName}
                 onChange={(e) => setNewProjName(e.target.value)}
                 placeholder="输入新项目名称（如：AI 智能客服中台）"
-                className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">归属社区</label>
               <select
                 value={newProjZoneId}
                 onChange={(e) => setNewProjZoneId(e.target.value)}
                 aria-label="选择项目归属 Agent 社区"
-                className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               >
                 <option value="">归属：个人私有项目</option>
                 {zones.map((z) => (
@@ -319,23 +337,18 @@ export function NewSessionLauncherPane({
                 ))}
               </select>
             </div>
-            <div className="flex items-center gap-2.5">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">项目交付目标（可选）</label>
               <input
                 type="text"
                 value={newProjGoal}
                 onChange={(e) => setNewProjGoal(e.target.value)}
                 placeholder="一句话描述项目交付目标（可选）"
-                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
               />
-              <button
-                type="submit"
-                className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
-              >
-                创建并选中
-              </button>
             </div>
-          </form>
-        )}
+          </div>
+        </ModalShell>
 
         {/* Simplified Command Composer: Top = Project Context, Bottom = Expert Agent + Skill + Launch */}
         <div
@@ -591,30 +604,6 @@ export function NewSessionLauncherPane({
                           </>
                         )}
                       </div>
-
-                      <div className="my-1 border-t border-slate-100" />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenDropdown('none');
-                          onJumpToMountPrivate();
-                        }}
-                        className="w-full px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-800 font-semibold cursor-pointer"
-                      >
-                        <Bot className="w-3.5 h-3.5 text-blue-600 shrink-0" />
-                        <span>建立 / 挂载新的自建 Agent</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setOpenDropdown('none');
-                          onJumpToMarket();
-                        }}
-                        className="w-full px-3 py-2 hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium cursor-pointer"
-                      >
-                        <Compass className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                        <span>去 AGN 社区服务市场招募专家</span>
-                      </button>
                     </div>
                   )}
                 </div>

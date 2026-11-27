@@ -37,6 +37,7 @@ import type {
   SpaceSharedNode,
   ZoneProjectOpportunity,
 } from '../../types/agentnexus';
+import { ModalShell } from '../shared/UiPrimitives';
 import { CollabSpaceManagePanel } from './CollabSpaceManagePanel';
 
 const ZONE_ACCENT_PALETTE = [
@@ -858,218 +859,203 @@ export function CollabSpacesPanel({
         </div>
       )}
 
-      {/* Slide-in Drawer: Create Private Agent Community (Official communities are platform-managed) */}
-      {createDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/30"
-            onClick={() => onChangeCreateDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <div className="relative z-10 w-full max-w-lg bg-white h-full border-l border-slate-200 shadow-xl flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">创建私有 Agent 社区</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  官方社区由平台按语言区域统一运营、不可自建；此处创建由你担任主理人的私有社区，支持邀请码与申请审批准入。
-                </p>
-              </div>
+      {/* Modal: Create Private Agent Community (Official communities are platform-managed) */}
+      <ModalShell
+        open={createDrawerOpen}
+        onClose={() => onChangeCreateDrawerOpen(false)}
+        icon={<Globe className="w-4 h-4 text-blue-600" />}
+        title="创建私有 Agent 社区"
+        subtitle="创建由你担任主理人的私有社区，支持邀请码与申请审批准入。"
+        maxWidthClass="max-w-xl"
+        onSubmit={handleCreateSubmit}
+        footer={
+          <>
+            <span className="text-[11px] text-slate-500">官方社区由平台统一运营，私有社区归属主理人</span>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onChangeCreateDrawerOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                className="h-8 px-3.5 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                创建私有社区并进入主理台
               </button>
             </div>
-
-            <form
-              onSubmit={handleCreateSubmit}
-              className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4"
-            >
-              {/* Private Community Positioning */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">私有社区运营形态 *</label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(
-                    [
-                      {
-                        id: 'enterprise',
-                        label: '企业私有社区',
-                        desc: '企业内部隔离研发、共享节点与合规 Agent',
-                        defaultRegion: '企业内部 · 私有隔离',
-                      },
-                      {
-                        id: 'opc',
-                        label: 'OPC 创业社区',
-                        desc: '适合一人公司、FDE 与独立开发者圈层运营',
-                        defaultRegion: '中文 · OPC 社区',
-                      },
-                      {
-                        id: 'topic',
-                        label: '垂直主题社区',
-                        desc: '聚焦垂直行业或专项 AI 方案共创与撮合',
-                        defaultRegion: '垂直领域 · 主题共创',
-                      },
-                    ] as {
-                      id: PrivateCommunityScope;
-                      label: string;
-                      desc: string;
-                      defaultRegion: string;
-                    }[]
-                  ).map((opt) => {
-                    const active = newScope === opt.id;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => {
-                          setNewScope(opt.id);
-                          setNewRegionCulture(opt.defaultRegion);
-                        }}
-                        className={`p-2.5 rounded-xl border text-left cursor-pointer transition-colors space-y-1 ${
-                          active
-                            ? 'border-slate-900 bg-slate-900 text-white'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="text-xs font-bold">{opt.label}</div>
-                        <p
-                          className={`text-[10px] leading-snug ${
-                            active ? 'text-slate-300' : 'text-slate-500'
-                          }`}
-                        >
-                          {opt.desc}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2 space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">社区名称 *</label>
-                  <input
-                    type="text"
-                    required
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder={
-                      newScope === 'enterprise'
-                        ? '如：星火研发内部私有社区'
-                        : newScope === 'opc'
-                          ? '如：深圳湾 OPC 共创社'
-                          : '如：具身智能开发者私有社'
-                    }
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">图标简称</label>
-                  <input
-                    type="text"
-                    maxLength={2}
-                    value={newShortCode}
-                    onChange={(e) => setNewShortCode(e.target.value)}
-                    placeholder="1-2字"
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">
-                    组织 / 区域标识
-                  </label>
-                  <input
-                    type="text"
-                    value={newRegionCulture}
-                    onChange={(e) => setNewRegionCulture(e.target.value)}
-                    placeholder="如：企业内部 · 私有隔离"
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">
-                    准入邀请码（支持随时修改）
-                  </label>
-                  <input
-                    type="text"
-                    value={newInviteCode}
-                    onChange={(e) => setNewInviteCode(e.target.value)}
-                    placeholder="AGN-2026"
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">社区定位简介 *</label>
-                <textarea
-                  rows={3}
-                  required
-                  value={newTagline}
-                  onChange={(e) => setNewTagline(e.target.value)}
-                  placeholder="描述该私有社区的服务市场方向、成员准入标准、共享算力与项目共创规范..."
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">
-                  聚焦领域（逗号分隔）
-                </label>
-                <input
-                  type="text"
-                  value={newDomainsText}
-                  onChange={(e) => setNewDomainsText(e.target.value)}
-                  placeholder="多 Agent 编排, 全栈研发, 跨境支付"
-                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">社区标识色</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  {ZONE_ACCENT_PALETTE.map((color) => (
-                    <button
-                      key={color}
-                      type="button"
-                      onClick={() => setNewAccent(color)}
-                      aria-label={`选择颜色 ${color}`}
-                      className={`w-7 h-7 rounded-lg cursor-pointer transition-transform ${
-                        newAccent === color
-                          ? 'ring-2 ring-offset-2 ring-slate-900 scale-105'
-                          : 'hover:scale-105'
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {/* Private Community Positioning */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">私有社区运营形态 *</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(
+                [
+                  {
+                    id: 'enterprise',
+                    label: '企业私有社区',
+                    desc: '企业内部隔离研发、共享节点与合规 Agent',
+                    defaultRegion: '企业内部 · 私有隔离',
+                  },
+                  {
+                    id: 'opc',
+                    label: 'OPC 创业社区',
+                    desc: '适合一人公司、FDE 与独立开发者圈层运营',
+                    defaultRegion: '中文 · OPC 社区',
+                  },
+                  {
+                    id: 'topic',
+                    label: '垂直主题社区',
+                    desc: '聚焦垂直行业或专项 AI 方案共创与撮合',
+                    defaultRegion: '垂直领域 · 主题共创',
+                  },
+                ] as {
+                  id: PrivateCommunityScope;
+                  label: string;
+                  desc: string;
+                  defaultRegion: string;
+                }[]
+              ).map((opt) => {
+                const active = newScope === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => {
+                      setNewScope(opt.id);
+                      setNewRegionCulture(opt.defaultRegion);
+                    }}
+                    className={`p-2.5 rounded-xl border text-left cursor-pointer transition-colors space-y-1 ${
+                      active
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="text-xs font-bold">{opt.label}</div>
+                    <p
+                      className={`text-[10px] leading-snug ${
+                        active ? 'text-slate-300' : 'text-slate-500'
                       }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
-                </div>
-              </div>
+                    >
+                      {opt.desc}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-              <div className="pt-2 flex justify-end gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="sm:col-span-2 space-y-1">
+              <label className="text-xs font-semibold text-slate-700">社区名称 *</label>
+              <input
+                type="text"
+                required
+                autoFocus
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder={
+                  newScope === 'enterprise'
+                    ? '如：星火研发内部私有社区'
+                    : newScope === 'opc'
+                      ? '如：深圳湾 OPC 共创社'
+                      : '如：具身智能开发者私有社'
+                }
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">图标简称</label>
+              <input
+                type="text"
+                maxLength={2}
+                value={newShortCode}
+                onChange={(e) => setNewShortCode(e.target.value)}
+                placeholder="1-2字"
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">
+                组织 / 区域标识
+              </label>
+              <input
+                type="text"
+                value={newRegionCulture}
+                onChange={(e) => setNewRegionCulture(e.target.value)}
+                placeholder="如：企业内部 · 私有隔离"
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">
+                准入邀请码（支持随时修改）
+              </label>
+              <input
+                type="text"
+                value={newInviteCode}
+                onChange={(e) => setNewInviteCode(e.target.value)}
+                placeholder="AGN-2026"
+                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">社区定位简介 *</label>
+            <textarea
+              rows={3}
+              required
+              value={newTagline}
+              onChange={(e) => setNewTagline(e.target.value)}
+              placeholder="描述该私有社区的服务市场方向、成员准入标准、共享算力与项目共创规范..."
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">
+              聚焦领域（逗号分隔）
+            </label>
+            <input
+              type="text"
+              value={newDomainsText}
+              onChange={(e) => setNewDomainsText(e.target.value)}
+              placeholder="多 Agent 编排, 全栈研发, 跨境支付"
+              className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">社区标识色</label>
+            <div className="flex flex-wrap items-center gap-2">
+              {ZONE_ACCENT_PALETTE.map((color) => (
                 <button
+                  key={color}
                   type="button"
-                  onClick={() => onChangeCreateDrawerOpen(false)}
-                  className="h-9 px-4 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="h-9 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                >
-                  创建私有社区并进入主理台
-                </button>
-              </div>
-            </form>
+                  onClick={() => setNewAccent(color)}
+                  aria-label={`选择颜色 ${color}`}
+                  className={`w-7 h-7 rounded-lg cursor-pointer transition-transform ${
+                    newAccent === color
+                      ? 'ring-2 ring-offset-2 ring-slate-900 scale-105'
+                      : 'hover:scale-105'
+                  }`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
           </div>
         </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

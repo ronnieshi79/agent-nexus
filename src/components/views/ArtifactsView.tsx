@@ -32,6 +32,7 @@ import type {
   ProjectWorkspace,
   WorkflowTask,
 } from '../../types/agentnexus';
+import { ModalShell } from '../shared/UiPrimitives';
 import {
   RailNavButton,
   RailSectionLabel,
@@ -1307,159 +1308,144 @@ export function ArtifactsView({
         </div>
       )}
 
-      {/* SLIDE-IN CREATE ARTIFACT DRAWER */}
-      {createOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/35"
-            onClick={() => setCreateOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="relative z-10 w-full max-w-lg bg-white h-full shadow-2xl border-l border-slate-200 flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-2 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">新建 Artifact 产物</h2>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  创建后自动归入「我创建的」，并可一键分享至任意项目群协作评审
-                </p>
-              </div>
+      {/* CREATE ARTIFACT MODAL */}
+      <ModalShell
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        icon={<Shapes className="w-4 h-4 text-blue-600" />}
+        title="新建 Artifact 产物"
+        subtitle="创建后自动归入「我创建的」，并可一键分享至任意项目群协作评审"
+        maxWidthClass="max-w-xl"
+        onSubmit={handleCreateSubmit}
+        footer={
+          <>
+            <span className="text-[11px] text-slate-500">支持文档、PPT 大纲、设计规范与代码片段</span>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-800 hover:bg-slate-100 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                保存 Artifact
               </button>
             </div>
-
-            <form
-              onSubmit={handleCreateSubmit}
-              className="flex-1 min-h-0 overflow-y-auto clean-scroll p-5 space-y-4"
-            >
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-slate-700">产物类型</label>
-                <div className="grid grid-cols-3 gap-1.5">
-                  {(Object.keys(KIND_META) as ArtifactKind[]).map((k) => {
-                    const meta = KIND_META[k];
-                    const active = newKind === k;
-                    return (
-                      <button
-                        key={k}
-                        type="button"
-                        onClick={() => setNewKind(k)}
-                        className={`px-2.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
-                          active
-                            ? 'bg-slate-900 text-white border-slate-900'
-                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                        }`}
-                      >
-                        {meta.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">关联项目</label>
-                  <select
-                    value={newProjectId}
-                    onChange={(e) => setNewProjectId(e.target.value)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-slate-700">产物类型</label>
+            <div className="grid grid-cols-3 gap-1.5">
+              {(Object.keys(KIND_META) as ArtifactKind[]).map((k) => {
+                const meta = KIND_META[k];
+                const active = newKind === k;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setNewKind(k)}
+                    className={`px-2.5 py-2 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+                      active
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                    }`}
                   >
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">生成来源</label>
-                  <select
-                    value={newSourceType}
-                    onChange={(e) => setNewSourceType(e.target.value as ArtifactSourceType)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    <option value="manual">手动创作</option>
-                    <option value="project_group">对话分享</option>
-                    <option value="task_session">任务生成</option>
-                  </select>
-                </div>
-              </div>
+                    {meta.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">标题 *</label>
-                <input
-                  type="text"
-                  required
-                  value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
-                  placeholder={
-                    newKind === 'design'
-                      ? '例如：新版本控制台情绪板与配色规范'
-                      : newKind === 'ppt'
-                        ? '例如：Q4 产品路线图评审演示稿'
-                        : '例如：多币种清分异常处理方案'
-                  }
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">关联项目</label>
+              <select
+                value={newProjectId}
+                onChange={(e) => setNewProjectId(e.target.value)}
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+              >
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">生成来源</label>
+              <select
+                value={newSourceType}
+                onChange={(e) => setNewSourceType(e.target.value as ArtifactSourceType)}
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+              >
+                <option value="manual">手动创作</option>
+                <option value="project_group">对话分享</option>
+                <option value="task_session">任务生成</option>
+              </select>
+            </div>
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">摘要说明</label>
-                <input
-                  type="text"
-                  value={newSummary}
-                  onChange={(e) => setNewSummary(e.target.value)}
-                  placeholder="一句话概括该产物用途或核心亮点..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">标题 *</label>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder={
+                newKind === 'design'
+                  ? '例如：新版本控制台情绪板与配色规范'
+                  : newKind === 'ppt'
+                    ? '例如：Q4 产品路线图评审演示稿'
+                    : '例如：多币种清分异常处理方案'
+              }
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">
-                  {newKind === 'ppt' ? '演示大纲要点（每行一条）' : '正文 / 设计说明 / 代码内容'}
-                </label>
-                <textarea
-                  rows={6}
-                  value={newContent}
-                  onChange={(e) => setNewContent(e.target.value)}
-                  placeholder="输入详细文档内容、演示要点或视觉设计规范..."
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20 resize-y"
-                />
-              </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">摘要说明</label>
+            <input
+              type="text"
+              value={newSummary}
+              onChange={(e) => setNewSummary(e.target.value)}
+              placeholder="一句话概括该产物用途或核心亮点..."
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">标签（逗号分隔）</label>
-                <input
-                  type="text"
-                  value={newTagsText}
-                  onChange={(e) => setNewTagsText(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">
+              {newKind === 'ppt' ? '演示大纲要点（每行一条）' : '正文 / 设计说明 / 代码内容'}
+            </label>
+            <textarea
+              rows={5}
+              value={newContent}
+              onChange={(e) => setNewContent(e.target.value)}
+              placeholder="输入详细文档内容、演示要点或视觉设计规范..."
+              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20 resize-y"
+            />
+          </div>
 
-              <div className="pt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setCreateOpen(false)}
-                  className="px-3.5 py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                >
-                  保存 Artifact
-                </button>
-              </div>
-            </form>
-          </aside>
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">标签（逗号分隔）</label>
+            <input
+              type="text"
+              value={newTagsText}
+              onChange={(e) => setNewTagsText(e.target.value)}
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
         </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

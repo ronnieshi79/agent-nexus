@@ -21,12 +21,10 @@ import {
   ShieldCheck,
   ShoppingBag,
   Sparkles,
-  Store,
   Trophy,
   UserCheck,
   UserPlus,
   Users,
-  X,
 } from 'lucide-react';
 import {
   CommunityEventInlineCard,
@@ -40,6 +38,7 @@ import {
   evaluateAgentTierRating,
   getSkillPurchasePricing,
 } from '../shared/EntityIdentity';
+import { EmptyStateCard, ModalShell } from '../shared/UiPrimitives';
 import {
   RailNavButton,
   RailSectionLabel,
@@ -262,7 +261,6 @@ export function CommunityDiscoverView({
   const [eventPricingFilter, setEventPricingFilter] = useState<'all' | 'free' | 'paid' | 'registered'>('all');
   const [crossZoneFollowing, setCrossZoneFollowing] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
-  const [principalDemoZones, setPrincipalDemoZones] = useState<Record<string, boolean>>({});
   const [rankingTab, setRankingTab] = useState<'users' | 'posts'>('users');
   const [copiedSkillId, setCopiedSkillId] = useState<string | null>(null);
 
@@ -309,18 +307,6 @@ export function CommunityDiscoverView({
     setIsComposerOpen(true);
   };
 
-  useEffect(() => {
-    if (!isComposerOpen && !consultProjectId) return;
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsComposerOpen(false);
-        setConsultProjectId(null);
-      }
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [consultProjectId, isComposerOpen]);
-
   // Comments Expand & Draft Map
   const [expandedComments, setExpandedComments] = useState<Record<string, boolean>>({
     post_pub_1: true,
@@ -353,9 +339,7 @@ export function CommunityDiscoverView({
 
   const isPublicCommunity = activeCommunity.kind === 'official';
   const hasAccess = isPublicCommunity || joinedZoneIds.includes(activeCommunity.id);
-  const canManagePin = Boolean(
-    activeCommunity.isCurrentUserPrincipal || principalDemoZones[activeCommunity.id],
-  );
+  const canManagePin = Boolean(activeCommunity.isCurrentUserPrincipal);
 
   const projectMap = useMemo(() => {
     const map = new Map<string, ZoneProjectOpportunity>();
@@ -1007,32 +991,20 @@ export function CommunityDiscoverView({
         }
         right={
           hasAccess ? (
-            <>
-              {!embeddedMode && (
-                <button
-                  type="button"
-                  onClick={() => onJumpToZoneMarket(activeCommunity.id)}
-                  className="hidden @[640px]:inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap transition-colors shrink-0"
-                >
-                  <Store className="w-3.5 h-3.5 text-blue-600" />
-                  <span>服务市场</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => openComposer(resolveComposerMode())}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>
-                  {feedScope === 'projects'
-                    ? '发起项目共创'
-                    : feedScope === 'events'
-                      ? '发布主题活动'
-                      : '发布内容'}
-                </span>
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => openComposer(resolveComposerMode())}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>
+                {feedScope === 'projects'
+                  ? '发起项目共创'
+                  : feedScope === 'events'
+                    ? '发布主题活动'
+                    : '发布内容'}
+              </span>
+            </button>
           ) : undefined
         }
       />
@@ -1093,13 +1065,6 @@ export function CommunityDiscoverView({
                       <Plus className="w-3.5 h-3.5" />
                       <span>加入「{activeCommunity.name}」私有社区</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onJumpToZoneMarket(activeCommunity.id)}
-                      className="px-3.5 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
-                    >
-                      浏览该社区服务市场
-                    </button>
                   </div>
                 </div>
               ) : (
@@ -1108,20 +1073,20 @@ export function CommunityDiscoverView({
                   {feedScope === 'projects' ? (
                     <div className="space-y-3.5">
                       {filteredZoneProjects.length === 0 ? (
-                        <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center space-y-2.5">
-                          <Rocket className="w-6 h-6 text-slate-400 mx-auto" />
-                          <p className="text-xs text-slate-500">
-                            「{activeCommunity.name}」当前筛选下暂无项目共创，欢迎发起首个共创项目。
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => openComposer('project')}
-                            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>发起项目共创</span>
-                          </button>
-                        </div>
+                        <EmptyStateCard
+                          icon={<Rocket className="w-6 h-6" />}
+                          description={`「${activeCommunity.name}」当前筛选下暂无项目共创，欢迎发起首个共创项目。`}
+                          action={
+                            <button
+                              type="button"
+                              onClick={() => openComposer('project')}
+                              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>发起项目共创</span>
+                            </button>
+                          }
+                        />
                       ) : (
                         filteredZoneProjects.map((proj) => {
                           const projInquiries = projectInquiryLog[proj.id] || [];
@@ -1361,19 +1326,19 @@ export function CommunityDiscoverView({
                           </div>
                         </div>
                       ) : (
-                        <div className="bg-white rounded-xl border border-dashed border-slate-300 py-12 text-center space-y-2.5">
-                          <p className="text-xs text-slate-500">
-                            该频道下暂无内容，欢迎发起分享讨论、AGN 推荐或项目招募。
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => openComposer(resolveComposerMode())}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                            <span>立即发帖</span>
-                          </button>
-                        </div>
+                        <EmptyStateCard
+                          description="该频道下暂无内容，欢迎发起分享讨论、主题活动或项目共创。"
+                          action={
+                            <button
+                              type="button"
+                              onClick={() => openComposer(resolveComposerMode())}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                              <span>立即发帖</span>
+                            </button>
+                          }
+                        />
                       )
                     ) : (
                       communityFeedPosts.map((post) => {
@@ -1960,7 +1925,7 @@ export function CommunityDiscoverView({
                   </div>
                 </div>
 
-                {/* Community Principal & Pin Authority */}
+                {/* Community Principal */}
                 <div className="pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2 text-[11px]">
                   <div className="flex items-center gap-1.5 min-w-0 text-slate-600">
                     <ShieldCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
@@ -1968,27 +1933,10 @@ export function CommunityDiscoverView({
                       主理：<strong className="text-slate-900">{activeCommunity.principalName}</strong>
                     </span>
                   </div>
-                  {activeCommunity.isCurrentUserPrincipal ? (
-                    <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200/80 text-amber-800 font-semibold text-[10px] shrink-0">
-                      可置顶
+                  {activeCommunity.isCurrentUserPrincipal && (
+                    <span className="text-amber-700 font-semibold text-[11px] shrink-0">
+                      可置顶管理
                     </span>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPrincipalDemoZones((prev) => ({
-                          ...prev,
-                          [activeCommunity.id]: !prev[activeCommunity.id],
-                        }))
-                      }
-                      className={`px-2 py-0.5 rounded border text-[10px] font-semibold cursor-pointer transition-colors shrink-0 ${
-                        canManagePin
-                          ? 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100'
-                          : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
-                      }`}
-                    >
-                      {canManagePin ? '退出主理' : '主理视角'}
-                    </button>
                   )}
                 </div>
               </section>
@@ -2163,197 +2111,187 @@ export function CommunityDiscoverView({
       </div>
 
       {/* Unified Project Consultation Modal */}
-      {activeConsultProject && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/45 flex items-center justify-center p-4"
-          onClick={() => setConsultProjectId(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="project-consult-modal-title"
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
-          >
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2
-                  id="project-consult-modal-title"
-                  className="text-sm font-bold text-slate-900 truncate"
-                >
-                  咨询项目招募 · {activeConsultProject.publisher}
-                </h2>
-                <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                  {activeConsultProject.title}
-                </p>
+      <ModalShell
+        open={Boolean(activeConsultProject)}
+        onClose={() => setConsultProjectId(null)}
+        title={activeConsultProject ? `咨询项目招募 · ${activeConsultProject.publisher}` : ''}
+        subtitle={activeConsultProject?.title}
+        maxWidthClass="max-w-lg"
+      >
+        {activeConsultProject && (
+          <div className="space-y-3.5">
+            <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-semibold text-slate-800">
+                  发布方：{activeConsultProject.publisher}
+                </span>
+                <span className="font-mono tabular-nums font-bold text-slate-900">
+                  预算参考 ${activeConsultProject.budgetUsd.toLocaleString('en-US')} ·{' '}
+                  {activeConsultProject.durationDays} 天
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setConsultProjectId(null)}
-                aria-label="关闭项目咨询弹框"
-                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center justify-center cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <p className="text-slate-600 leading-relaxed">{activeConsultProject.summary}</p>
+              <div className="text-[11px] text-slate-500">
+                需求角色：{activeConsultProject.requiredRoles.join(' · ')}
+              </div>
             </div>
 
-            {/* Project Summary & Inquiry History */}
-            <div className="p-5 space-y-3.5">
-              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-1.5 text-xs">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-slate-800">
-                    发布方：{activeConsultProject.publisher}
-                  </span>
-                  <span className="font-mono tabular-nums font-bold text-slate-900">
-                    预算参考 ${activeConsultProject.budgetUsd.toLocaleString('en-US')} ·{' '}
-                    {activeConsultProject.durationDays} 天
-                  </span>
-                </div>
-                <p className="text-slate-600 leading-relaxed">{activeConsultProject.summary}</p>
-                <div className="text-[11px] text-slate-500">
-                  需求角色：{activeConsultProject.requiredRoles.join(' · ')}
-                </div>
-              </div>
-
-              {(projectInquiryLog[activeConsultProject.id] || []).length > 0 && (
-                <div className="space-y-2 max-h-36 overflow-y-auto clean-scroll">
-                  <div className="text-[11px] font-semibold text-slate-500">已发送咨询记录</div>
-                  {(projectInquiryLog[activeConsultProject.id] || []).map((item) => (
-                    <div
-                      key={item.id}
-                      className="rounded-lg bg-blue-50/70 border border-blue-200/70 px-3 py-2 text-xs space-y-0.5"
-                    >
-                      <div className="flex items-center justify-between text-[11px] text-blue-700 font-semibold">
-                        <span>我（林致远）</span>
-                        <span className="font-mono tabular-nums text-blue-500">
-                          {item.timestamp}
-                        </span>
-                      </div>
-                      <p className="text-slate-800 leading-relaxed">{item.content}</p>
+            {(projectInquiryLog[activeConsultProject.id] || []).length > 0 && (
+              <div className="space-y-2 max-h-36 overflow-y-auto clean-scroll">
+                <div className="text-[11px] font-semibold text-slate-500">已发送咨询记录</div>
+                {(projectInquiryLog[activeConsultProject.id] || []).map((item) => (
+                  <div
+                    key={item.id}
+                    className="rounded-lg bg-blue-50/70 border border-blue-200/70 px-3 py-2 text-xs space-y-0.5"
+                  >
+                    <div className="flex items-center justify-between text-[11px] text-blue-700 font-semibold">
+                      <span>我（林致远）</span>
+                      <span className="font-mono tabular-nums text-blue-500">
+                        {item.timestamp}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
+                    <p className="text-slate-800 leading-relaxed">{item.content}</p>
+                  </div>
+                ))}
+              </div>
+            )}
 
-              {/* Quick Inquiry Prompts */}
-              <div className="space-y-1.5">
-                <div className="text-[11px] font-medium text-slate-500">快捷咨询话题</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {QUICK_INQUIRY_TEMPLATES.map((tpl, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setConsultDraft(tpl)}
-                      className="px-2.5 py-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] text-slate-700 cursor-pointer text-left"
-                    >
-                      {idx === 0 ? '询问验收与文档' : idx === 1 ? '沟通交付排期' : '确认协作模式'}
-                    </button>
-                  ))}
+            {/* Quick Inquiry Prompts */}
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium text-slate-500">快捷咨询话题</div>
+              <div className="flex flex-wrap gap-1.5">
+                {QUICK_INQUIRY_TEMPLATES.map((tpl, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setConsultDraft(tpl)}
+                    className="px-2.5 py-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] text-slate-700 cursor-pointer text-left"
+                  >
+                    {idx === 0 ? '询问验收与文档' : idx === 1 ? '沟通交付排期' : '确认协作模式'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <form onSubmit={handleSendProjectInquiry} className="space-y-2.5">
+              <textarea
+                rows={3}
+                value={consultDraft}
+                onChange={(e) => setConsultDraft(e.target.value)}
+                placeholder={`向 ${activeConsultProject.publisher} 发送咨询留言...`}
+                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+              />
+              <div className="flex items-center justify-between gap-2 pt-1">
+                {activeConsultProject.status === 'claimed' ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConsultProjectId(null);
+                      onJumpToKanban(activeConsultProject.linkedWorkspaceId);
+                    }}
+                    className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>已建立项目看板 · 去查看</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClaimZoneProject(activeConsultProject.id);
+                      setConsultProjectId(null);
+                    }}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-900 cursor-pointer"
+                  >
+                    确认合作并同步项目看板 →
+                  </button>
+                )}
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setConsultProjectId(null)}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    关闭
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!consultDraft.trim()}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>发送咨询</span>
+                  </button>
                 </div>
               </div>
-
-              <form onSubmit={handleSendProjectInquiry} className="space-y-2.5">
-                <textarea
-                  rows={3}
-                  value={consultDraft}
-                  onChange={(e) => setConsultDraft(e.target.value)}
-                  placeholder={`向 ${activeConsultProject.publisher} 发送咨询留言...`}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
-                />
-                <div className="flex items-center justify-between gap-2 pt-1">
-                  {activeConsultProject.status === 'claimed' ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setConsultProjectId(null);
-                        onJumpToKanban(activeConsultProject.linkedWorkspaceId);
-                      }}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
-                    >
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      <span>已建立项目看板 · 去查看</span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onClaimZoneProject(activeConsultProject.id);
-                        setConsultProjectId(null);
-                      }}
-                      className="text-xs font-semibold text-slate-500 hover:text-slate-900 cursor-pointer"
-                    >
-                      确认合作并同步项目看板 →
-                    </button>
-                  )}
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setConsultProjectId(null)}
-                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-                    >
-                      关闭
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={!consultDraft.trim()}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>发送咨询</span>
-                    </button>
-                  </div>
-                </div>
-              </form>
-            </div>
+            </form>
           </div>
-        </div>
-      )}
+        )}
+      </ModalShell>
 
       {/* Publish Post / Project Recruitment Modal */}
-      {isComposerOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/45 flex items-center justify-center p-4"
-          onClick={() => setIsComposerOpen(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="community-publish-modal-title"
-        >
-          <form
-            onSubmit={handleComposerSubmit}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-xl bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden"
-          >
-            {/* Modal Header */}
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <h2
-                  id="community-publish-modal-title"
-                  className="text-sm font-bold text-slate-900"
-                >
-                  发布社区内容
-                </h2>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  目标社区：
-                  <strong style={{ color: activeCommunity.accentColor }}>
-                    {activeCommunity.name}
-                  </strong>
-                  （{activeCommunity.typeLabel}）
-                </p>
-              </div>
+      <ModalShell
+        open={isComposerOpen}
+        onClose={() => setIsComposerOpen(false)}
+        title="发布社区内容"
+        subtitle={
+          <>
+            目标社区：
+            <strong style={{ color: activeCommunity.accentColor }}>
+              {activeCommunity.name}
+            </strong>
+            （{activeCommunity.typeLabel}）
+          </>
+        }
+        maxWidthClass="max-w-xl"
+        onSubmit={handleComposerSubmit}
+        footer={
+          <>
+            <span className="text-[11px] text-slate-500">
+              {composerMode === 'project'
+                ? '发布后自动进入「项目共创」并同步至「工作台 → 我的项目」'
+                : composerMode === 'event'
+                  ? '发布后自动上架「主题活动」并同步至社区动态，开放报名与凭证核验'
+                  : composerMode === 'skill_share'
+                    ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
+                    : composerMode === 'agn_recommend' && selectedPublishAgentId
+                      ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专家 Agent」'
+                      : '发布后支持社区成员与专家节点评论交流'}
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => setIsComposerOpen(false)}
-                aria-label="关闭发布弹框"
-                className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 inline-flex items-center justify-center cursor-pointer transition-colors"
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                disabled={
+                  composerMode === 'skill_share'
+                    ? !skillName.trim()
+                    : !postBody.trim() && !postTitle.trim()
+                }
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>
+                  {composerMode === 'project'
+                    ? '发布项目共创'
+                    : composerMode === 'event'
+                      ? '发布主题活动'
+                      : composerMode === 'skill_share'
+                        ? '发布并上架 Skill'
+                        : `发布${POST_TYPE_META[composerMode].label}`}
+                </span>
               </button>
             </div>
-
-            {/* Modal Body */}
-            <div className="p-5 space-y-3.5">
+          </>
+        }
+      >
+        <div className="space-y-3.5">
               <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-lg">
                 {(
                   [
@@ -2739,53 +2677,7 @@ export function CommunityDiscoverView({
                 </label>
               )}
             </div>
-
-            {/* Modal Footer */}
-            <div className="px-5 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-slate-500">
-                {composerMode === 'project'
-                  ? '发布后自动进入「项目共创」并同步至「工作台 → 我的项目」'
-                  : composerMode === 'event'
-                    ? '发布后自动上架「主题活动」并同步至社区动态，开放报名与凭证核验'
-                    : composerMode === 'skill_share'
-                      ? '发布后自动同步上架至本社区「服务市场 → Skills / MCP」'
-                      : composerMode === 'agn_recommend' && selectedPublishAgentId
-                        ? '发布后关联 Agent 将自动同步至本社区「服务市场 → 专家 Agent」'
-                        : '发布后支持社区成员与专家节点评论交流'}
-              </span>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsComposerOpen(false)}
-                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={
-                    composerMode === 'skill_share'
-                      ? !skillName.trim()
-                      : !postBody.trim() && !postTitle.trim()
-                  }
-                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer disabled:opacity-45 whitespace-nowrap"
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  <span>
-                    {composerMode === 'project'
-                      ? '发布项目共创'
-                      : composerMode === 'event'
-                        ? '发布主题活动'
-                        : composerMode === 'skill_share'
-                          ? '发布并上架 Skill'
-                          : `发布${POST_TYPE_META[composerMode].label}`}
-                  </span>
-                </button>
-              </div>
-            </div>
-          </form>
-        </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

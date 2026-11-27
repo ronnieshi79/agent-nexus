@@ -5,13 +5,13 @@ import {
   Building2,
   CalendarClock,
   CheckCircle2,
-  Compass,
   Cpu,
   Database,
   FileCode2,
   FolderKanban,
   GitBranch,
   Globe,
+  Inbox,
   LayoutGrid,
   Lock,
   MessageSquareCode,
@@ -64,6 +64,7 @@ import {
   formatAgentDisplayName,
   getAgentLeasePricing,
 } from '../shared/EntityIdentity';
+import { EmptyStateCard, ModalShell } from '../shared/UiPrimitives';
 import {
   RailNavButton,
   RailSectionLabel,
@@ -311,6 +312,7 @@ export function WorkflowKanbanView({
   const [kanbanAgentFilter, setKanbanAgentFilter] = useState<string>('all');
   const [taskTypeFilter, setTaskTypeFilter] = useState<string>('all');
   const [showProjectTeamPanel, setShowProjectTeamPanel] = useState(false);
+  const [showCompletedInbox, setShowCompletedInbox] = useState(false);
   const [showQuickTaskForm, setShowQuickTaskForm] = useState(false);
   const [quickTaskTypeId, setQuickTaskTypeId] = useState<string>(
     DEFAULT_PROJECT_TASK_TYPES[0].id,
@@ -1011,24 +1013,9 @@ export function WorkflowKanbanView({
                           项目进度、专家负载与资源总览
                         </span>
                       </div>
-                      <div className="flex items-center gap-3 text-xs font-semibold shrink-0">
-                        <button
-                          type="button"
-                          onClick={onJumpToTeamNodes}
-                          className="text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap font-mono tabular-nums"
-                        >
-                          <span className="font-sans">Agent 节点</span> {onlineNodesCount}/
-                          {computeNodes.length} →
-                        </button>
-                        <span className="text-slate-200" aria-hidden="true">|</span>
-                        <button
-                          type="button"
-                          onClick={() => switchTab('orchestration')}
-                          className="text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-                        >
-                          任务编排 →
-                        </button>
-                      </div>
+                      <span className="text-xs font-mono tabular-nums text-slate-500 shrink-0">
+                        在线节点 {onlineNodesCount}/{computeNodes.length}
+                      </span>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2 border-t border-slate-100">
@@ -1248,137 +1235,29 @@ export function WorkflowKanbanView({
 
                   <button
                     type="button"
-                    onClick={() => setShowCreateProjectForm((v) => !v)}
-                    className={`inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors ${
-                      showCreateProjectForm
-                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
-                        : 'bg-slate-900 hover:bg-slate-800 text-white'
-                    }`}
+                    onClick={() => setShowCreateProjectForm(true)}
+                    className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0 transition-colors"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>新建项目</span>
                   </button>
                 </div>
 
-                {showCreateProjectForm && (
-                  <form
-                    onSubmit={handleCreateProjectSubmit}
-                    className="p-4 rounded-xl bg-white border border-slate-200 space-y-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">
-                        新建工作项目（支持绑定个人 Agent 节点或 Agent 社区共享节点）
-                      </span>
+                {filteredMyProjects.length === 0 ? (
+                  <EmptyStateCard
+                    title="当前筛选下暂无项目"
+                    description="可调整上方状态或视角筛选，或直接新建工作项目开始多 Agent 协同交付。"
+                    action={
                       <button
                         type="button"
-                        onClick={() => setShowCreateProjectForm(false)}
-                        className="text-slate-400 hover:text-slate-700 cursor-pointer"
+                        onClick={() => setShowCreateProjectForm(true)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
                       >
-                        <X className="w-4 h-4" />
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>新建项目</span>
                       </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                      <input
-                        type="text"
-                        required
-                        value={projName}
-                        onChange={(e) => setProjName(e.target.value)}
-                        placeholder="项目名称（如：海外独立站支付重构）"
-                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                      />
-                      <input
-                        type="text"
-                        value={projGoal}
-                        onChange={(e) => setProjGoal(e.target.value)}
-                        placeholder="核心交付目标（可选）"
-                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                      />
-                      <select
-                        value={projZoneId}
-                        onChange={(e) => {
-                          const nextZoneId = e.target.value;
-                          setProjZoneId(nextZoneId);
-                          const matchingShared = accessibleSharedNodes.find(
-                            (sn) => sn.zoneId === nextZoneId && sn.status === 'online',
-                          );
-                          if (matchingShared) {
-                            setProjNodeId(matchingShared.id);
-                          }
-                        }}
-                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                      >
-                        <option value="">归属：个人私有项目</option>
-                        {joinedZones.map((z) => (
-                          <option key={z.id} value={z.id}>
-                            归属：{z.name}（{z.typeLabel}）
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                      <select
-                        value={projNodeId}
-                        onChange={(e) => setProjNodeId(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                      >
-                        <option value="">暂不指定运行节点</option>
-                        <optgroup label="个人 Agent 节点">
-                          {computeNodes.map((n) => (
-                            <option key={n.id} value={n.id}>
-                              个人节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
-                            </option>
-                          ))}
-                        </optgroup>
-                        {accessibleSharedNodes.length > 0 && (
-                          <optgroup label="Agent 社区 · 共享节点">
-                            {accessibleSharedNodes.map((sn) => {
-                              const z = zoneMap.get(sn.zoneId);
-                              return (
-                                <option key={sn.id} value={sn.id}>
-                                  [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name} (
-                                  {sn.cpuCores}C/{sn.memoryGb}G)
-                                </option>
-                              );
-                            })}
-                          </optgroup>
-                        )}
-                      </select>
-                      <select
-                        value={projVolumeId}
-                        onChange={(e) => setProjVolumeId(e.target.value)}
-                        className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                      >
-                        <option value="">暂不指定存储卷</option>
-                        {storageVolumes.map((v) => (
-                          <option key={v.id} value={v.id}>
-                            挂载存储卷：{v.name} ({v.quotaGb}GB)
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="flex justify-end">
-                      <button
-                        type="submit"
-                        className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                      >
-                        创建并进入项目看板
-                      </button>
-                    </div>
-                  </form>
-                )}
-
-                {filteredMyProjects.length === 0 ? (
-                  <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-                    <p className="text-sm font-medium text-slate-700">当前筛选下暂无项目</p>
-                    <button
-                      type="button"
-                      onClick={onJumpToDiscover}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
-                    >
-                      <Compass className="w-3.5 h-3.5" />
-                      <span>前往交流社区承接或发布项目</span>
-                    </button>
-                  </div>
+                    }
+                  />
                 ) : (
                   <div className="space-y-3.5">
                     {filteredMyProjects.map((proj) => {
@@ -1841,135 +1720,21 @@ export function WorkflowKanbanView({
           {/* ================= WORK PROJECTS 2: MY PROJECTS (Multi-Project Tab Cockpit: Compact Brief + Always-Visible Kanban) ================= */}
           {activeTab === 'my_projects' && (
             <div className={`${WORKSPACE_MAX_WIDTH_CLASS} space-y-4`}>
-              {showCreateProjectForm && (
-                <form
-                  onSubmit={handleCreateProjectSubmit}
-                  className="p-4 rounded-xl bg-white border border-slate-200 space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900">
-                      新建工作项目（创建后自动新增顶部项目标签页并进入看板）
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateProjectForm(false)}
-                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
-                    <input
-                      type="text"
-                      required
-                      value={projName}
-                      onChange={(e) => setProjName(e.target.value)}
-                      placeholder="项目名称（如：海外独立站支付重构）"
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                    <input
-                      type="text"
-                      value={projGoal}
-                      onChange={(e) => setProjGoal(e.target.value)}
-                      placeholder="核心交付目标（可选）"
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                    <select
-                      value={projZoneId}
-                      onChange={(e) => {
-                        const nextZoneId = e.target.value;
-                        setProjZoneId(nextZoneId);
-                        const matchingShared = accessibleSharedNodes.find(
-                          (sn) => sn.zoneId === nextZoneId && sn.status === 'online',
-                        );
-                        if (matchingShared) {
-                          setProjNodeId(matchingShared.id);
-                        }
-                      }}
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="">归属：个人私有项目</option>
-                      {joinedZones.map((z) => (
-                        <option key={z.id} value={z.id}>
-                          归属：{z.name}（{z.typeLabel}）
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                    <select
-                      value={projNodeId}
-                      onChange={(e) => setProjNodeId(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="">暂不指定运行节点</option>
-                      <optgroup label="个人 Agent 节点">
-                        {computeNodes.map((n) => (
-                          <option key={n.id} value={n.id}>
-                            个人节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
-                          </option>
-                        ))}
-                      </optgroup>
-                      {accessibleSharedNodes.length > 0 && (
-                        <optgroup label="Agent 社区 · 共享节点">
-                          {accessibleSharedNodes.map((sn) => {
-                            const z = zoneMap.get(sn.zoneId);
-                            return (
-                              <option key={sn.id} value={sn.id}>
-                                [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name} (
-                                {sn.cpuCores}C/{sn.memoryGb}G)
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      )}
-                    </select>
-                    <select
-                      value={projVolumeId}
-                      onChange={(e) => setProjVolumeId(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                    >
-                      <option value="">暂不指定存储卷</option>
-                      {storageVolumes.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          挂载存储卷：{v.name} ({v.quotaGb}GB)
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="submit"
-                      className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                    >
-                      创建并切换至该项目
-                    </button>
-                  </div>
-                </form>
-              )}
-
               {!focusedProject ? (
-                <div className="py-16 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-                  <p className="text-sm font-medium text-slate-700">当前暂无工作项目</p>
-                  <div className="flex items-center justify-center gap-2">
+                <EmptyStateCard
+                  title="当前暂无工作项目"
+                  description="创建您的第一个工作项目并绑定 Agent 专家，即可在看板中编排与推进交付任务。"
+                  action={
                     <button
                       type="button"
                       onClick={() => setShowCreateProjectForm(true)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold cursor-pointer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>新建第一个项目</span>
                     </button>
-                    <button
-                      type="button"
-                      onClick={onJumpToDiscover}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold cursor-pointer"
-                    >
-                      <Compass className="w-3.5 h-3.5" />
-                      <span>前往社区承接项目</span>
-                    </button>
-                  </div>
-                </div>
+                  }
+                />
               ) : (
                 (() => {
                   const status: ProjectLifecycleStatus = focusedProject.lifecycleStatus || 'active';
@@ -2073,10 +1838,9 @@ export function WorkflowKanbanView({
                                     {focusedProject.name}
                                   </h2>
                                   <span
-                                    className={`inline-flex items-center gap-1 text-[11px] font-semibold ${life.cls}`}
+                                    className={`text-[11px] font-semibold ${life.cls}`}
                                   >
-                                    <span className={`w-1.5 h-1.5 rounded-full ${life.dotCls}`} />
-                                    <span>{life.label}</span>
+                                    {life.label}
                                   </span>
                                   <span className="text-slate-300" aria-hidden="true">·</span>
                                   <span className={`text-[11px] font-semibold ${roleInfo.cls}`}>
@@ -2122,15 +1886,11 @@ export function WorkflowKanbanView({
                                   )}
                                   <button
                                     type="button"
-                                    onClick={() => setShowProjectTeamPanel((v) => !v)}
-                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold cursor-pointer whitespace-nowrap transition-colors ${
-                                      showProjectTeamPanel
-                                        ? 'border-slate-900 bg-slate-900 text-white'
-                                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                                    }`}
+                                    onClick={() => setShowProjectTeamPanel(true)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap transition-colors"
                                   >
                                     <Users className="w-3 h-3" />
-                                    <span>{showProjectTeamPanel ? '收起阵容' : '管理阵容'}</span>
+                                    <span>管理阵容</span>
                                   </button>
                                 </div>
                               </div>
@@ -2186,32 +1946,23 @@ export function WorkflowKanbanView({
 
                           {/* Right Zone: Compact Vertical Agent Expert Workload Table (Click Row to Filter) */}
                           <div className="lg:col-span-6 border-t lg:border-t-0 border-slate-200/80 bg-slate-50/40 flex flex-col">
-                            <div className="px-3.5 py-2 border-b border-slate-200/70 flex items-center justify-between gap-2 text-[11px]">
-                              <span className="font-semibold text-slate-700">
-                                参与 Agent 专家统计（{focusedAgentWorkloads.length} 位）
-                              </span>
-                              <span className="text-slate-400">
-                                {kanbanAgentFilter !== 'all'
-                                  ? '已按选中 Agent 筛选'
-                                  : '点击行可筛选下方看板'}
-                              </span>
-                            </div>
-
                             {focusedAgentWorkloads.length === 0 ? (
-                              <div className="px-4 py-6 text-center text-xs text-slate-400">
+                              <div className="px-4 py-8 text-center text-xs text-slate-400">
                                 暂未分配参与 Agent，可通过「管理阵容」或「任务编排」配置专家 Agent。
                               </div>
                             ) : (
-                              <div className="overflow-x-auto max-h-[142px] overflow-y-auto clean-scroll">
+                              <div className="overflow-x-auto max-h-[168px] overflow-y-auto clean-scroll">
                                 <table className="w-full text-left border-collapse text-[11px]">
                                   <thead className="sticky top-0 bg-slate-50 border-b border-slate-200/70 text-[10.5px] font-semibold text-slate-500">
                                     <tr>
-                                      <th className="py-1.5 pl-3.5 pr-2 font-semibold">Agent 专家</th>
-                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">总数</th>
-                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">计划</th>
-                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">执行</th>
-                                      <th className="py-1.5 px-2 text-right font-semibold whitespace-nowrap">验证</th>
-                                      <th className="py-1.5 pl-2 pr-3.5 text-right font-semibold whitespace-nowrap">完成</th>
+                                      <th className="py-2 pl-3.5 pr-2 font-semibold">
+                                        Agent 专家 ({focusedAgentWorkloads.length})
+                                      </th>
+                                      <th className="py-2 px-2 text-right font-semibold whitespace-nowrap">总数</th>
+                                      <th className="py-2 px-2 text-right font-semibold whitespace-nowrap">计划</th>
+                                      <th className="py-2 px-2 text-right font-semibold whitespace-nowrap">执行</th>
+                                      <th className="py-2 px-2 text-right font-semibold whitespace-nowrap">验证</th>
+                                      <th className="py-2 pl-2 pr-3.5 text-right font-semibold whitespace-nowrap">完成</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-200/60">
@@ -2293,14 +2044,29 @@ export function WorkflowKanbanView({
                           </div>
                         </div>
 
-                        {/* Collapsible Project Team, Compute Nodes & Lease Drawer */}
-                        {showProjectTeamPanel && (
-                          <div className="border-t border-slate-200 bg-slate-50/50 p-4 space-y-3">
-                            {/* Runtime Resource Line tucked inside drawer */}
-                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600 pb-2.5 border-b border-slate-200/70">
+                        {/* Modal: Project Team, Compute Nodes & Lease Management */}
+                        <ModalShell
+                          open={showProjectTeamPanel}
+                          onClose={() => setShowProjectTeamPanel(false)}
+                          title={`管理项目协作阵容 · ${focusedProject.name}`}
+                          subtitle="管理参与本项目的 Agent 主理人、专家 Agent 租期以及绑定的算力与存储资源"
+                          icon={<Users className="w-4 h-4 text-slate-700" />}
+                          maxWidthClass="max-w-3xl"
+                          footer={
+                            <button
+                              type="button"
+                              onClick={() => setShowProjectTeamPanel(false)}
+                              className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                            >
+                              完成
+                            </button>
+                          }
+                        >
+                          <div className="space-y-4">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-600 p-3 rounded-lg bg-slate-50 border border-slate-200/80">
                               {renderSpaceOwnershipBadge(focusedProject.sourceZoneId)}
                               <span className="inline-flex items-center gap-1">
-                                <Server className="w-3 h-3 text-slate-400 shrink-0" />
+                                <Server className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                 <span>
                                   算力节点：
                                   {boundNodeLabels.length > 0
@@ -2310,7 +2076,7 @@ export function WorkflowKanbanView({
                               </span>
                               {boundVol && (
                                 <span className="inline-flex items-center gap-1 font-mono tabular-nums">
-                                  <Database className="w-3 h-3 text-slate-400 shrink-0" />
+                                  <Database className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                   <span>
                                     {boundVol.name} ({boundVol.usedGb}/{boundVol.quotaGb}GB)
                                   </span>
@@ -2325,20 +2091,9 @@ export function WorkflowKanbanView({
                                     <Users className="w-3.5 h-3.5 text-emerald-600" />
                                     <span>Agent 主理 ({assignedExperts.length})</span>
                                   </h3>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      focusedProject.sourceZoneId
-                                        ? onJumpToZoneMarket(focusedProject.sourceZoneId)
-                                        : onJumpToMarket()
-                                    }
-                                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                                  >
-                                    去市场招募 →
-                                  </button>
                                 </div>
                                 {assignedExperts.length === 0 ? (
-                                  <p className="text-xs text-slate-400">
+                                  <p className="text-xs text-slate-400 py-2">
                                     暂未派驻 Agent 主理，可从下方直接指派。
                                   </p>
                                 ) : (
@@ -2401,7 +2156,7 @@ export function WorkflowKanbanView({
                                       value={effectiveAssignId}
                                       onChange={(e) => setAssignExpertId(e.target.value)}
                                       aria-label="选择要派驻该项目的专家"
-                                      className="flex-1 min-w-0 h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-800 focus:outline-none"
+                                      className="flex-1 min-w-0 h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-800 focus:bg-white focus:outline-none"
                                     >
                                       {availableExperts.map((exp) => (
                                         <option key={exp.id} value={exp.id}>
@@ -2420,7 +2175,7 @@ export function WorkflowKanbanView({
                                           setAssignExpertId('');
                                         }
                                       }}
-                                      className="h-7 px-2.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
+                                      className="h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
                                     >
                                       + 派驻
                                     </button>
@@ -2434,19 +2189,8 @@ export function WorkflowKanbanView({
                                     <Cpu className="w-3.5 h-3.5 text-indigo-600" />
                                     <span>专家 Agent ({projMembers.length})</span>
                                   </h3>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      focusedProject.sourceZoneId
-                                        ? onJumpToZoneMarket(focusedProject.sourceZoneId)
-                                        : onJumpToMarket()
-                                    }
-                                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                                  >
-                                    + 租赁 Agent
-                                  </button>
                                 </div>
-                                <div className="divide-y divide-slate-200/70 border border-slate-200/80 rounded-lg bg-white max-h-44 overflow-y-auto clean-scroll">
+                                <div className="divide-y divide-slate-200/70 border border-slate-200/80 rounded-lg bg-white max-h-60 overflow-y-auto clean-scroll">
                                   {projMembers.map((ag) => {
                                     const snap = snapshotByAgentId.get(ag.id);
                                     const lease = agentLeases[ag.id];
@@ -2520,7 +2264,7 @@ export function WorkflowKanbanView({
                               </div>
                             </div>
                           </div>
-                        )}
+                        </ModalShell>
                       </section>
 
                       {/* Part 2: Always-Visible Unified 4-Column Kanban Board */}
@@ -2596,71 +2340,132 @@ export function WorkflowKanbanView({
                             )}
                           </div>
 
-                          <button
-                            type="button"
-                            disabled={isReadOnly}
-                            title={isReadOnly ? '项目已锁定，请先重新激活' : '发起对话派发新任务'}
-                            onClick={() => setShowQuickTaskForm((v) => !v)}
-                            className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold whitespace-nowrap cursor-pointer shrink-0 transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
-                              showQuickTaskForm && !isReadOnly
-                                ? 'bg-blue-600 text-white'
-                                : 'border border-blue-200 bg-blue-50/80 hover:bg-blue-100 text-blue-700'
-                            }`}
-                          >
-                            <MessageSquarePlus className="w-3.5 h-3.5" />
-                            <span>派发任务</span>
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setShowCompletedInbox(true)}
+                              title="查看已验收归档的任务卡片"
+                              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 text-xs font-semibold text-slate-700 whitespace-nowrap cursor-pointer transition-colors"
+                            >
+                              <Inbox className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>已完成卡片</span>
+                              <span className="font-mono tabular-nums text-[11px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                                {
+                                  focusedKanbanTasks.filter(
+                                    (t) => t.status === 'done' && executingTaskId !== t.id,
+                                  ).length
+                                }
+                              </span>
+                            </button>
+
+                            <button
+                              type="button"
+                              disabled={isReadOnly}
+                              title={isReadOnly ? '项目已锁定，请先重新激活' : '发起对话派发新任务'}
+                              onClick={() => setShowQuickTaskForm(true)}
+                              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
+                            >
+                              <MessageSquarePlus className="w-3.5 h-3.5" />
+                              <span>派发任务</span>
+                            </button>
+                          </div>
                         </div>
 
-                        {/* AI Conversation-Driven Task Planning Bar (No Traditional Manual Form) */}
-                        {showQuickTaskForm && !isReadOnly && (
-                          <form
-                            onSubmit={(e) => {
-                              e.preventDefault();
-                              onStartTemplateConversation(
-                                focusedProject.id,
-                                effectiveQuickTypeId,
-                                {
-                                  prompt: quickTaskPrompt.trim() || undefined,
-                                  creatorAgentId: effectiveQuickCreatorId || undefined,
-                                  autoSend: Boolean(quickTaskPrompt.trim()),
-                                },
-                              );
-                              setQuickTaskPrompt('');
-                              setShowQuickTaskForm(false);
-                            }}
-                            className="rounded-xl border border-blue-200 bg-blue-50/60 p-3 space-y-2"
-                          >
-                            <div className="flex flex-wrap items-center gap-2">
-                              <select
-                                value={effectiveQuickTypeId}
-                                onChange={(e) => {
-                                  setQuickTaskTypeId(e.target.value);
-                                  setQuickCreatorAgentId('');
-                                }}
-                                aria-label="选择任务卡片模板"
-                                className="h-8 rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-800 focus:outline-none"
-                              >
-                                {focusedProjectTaskTypes.map((tt) => (
-                                  <option key={tt.id} value={tt.id}>
-                                    模板：{tt.name}
-                                  </option>
-                                ))}
-                              </select>
-                              <select
-                                value={effectiveQuickCreatorId}
-                                onChange={(e) => setQuickCreatorAgentId(e.target.value)}
-                                aria-label="选择对话创作专家 Agent"
-                                className="h-8 max-w-[200px] rounded-md border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-800 focus:outline-none"
-                              >
-                                {quickFallbackCreators.map((ag) => (
-                                  <option key={ag.id} value={ag.id}>
-                                    对话专家：{formatAgentDisplayName(ag.handle, ag.runtimeAgent, ag.defaultModel)}
-                                  </option>
-                                ))}
-                              </select>
-                              <input
-                                type="text"
+                        {/* AI Conversation-Driven Task Dispatch Modal */}
+                        <ModalShell
+                          open={showQuickTaskForm && !isReadOnly}
+                          onClose={() => setShowQuickTaskForm(false)}
+                          icon={<MessageSquarePlus className="w-4 h-4 text-blue-600" />}
+                          title="发起对话派发任务"
+                          subtitle={`${focusedProject.name} · AI 对话梳理后自动生成至「任务计划」列`}
+                          maxWidthClass="max-w-xl"
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            onStartTemplateConversation(
+                              focusedProject.id,
+                              effectiveQuickTypeId,
+                              {
+                                prompt: quickTaskPrompt.trim() || undefined,
+                                creatorAgentId: effectiveQuickCreatorId || undefined,
+                                autoSend: Boolean(quickTaskPrompt.trim()),
+                              },
+                            );
+                            setQuickTaskPrompt('');
+                            setShowQuickTaskForm(false);
+                          }}
+                          footer={
+                            <>
+                              <span className="text-[11px] text-slate-500">
+                                发起后将自动进入该专家 Agent 的任务对话窗口
+                              </span>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowQuickTaskForm(false)}
+                                  className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                                >
+                                  取消
+                                </button>
+                                <button
+                                  type="submit"
+                                  className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                                >
+                                  <MessageSquarePlus className="w-3.5 h-3.5" />
+                                  <span>发起对话生成任务卡</span>
+                                </button>
+                              </div>
+                            </>
+                          }
+                        >
+                          <div className="space-y-3.5">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700">
+                                  任务卡片模板
+                                </label>
+                                <select
+                                  value={effectiveQuickTypeId}
+                                  onChange={(e) => {
+                                    setQuickTaskTypeId(e.target.value);
+                                    setQuickCreatorAgentId('');
+                                  }}
+                                  aria-label="选择任务卡片模板"
+                                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none"
+                                >
+                                  {focusedProjectTaskTypes.map((tt) => (
+                                    <option key={tt.id} value={tt.id}>
+                                      {tt.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="text-xs font-semibold text-slate-700">
+                                  对话创作专家 Agent
+                                </label>
+                                <select
+                                  value={effectiveQuickCreatorId}
+                                  onChange={(e) => setQuickCreatorAgentId(e.target.value)}
+                                  aria-label="选择对话创作专家 Agent"
+                                  className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none"
+                                >
+                                  {quickFallbackCreators.map((ag) => (
+                                    <option key={ag.id} value={ag.id}>
+                                      {formatAgentDisplayName(ag.handle, ag.runtimeAgent, ag.defaultModel)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-xs font-semibold text-slate-700">
+                                需求目标与上下文说明
+                              </label>
+                              <textarea
+                                rows={4}
+                                autoFocus
                                 value={quickTaskPrompt}
                                 onChange={(e) => setQuickTaskPrompt(e.target.value)}
                                 placeholder={`向 ${
@@ -2672,43 +2477,21 @@ export function WorkflowKanbanView({
                                       )
                                     : '指定专家 Agent'
                                 } 描述需求目标，发起对话由 AI 生成任务计划卡...`}
-                                className="flex-1 min-w-[220px] h-8 rounded-md border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
                               />
-                              <button
-                                type="submit"
-                                className="inline-flex items-center gap-1 h-8 px-3 rounded-md bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                              >
-                                <MessageSquarePlus className="w-3.5 h-3.5" />
-                                <span>发起对话生成任务卡</span>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setShowQuickTaskForm(false)}
-                                className="p-1.5 text-slate-400 hover:text-slate-700 cursor-pointer"
-                              >
-                                <X className="w-4 h-4" />
-                              </button>
                             </div>
-                            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
-                              {selectedQuickType?.templateChecklist ? (
-                                <span className="truncate">
-                                  <span className="font-semibold text-slate-700">交付骨架：</span>
-                                  {selectedQuickType.templateChecklist}
-                                </span>
-                              ) : (
-                                <span>
-                                  选择卡片模板并描述目标，将与指定专家发起 AI 对话梳理计划并自动生成任务卡
-                                </span>
-                              )}
-                              <span className="text-[10.5px] text-blue-700 font-medium shrink-0">
-                                AI 对话梳理后自动生成至「任务计划」列
-                              </span>
-                            </div>
-                          </form>
-                        )}
 
-                        <div className="grid grid-cols-1 @[620px]:grid-cols-2 @[1040px]:grid-cols-4 gap-4">
-                          {WORK_CARD_STAGES.map((col) => {
+                            {selectedQuickType?.templateChecklist && (
+                              <div className="rounded-lg bg-slate-50 border border-slate-200/80 px-3 py-2 text-[11px] text-slate-600">
+                                <span className="font-semibold text-slate-700">交付骨架：</span>
+                                {selectedQuickType.templateChecklist}
+                              </div>
+                            )}
+                          </div>
+                        </ModalShell>
+
+                        <div className="grid grid-cols-1 @[720px]:grid-cols-3 gap-4">
+                          {WORK_CARD_STAGES.filter((col) => col.status !== 'done').map((col) => {
                             const colTasks = focusedKanbanTasks.filter((t) =>
                               col.status === 'in_progress'
                                 ? t.status === 'in_progress' || executingTaskId === t.id
@@ -2962,6 +2745,139 @@ export function WorkflowKanbanView({
                             );
                           })}
                         </div>
+
+                        {/* Completed Task Cards Inbox Modal */}
+                        {(() => {
+                          const completedTasks = focusedKanbanTasks.filter(
+                            (t) => t.status === 'done' && executingTaskId !== t.id,
+                          );
+                          return (
+                            <ModalShell
+                              open={showCompletedInbox}
+                              onClose={() => setShowCompletedInbox(false)}
+                              icon={<Inbox className="w-4 h-4 text-emerald-600" />}
+                              title={`已完成卡片 (${completedTasks.length})`}
+                              subtitle={`${focusedProject.name} · 已验收交付的任务自动归档于此`}
+                              maxWidthClass="max-w-2xl"
+                            >
+                              {completedTasks.length === 0 ? (
+                                <EmptyStateCard
+                                  compact
+                                  title="暂无已完成卡片"
+                                  description="在「任务验证」列点击「验收完成」后，对应任务卡片将统一收口至此处。"
+                                />
+                              ) : (
+                                <div className="space-y-3">
+                                  {completedTasks.map((task) => {
+                                    const agent = agentMap.get(task.assigneeId);
+                                    const taskType = resolveTaskType(
+                                      task,
+                                      focusedProjectTaskTypes,
+                                    );
+                                    const typeStyle = TASK_TYPE_ACCENT_STYLES[taskType.accent];
+                                    return (
+                                      <article
+                                        key={task.id}
+                                        className="bg-white rounded-xl p-3.5 border border-slate-200 flex flex-col gap-2.5"
+                                      >
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0 space-y-1">
+                                            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                                              <span className={`font-semibold ${typeStyle.textCls}`}>
+                                                {taskType.name}
+                                              </span>
+                                              {task.featureModule &&
+                                                task.featureModule !== taskType.name && (
+                                                  <>
+                                                    <span className="text-slate-300" aria-hidden="true">
+                                                      ·
+                                                    </span>
+                                                    <span className="text-slate-400">
+                                                      {task.featureModule}
+                                                    </span>
+                                                  </>
+                                                )}
+                                            </div>
+                                            <h5 className="text-sm font-semibold text-slate-900 leading-snug">
+                                              {task.title}
+                                            </h5>
+                                          </div>
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 shrink-0">
+                                            <CheckCircle2 className="w-3.5 h-3.5" />
+                                            <span>已完成</span>
+                                          </span>
+                                        </div>
+
+                                        <p className="text-xs text-slate-600 leading-relaxed">
+                                          {task.description}
+                                        </p>
+
+                                        {task.deliverableArtifact && (
+                                          <div className="rounded-md bg-slate-50 border border-slate-200/80 px-2.5 py-2 space-y-1">
+                                            {task.deliverableSummary && (
+                                              <p className="text-[11px] text-slate-600 leading-relaxed">
+                                                {task.deliverableSummary}
+                                              </p>
+                                            )}
+                                            <div className="flex items-center gap-1 font-mono text-[11px] text-blue-700 truncate">
+                                              <FileCode2 className="w-3 h-3 shrink-0" />
+                                              <span className="truncate">
+                                                {task.deliverableArtifact}
+                                              </span>
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <EntityAvatar
+                                              kind="agent"
+                                              code={agent?.avatarCode || 'AI'}
+                                              accent={agent?.avatarAccent || '#334155'}
+                                              size="xs"
+                                              showCornerMark={false}
+                                            />
+                                            <AgentIdentityName
+                                              name={task.assigneeHandle}
+                                              runtime={agent?.runtimeAgent}
+                                              model={agent?.defaultModel}
+                                              showModel
+                                              className="font-semibold text-slate-900"
+                                            />
+                                          </div>
+
+                                          <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setShowCompletedInbox(false);
+                                                onOpenTaskSession(task.id);
+                                              }}
+                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
+                                            >
+                                              <MessageSquareCode className="w-3.5 h-3.5 text-indigo-600" />
+                                              <span>任务会话</span>
+                                            </button>
+                                            {!isReadOnly && (
+                                              <button
+                                                type="button"
+                                                onClick={() => onUpdateStatus(task.id, 'review')}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 hover:text-slate-900 cursor-pointer whitespace-nowrap"
+                                              >
+                                                <RotateCcw className="w-3 h-3" />
+                                                <span>退回验证</span>
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </article>
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </ModalShell>
+                          );
+                        })()}
                       </section>
                     </div>
                   );
@@ -3004,6 +2920,138 @@ export function WorkflowKanbanView({
         </div>
       </div>
       )}
+
+      {/* Unified Create Project Modal */}
+      <ModalShell
+        open={showCreateProjectForm}
+        onClose={() => setShowCreateProjectForm(false)}
+        icon={<FolderKanban className="w-4 h-4 text-blue-600" />}
+        title="新建工作项目"
+        subtitle="支持绑定个人 Agent 节点或 Agent 社区共享节点，创建后自动建群并进入看板"
+        maxWidthClass="max-w-lg"
+        onSubmit={handleCreateProjectSubmit}
+        footer={
+          <>
+            <span className="text-[11px] text-slate-500">
+              项目创建后可随时在「任务编排」中调整专家与模板
+            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setShowCreateProjectForm(false)}
+                className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+              >
+                创建并进入项目看板
+              </button>
+            </div>
+          </>
+        }
+      >
+        <div className="space-y-3.5">
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">项目名称 *</label>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={projName}
+              onChange={(e) => setProjName(e.target.value)}
+              placeholder="如：海外独立站支付重构"
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">核心交付目标（可选）</label>
+            <input
+              type="text"
+              value={projGoal}
+              onChange={(e) => setProjGoal(e.target.value)}
+              placeholder="一句话描述项目阶段目标与交付范围"
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-slate-700">所属社区 / 归属</label>
+            <select
+              value={projZoneId}
+              onChange={(e) => {
+                const nextZoneId = e.target.value;
+                setProjZoneId(nextZoneId);
+                const matchingShared = accessibleSharedNodes.find(
+                  (sn) => sn.zoneId === nextZoneId && sn.status === 'online',
+                );
+                if (matchingShared) {
+                  setProjNodeId(matchingShared.id);
+                }
+              }}
+              className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+            >
+              <option value="">归属：个人私有项目</option>
+              {joinedZones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  归属：{z.name}（{z.typeLabel}）
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">运行 Agent 节点</label>
+              <select
+                value={projNodeId}
+                onChange={(e) => setProjNodeId(e.target.value)}
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              >
+                <option value="">暂不指定运行节点</option>
+                <optgroup label="个人 Agent 节点">
+                  {computeNodes.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      个人节点：{n.name} ({n.cpuCores}C/{n.memoryGb}G)
+                    </option>
+                  ))}
+                </optgroup>
+                {accessibleSharedNodes.length > 0 && (
+                  <optgroup label="Agent 社区 · 共享节点">
+                    {accessibleSharedNodes.map((sn) => {
+                      const z = zoneMap.get(sn.zoneId);
+                      return (
+                        <option key={sn.id} value={sn.id}>
+                          [{z?.shortCode || '共享'}·{z?.name || 'Agent 社区'}] {sn.name} (
+                          {sn.cpuCores}C/{sn.memoryGb}G)
+                        </option>
+                      );
+                    })}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700">挂载存储卷</label>
+              <select
+                value={projVolumeId}
+                onChange={(e) => setProjVolumeId(e.target.value)}
+                className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              >
+                <option value="">暂不指定存储卷</option>
+                {storageVolumes.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name} ({v.quotaGb}GB)
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      </ModalShell>
     </div>
   );
 }

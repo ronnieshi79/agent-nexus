@@ -1,6 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowUpRight,
   Blocks,
   Check,
   Cpu,
@@ -9,7 +8,6 @@ import {
   Plus,
   Share2,
   ShoppingBag,
-  X,
 } from 'lucide-react';
 import type {
   AgentCategory,
@@ -23,6 +21,7 @@ import {
   formatAgentDisplayName,
   getSkillPurchasePricing,
 } from '../shared/EntityIdentity';
+import { EmptyStateCard, ModalShell } from '../shared/UiPrimitives';
 
 const CATEGORY_LABELS: Record<AgentCategory, string> = {
   engineering: '开发工程',
@@ -215,21 +214,13 @@ export function SpaceSkillsPanel({
             <span className="text-slate-300" aria-hidden="true">·</span>
             <span>一次买断永久供本空间全部 Agent 装配，同步支持社区分销</span>
           </div>
-          {onJumpToCommunityMarket && (
-            <button
-              type="button"
-              onClick={onJumpToCommunityMarket}
-              className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-            >
-              逛社区服务市场 →
-            </button>
-          )}
         </div>
 
         {filteredPlatformCatalog.length === 0 ? (
-          <div className="py-12 text-center rounded-xl border border-dashed border-slate-300 bg-white text-xs text-slate-500">
-            当前筛选下暂无匹配的平台官方 Skills / MCP
-          </div>
+          <EmptyStateCard
+            compact
+            description="当前筛选下暂无匹配的平台官方 Skills / MCP"
+          />
         ) : (
           <div className="border border-slate-200 rounded-xl bg-white overflow-hidden mb-16">
             <div className="hidden @[900px]:grid @[900px]:grid-cols-[minmax(300px,380px)_minmax(0,1fr)_180px] @[900px]:items-center @[900px]:gap-6 px-5 py-2.5 bg-slate-50/90 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
@@ -353,18 +344,6 @@ export function SpaceSkillsPanel({
           <span>
             已有 <strong className="font-mono tabular-nums text-slate-900">{equippedAgentCount}/{privateAgents.length}</strong> 位自建 Agent 加载
           </span>
-          {onJumpToAgents && (
-            <>
-              <span className="text-slate-300" aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={onJumpToAgents}
-                className="font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-              >
-                前往 Agent 成员管理加载 / 卸载 →
-              </button>
-            </>
-          )}
         </div>
         <span className="text-xs font-mono tabular-nums text-slate-400 shrink-0">
           共 {filteredOwnedSkills.length} 项能力包
@@ -373,30 +352,30 @@ export function SpaceSkillsPanel({
 
       {/* Unified Bordered List: Left = Skill Summary, Right = Runtime Spec, Loaded Agents Overview & Community Distribution */}
       {filteredOwnedSkills.length === 0 ? (
-        <div className="py-14 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-3">
-          <p className="text-sm font-medium text-slate-700">当前筛选下暂无空间 Skills / MCP</p>
-          <p className="text-xs text-slate-500">
-            可新建团队自建能力包，或前往平台采购官方维护的高阶 Skills / MCP，入库后即可在「Agent 成员」管理中按需加载。
-          </p>
-          <div className="flex items-center justify-center gap-2">
-            <button
-              type="button"
-              onClick={() => onChangeCreateDrawerOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>自建 Skill / MCP</span>
-            </button>
-            <button
-              type="button"
-              onClick={onOpenPurchasePage}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-            >
-              <ShoppingBag className="w-3.5 h-3.5" />
-              <span>平台采购 Skills</span>
-            </button>
-          </div>
-        </div>
+        <EmptyStateCard
+          title="当前筛选下暂无空间 Skills / MCP"
+          description="可新建团队自建能力包，或前往平台采购官方维护的高阶 Skills / MCP，入库后即可在「Agent 成员」管理中按需加载。"
+          action={
+            <>
+              <button
+                type="button"
+                onClick={() => onChangeCreateDrawerOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>自建 Skill / MCP</span>
+              </button>
+              <button
+                type="button"
+                onClick={onOpenPurchasePage}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                <span>平台采购 Skills</span>
+              </button>
+            </>
+          }
+        />
       ) : (
         <div className="border border-slate-200 rounded-xl bg-white overflow-hidden mb-16">
           {/* Desktop Column Header */}
@@ -479,17 +458,6 @@ export function SpaceSkillsPanel({
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
-                          {onJumpToAgents && (
-                            <button
-                              type="button"
-                              onClick={onJumpToAgents}
-                              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
-                            >
-                              <span>去成员管理配置</span>
-                              <ArrowUpRight className="w-3 h-3" />
-                            </button>
-                          )}
-
                           {isCustom && (
                             <button
                               type="button"
@@ -604,164 +572,146 @@ export function SpaceSkillsPanel({
         </div>
       )}
 
-      {/* Slide-in Drawer: Create Team Self-Built Skill / MCP */}
-      {createDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="fixed inset-0 bg-slate-900/35"
-            onClick={() => onChangeCreateDrawerOpen(false)}
-            aria-hidden="true"
-          />
-          <aside className="relative z-10 w-full max-w-[460px] bg-white border-l border-slate-200 h-full flex flex-col shadow-2xl">
-            <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 flex items-start justify-between gap-3 shrink-0">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">新建自建 Skill / MCP</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  封装团队沉淀的规范、工作流或 MCP 工具，入库后可在「Agent 成员」管理中按需加载，并按需上架 Agent 社区。
-                </p>
-              </div>
+      {/* Modal: Create Team Self-Built Skill / MCP */}
+      <ModalShell
+        open={createDrawerOpen}
+        onClose={() => onChangeCreateDrawerOpen(false)}
+        icon={<Blocks className="w-4 h-4 text-blue-600" />}
+        title="新建自建 Skill / MCP"
+        subtitle="封装团队沉淀的规范、工作流或 MCP 工具，入库后可在「Agent 成员」管理中按需加载。"
+        maxWidthClass="max-w-lg"
+        onSubmit={handleCreateSubmit}
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                onChangeCreateDrawerOpen(false);
+                onOpenPurchasePage();
+              }}
+              className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
+            >
+              采购官方 Skills →
+            </button>
+            <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => onChangeCreateDrawerOpen(false)}
-                className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer"
-                aria-label="关闭新建抽屉"
+                className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
               >
-                <X className="w-4 h-4" />
+                取消
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white cursor-pointer whitespace-nowrap"
+              >
+                {newZoneIds.length > 0
+                  ? `保存并分发 (${newZoneIds.length} 个社区)`
+                  : '保存为空间私有资产'}
               </button>
             </div>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-700">能力名称 *</span>
+            <input
+              type="text"
+              required
+              autoFocus
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="如：React 组件性能巡检 Skill / 内部工单 MCP"
+              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            />
+          </label>
 
-            <form onSubmit={handleCreateSubmit} className="flex-1 flex flex-col min-h-0">
-              <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4">
-                <label className="block">
-                  <span className="text-xs font-semibold text-slate-700">能力名称 *</span>
-                  <input
-                    type="text"
-                    required
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="如：React 组件性能巡检 Skill / 内部工单 MCP"
-                    className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-700">资源形态</span>
+              <select
+                value={newKind}
+                onChange={(e) => setNewKind(e.target.value as SkillKind)}
+                className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              >
+                <option value="skill">Skill（指令/规范）</option>
+                <option value="mcp">MCP（工具协议）</option>
+                <option value="workflow">工作流套件</option>
+              </select>
+            </label>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700">资源形态</span>
-                    <select
-                      value={newKind}
-                      onChange={(e) => setNewKind(e.target.value as SkillKind)}
-                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:outline-none"
-                    >
-                      <option value="skill">Skill（指令/规范）</option>
-                      <option value="mcp">MCP（工具协议）</option>
-                      <option value="workflow">工作流套件</option>
-                    </select>
-                  </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-slate-700">适配专业类目</span>
+              <select
+                value={newCategory}
+                onChange={(e) => setNewCategory(e.target.value as AgentCategory)}
+                className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none"
+              >
+                {(Object.keys(CATEGORY_LABELS) as AgentCategory[]).map((cat) => (
+                  <option key={cat} value={cat}>
+                    {CATEGORY_LABELS[cat]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-                  <label className="block">
-                    <span className="text-xs font-semibold text-slate-700">适配专业类目</span>
-                    <select
-                      value={newCategory}
-                      onChange={(e) => setNewCategory(e.target.value as AgentCategory)}
-                      className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-2.5 py-2 text-xs text-slate-900 focus:outline-none"
-                    >
-                      {(Object.keys(CATEGORY_LABELS) as AgentCategory[]).map((cat) => (
-                        <option key={cat} value={cat}>
-                          {CATEGORY_LABELS[cat]}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
+          <label className="block">
+            <span className="text-xs font-semibold text-slate-700">功能说明与交付规范</span>
+            <textarea
+              rows={3}
+              value={newSummary}
+              onChange={(e) => setNewSummary(e.target.value)}
+              placeholder="描述该 Skill / MCP 解决什么问题、包含哪些工具或约束规则..."
+              className="mt-1 w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+            />
+          </label>
 
-                <label className="block">
-                  <span className="text-xs font-semibold text-slate-700">功能说明与交付规范</span>
-                  <textarea
-                    rows={3}
-                    value={newSummary}
-                    onChange={(e) => setNewSummary(e.target.value)}
-                    placeholder="描述该 Skill / MCP 解决什么问题、包含哪些工具或约束规则..."
-                    className="mt-1 w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs text-slate-900 leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                </label>
-
-                <div className="space-y-2 pt-2 border-t border-slate-100">
-                  <span className="text-xs font-semibold text-slate-700">
-                    同时分发至 Agent 社区服务市场（留空则仅本空间私有）
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {zones.map((z) => {
-                      const checked = newZoneIds.includes(z.id);
-                      return (
-                        <button
-                          key={z.id}
-                          type="button"
-                          onClick={() => toggleId(newZoneIds, z.id, setNewZoneIds)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
-                            checked
-                              ? 'bg-slate-900 text-white border-slate-900'
-                              : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
-                          }`}
-                        >
-                          <Globe className="w-3 h-3" />
-                          <span>{z.name}</span>
-                          {checked && <Check className="w-3 h-3" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  {newZoneIds.length > 0 && (
-                    <label className="block pt-1">
-                      <span className="text-xs font-medium text-slate-600">
-                        社区买断定价（USD，填 0 为免费开源共享）
-                      </span>
-                      <input
-                        type="number"
-                        min={0}
-                        max={999}
-                        value={newPriceUsd}
-                        onChange={(e) => setNewPriceUsd(Number(e.target.value) || 0)}
-                        className="mt-1 w-36 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 focus:outline-none"
-                      />
-                    </label>
-                  )}
-                </div>
-              </div>
-
-              <div className="p-4 border-t border-slate-200 bg-white flex items-center justify-between gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onChangeCreateDrawerOpen(false);
-                    onOpenPurchasePage();
-                  }}
-                  className="text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                >
-                  采购官方 Skills →
-                </button>
-                <div className="flex items-center gap-2">
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <span className="text-xs font-semibold text-slate-700">
+              同时分发至 Agent 社区服务市场（留空则仅本空间私有）
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {zones.map((z) => {
+                const checked = newZoneIds.includes(z.id);
+                return (
                   <button
+                    key={z.id}
                     type="button"
-                    onClick={() => onChangeCreateDrawerOpen(false)}
-                    className="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
+                    onClick={() => toggleId(newZoneIds, z.id, setNewZoneIds)}
+                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-colors ${
+                      checked
+                        ? 'bg-slate-900 text-white border-slate-900'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-slate-300'
+                    }`}
                   >
-                    取消
+                    <Globe className="w-3 h-3" />
+                    <span>{z.name}</span>
+                    {checked && <Check className="w-3 h-3" />}
                   </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white cursor-pointer"
-                  >
-                    {newZoneIds.length > 0
-                      ? `保存并分发 (${newZoneIds.length} 个社区)`
-                      : '保存为空间私有资产'}
-                  </button>
-                </div>
-              </div>
-            </form>
-          </aside>
+                );
+              })}
+            </div>
+
+            {newZoneIds.length > 0 && (
+              <label className="block pt-1">
+                <span className="text-xs font-medium text-slate-600">
+                  社区买断定价（USD，填 0 为免费开源共享）
+                </span>
+                <input
+                  type="number"
+                  min={0}
+                  max={999}
+                  value={newPriceUsd}
+                  onChange={(e) => setNewPriceUsd(Number(e.target.value) || 0)}
+                  className="mt-1 w-36 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                />
+              </label>
+            )}
+          </div>
         </div>
-      )}
+      </ModalShell>
     </div>
   );
 }

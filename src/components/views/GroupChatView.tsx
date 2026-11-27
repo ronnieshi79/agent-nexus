@@ -33,6 +33,7 @@ import {
   displayEntityName,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 import { WORK_STATUS_META, WorkStatusBadge } from '../workcard/WorkCardFlow';
 
 interface GroupChatViewProps {
@@ -490,90 +491,119 @@ export function GroupChatView({
               </div>
             )}
 
-            {/* Attached Popover Shelf 2: + New Project Work Card Creator */}
-            {composerTool === 'newCard' && (
-              <form
-                onSubmit={handleCreateCardSubmit}
-                className="rounded-xl bg-slate-50 border border-slate-200 p-3.5 space-y-2.5"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900">
-                    新建工作卡片 · 所属项目「{workspace.name}」
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setComposerTool('none')}
-                    className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
-                  <input
-                    type="text"
-                    value={cardModule}
-                    onChange={(e) => setCardModule(e.target.value)}
-                    placeholder="功能模块（如 A功能 · 多币种结算）"
-                    className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  />
-                  <select
-                    value={cardType}
-                    onChange={(e) => setCardType(e.target.value as WorkCardType)}
-                    className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    <option value="planning">产品策划</option>
-                    <option value="development">功能开发</option>
-                    <option value="testing">功能测试</option>
-                    <option value="review">架构评审</option>
-                  </select>
-                  <select
-                    value={cardAssignee}
-                    onChange={(e) => setCardAssignee(e.target.value)}
-                    className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    {hiredAgents.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        指派：{formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={cardPriority}
-                    onChange={(e) => setCardPriority(e.target.value as '高' | '中' | '低')}
-                    className="bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    <option value="高">优先级：高</option>
-                    <option value="中">优先级：中</option>
-                    <option value="低">优先级：低</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {/* New Project Work Card Creator Modal */}
+            <ModalShell
+              open={composerTool === 'newCard'}
+              onClose={() => setComposerTool('none')}
+              icon={<ClipboardPlus className="w-4 h-4 text-blue-600" />}
+              title="新建工作卡片"
+              subtitle={`所属项目「${workspace.name}」· 创建后同步进入项目看板与任务对话`}
+              maxWidthClass="max-w-lg"
+              onSubmit={handleCreateCardSubmit}
+              footer={
+                <>
+                  <span className="text-[11px] text-slate-500">同步派发给指定专家 Agent</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setComposerTool('none')}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer"
+                    >
+                      创建并同步看板
+                    </button>
+                  </div>
+                </>
+              }
+            >
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">卡片标题 *</label>
                   <input
                     type="text"
                     required
+                    autoFocus
                     value={cardTitle}
                     onChange={(e) => setCardTitle(e.target.value)}
-                    placeholder="卡片标题（如：开发 A 功能 · 汇率波动熔断保护）"
-                    className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    placeholder="如：开发 A 功能 · 汇率波动熔断保护"
+                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   />
-                  <input
-                    type="text"
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">功能模块</label>
+                    <input
+                      type="text"
+                      value={cardModule}
+                      onChange={(e) => setCardModule(e.target.value)}
+                      placeholder="如：A功能 · 多币种结算"
+                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">任务类型</label>
+                    <select
+                      value={cardType}
+                      onChange={(e) => setCardType(e.target.value as WorkCardType)}
+                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    >
+                      <option value="planning">产品策划</option>
+                      <option value="development">功能开发</option>
+                      <option value="testing">功能测试</option>
+                      <option value="review">架构评审</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">指派专家 Agent</label>
+                    <select
+                      value={cardAssignee}
+                      onChange={(e) => setCardAssignee(e.target.value)}
+                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    >
+                      {hiredAgents.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">优先级</label>
+                    <select
+                      value={cardPriority}
+                      onChange={(e) => setCardPriority(e.target.value as '高' | '中' | '低')}
+                      className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    >
+                      <option value="高">高</option>
+                      <option value="中">中</option>
+                      <option value="低">低</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    交付要求与验收标准（可选）
+                  </label>
+                  <textarea
+                    rows={3}
                     value={cardDesc}
                     onChange={(e) => setCardDesc(e.target.value)}
-                    placeholder="交付要求与验收标准（可选）"
-                    className="flex-1 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    placeholder="补充业务上下文、约束边界或验收检查项..."
+                    className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
                   />
-                  <button
-                    type="submit"
-                    className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
-                  >
-                    创建并同步看板
-                  </button>
                 </div>
-              </form>
-            )}
+              </div>
+            </ModalShell>
 
             {/* Attached Popover Shelf 3: Quick Prompt Presets */}
             {composerTool === 'presets' && (
@@ -868,15 +898,6 @@ export function GroupChatView({
                     </div>
                   ))
                 )}
-
-                <button
-                  type="button"
-                  onClick={onJumpToKanban}
-                  className="w-full py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 inline-flex items-center justify-center gap-1 cursor-pointer"
-                >
-                  <span>打开「工作台 → 项目看板」</span>
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
               </>
             ) : (
               <>
@@ -946,24 +967,6 @@ export function GroupChatView({
                     </div>
                   </div>
                 ))}
-
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={onJumpToMarket}
-                    className="py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-medium text-white inline-flex items-center justify-center gap-1 cursor-pointer"
-                  >
-                    <UserPlus className="w-3.5 h-3.5" />
-                    <span>去市场选人</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onJumpToTeam}
-                    className="py-2 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer"
-                  >
-                    Agent 团队
-                  </button>
-                </div>
               </>
             )}
           </div>

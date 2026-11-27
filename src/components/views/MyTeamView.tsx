@@ -41,6 +41,7 @@ import {
   getAgentLeasePricing,
   getRuntimePreset,
 } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 import {
   RailNavButton,
   RailSectionLabel,
@@ -1563,9 +1564,8 @@ export function MyTeamView({
             teamSection === 'agents' ? (
               <>
                 <span className="hidden @[860px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
-                  <span className="inline-flex items-center gap-1 text-emerald-700">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    <span>工作中 {statusCounts.working}</span>
+                  <span className="text-emerald-700 font-medium">
+                    工作中 {statusCounts.working}
                   </span>
                   <span className="text-slate-300" aria-hidden="true">·</span>
                   <span>空闲 {statusCounts.idle}</span>
@@ -3002,33 +3002,75 @@ export function MyTeamView({
           </div>
         </div>
 
-        {/* Unified Right Slide-in Drawer: Single Entry for Adding Private or External Agents */}
-        {drawerOpen && (
-          <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[440px] lg:w-[430px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
-            <div className="px-5 pt-4 pb-3 border-b border-slate-200 bg-slate-50/70 space-y-3 shrink-0">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-900">
-                    {editingId !== 'new'
-                      ? `配置自建 Agent · ${displayEntityName(handle)}`
-                      : '添加 Agent 成员'}
-                  </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  基于已挂载/租用的 Agent 节点与 CLI 切片配置自建专家 Agent，或引入市场租赁专家 Agent。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDrawerOpen(false)}
-                className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer"
-                aria-label="关闭添加抽屉"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
+        {/* Unified Centered Modal: Single Entry for Adding / Editing Private or External Agents */}
+        <ModalShell
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
+          icon={<Cpu className="w-4 h-4 text-blue-600" />}
+          title={
+            editingId !== 'new'
+              ? `配置自建 Agent · ${displayEntityName(handle)}`
+              : '添加 Agent 成员'
+          }
+          subtitle="基于已挂载/租用的 Agent 节点与 CLI 切片配置自建专家 Agent，或引入市场租赁专家 Agent。"
+          maxWidthClass="max-w-xl"
+          onSubmit={
+            drawerMode === 'external' && editingId === 'new' ? undefined : handleSaveDrawer
+          }
+          footer={
+            drawerMode === 'external' && editingId === 'new' ? (
+              <>
+                <span className="text-[11px] text-slate-500">想按社区深度筛选或先议价？</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDrawerOpen(false);
+                    if (externalCatFilter !== 'all') {
+                      onRecruitCategory(externalCatFilter);
+                    } else {
+                      onJumpToMarket();
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
+                >
+                  <span>去市场浏览更多</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <>
+                <span className="text-[11px] text-slate-500">
+                  {selectedCliFull
+                    ? '当前 CLI 沙箱已满，请先在节点页扩容'
+                    : '保存后立即同步至团队与项目可用列表'}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDrawerOpen(false)}
+                    className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={selectedCliFull}
+                    className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 disabled:opacity-45 disabled:cursor-not-allowed text-white cursor-pointer whitespace-nowrap"
+                  >
+                    {selectedCliFull
+                      ? '沙箱已满 · 请调大配额'
+                      : listedZoneIds.length > 0
+                        ? `保存并上架 (${listedZoneIds.length} 个社区)`
+                        : '保存自建 Agent'}
+                  </button>
+                </div>
+              </>
+            )
+          }
+        >
+          <div className="space-y-4">
             {editingId === 'new' && (
-              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-200/70 rounded-lg">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
                 <button
                   type="button"
                   onClick={() => setDrawerMode('private')}
@@ -3053,124 +3095,100 @@ export function MyTeamView({
                 </button>
               </div>
             )}
-          </div>
 
-          {drawerMode === 'external' && editingId === 'new' ? (
-            /* Drawer Mode B: Browse & Add External Agents by Category */
-            <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-2 shrink-0">
-                <select
-                  value={externalCatFilter}
-                  onChange={(e) => setExternalCatFilter(e.target.value as 'all' | AgentCategory)}
-                  aria-label="筛选外雇 Agent 类目"
-                  className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                >
-                  {AGENT_CATEGORY_OPTIONS.map((opt) => (
-                    <option key={opt.id} value={opt.id}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-                <span className="text-[11px] font-mono text-slate-400">
-                  {externalCandidates.length} 个可选节点
-                </span>
-              </div>
+            {drawerMode === 'external' && editingId === 'new' ? (
+              /* Mode B: Browse & Add External Agents by Category */
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <select
+                    value={externalCatFilter}
+                    onChange={(e) => setExternalCatFilter(e.target.value as 'all' | AgentCategory)}
+                    aria-label="筛选外雇 Agent 类目"
+                    className="bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                  >
+                    {AGENT_CATEGORY_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[11px] font-mono text-slate-400">
+                    {externalCandidates.length} 个可选节点
+                  </span>
+                </div>
 
-              <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-2.5">
-                {externalCandidates.length === 0 ? (
-                  <div className="py-10 text-center text-xs text-slate-500">
-                    该类目暂无外雇 Agent 节点
-                  </div>
-                ) : (
-                  externalCandidates.map((cand) => {
-                    const alreadyWorking = hiredIds.includes(cand.id);
-                    const candPricing = getAgentLeasePricing({
-                      runtimeAgent: cand.runtimeAgent,
-                      defaultModel: cand.defaultModel,
-                      capabilityTier: cand.performance.capabilityTier,
-                      ownership: cand.ownership,
-                      projectPriceUsd: cand.projectPriceUsd,
-                      monthlyLeaseUsd: cand.monthlyLeaseUsd,
-                    });
-                    return (
-                      <div
-                        key={cand.id}
-                        className="rounded-xl border border-slate-200 p-3.5 bg-white hover:border-slate-300 transition-colors space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <EntityAvatar
-                              kind="agent"
-                              code={cand.avatarCode}
-                              accent={cand.avatarAccent}
-                              size="sm"
-                            />
-                            <div className="min-w-0">
-                              <AgentIdentityName
-                                name={cand.handle}
-                                runtime={cand.runtimeAgent}
-                                model={cand.defaultModel}
-                                showModel
-                                className="text-xs font-bold text-slate-900"
+                <div className="space-y-2.5">
+                  {externalCandidates.length === 0 ? (
+                    <div className="py-10 text-center text-xs text-slate-500">
+                      该类目暂无外雇 Agent 节点
+                    </div>
+                  ) : (
+                    externalCandidates.map((cand) => {
+                      const alreadyWorking = hiredIds.includes(cand.id);
+                      const candPricing = getAgentLeasePricing({
+                        runtimeAgent: cand.runtimeAgent,
+                        defaultModel: cand.defaultModel,
+                        capabilityTier: cand.performance.capabilityTier,
+                        ownership: cand.ownership,
+                        projectPriceUsd: cand.projectPriceUsd,
+                        monthlyLeaseUsd: cand.monthlyLeaseUsd,
+                      });
+                      return (
+                        <div
+                          key={cand.id}
+                          className="rounded-xl border border-slate-200 p-3.5 bg-white hover:border-slate-300 transition-colors space-y-2"
+                        >
+                          <div className="flex items-start justify-between gap-2.5">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <EntityAvatar
+                                kind="agent"
+                                code={cand.avatarCode}
+                                accent={cand.avatarAccent}
+                                size="sm"
                               />
-                              <div className="text-[11px] text-slate-500 truncate mt-0.5 font-mono tabular-nums">
-                                <span className="font-sans">{AGENT_CATEGORY_LABELS[cand.category]}</span> ·{' '}
-                                {candPricing.rating.capability}级 · ${candPricing.monthlyUsd}/月
+                              <div className="min-w-0">
+                                <AgentIdentityName
+                                  name={cand.handle}
+                                  runtime={cand.runtimeAgent}
+                                  model={cand.defaultModel}
+                                  showModel
+                                  className="text-xs font-bold text-slate-900"
+                                />
+                                <div className="text-[11px] text-slate-500 truncate mt-0.5 font-mono tabular-nums">
+                                  <span className="font-sans">{AGENT_CATEGORY_LABELS[cand.category]}</span> ·{' '}
+                                  {candPricing.rating.capability}级 · ${candPricing.monthlyUsd}/月
+                                </div>
                               </div>
                             </div>
+
+                            {alreadyWorking ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 shrink-0 whitespace-nowrap">
+                                <Check className="w-3.5 h-3.5" />
+                                已在项目
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => onLeaseAgent(cand.id, 'month', workspace.id)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer shrink-0 whitespace-nowrap"
+                              >
+                                按月租赁
+                              </button>
+                            )}
                           </div>
 
-                          {alreadyWorking ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 shrink-0 whitespace-nowrap">
-                              <Check className="w-3.5 h-3.5" />
-                              已在项目
-                            </span>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => onLeaseAgent(cand.id, 'month', workspace.id)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer shrink-0 whitespace-nowrap"
-                            >
-                              按月租赁
-                            </button>
-                          )}
+                          <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
+                            {cand.title}
+                          </p>
                         </div>
-
-                        <p className="text-[11px] text-slate-600 line-clamp-2 leading-relaxed">
-                          {cand.title}
-                        </p>
-                      </div>
-                    );
-                  })
-                )}
+                      );
+                    })
+                  )}
+                </div>
               </div>
-
-              <div className="p-4 border-t border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2 shrink-0">
-                <span className="text-[11px] text-slate-500">想按社区深度筛选或先议价？</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDrawerOpen(false);
-                    if (externalCatFilter !== 'all') {
-                      onRecruitCategory(externalCatFilter);
-                    } else {
-                      onJumpToMarket();
-                    }
-                  }}
-                  className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap"
-                >
-                  <span>去市场浏览更多</span>
-                  <ArrowUpRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </div>
-          ) : (
-            /* Drawer Mode A: Mount / Edit Private Agent */
-            <form
-              onSubmit={handleSaveDrawer}
-              className="flex-1 min-h-0 flex flex-col overflow-hidden"
-            >
-              <div className="flex-1 overflow-y-auto clean-scroll p-5 space-y-4">
+            ) : (
+              /* Mode A: Mount / Edit Private Agent */
+              <div className="space-y-4">
                 {/* Node & Installed Agent CLI Binding (from Agent Space) */}
                 <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
                   <div className="flex items-center justify-between gap-2">
@@ -3712,95 +3730,61 @@ export function MyTeamView({
                   <span>{aiOptimizing ? 'AI 正在优化...' : 'AI 优化能力简介、标签与定价'}</span>
                 </button>
               </div>
+            )}
+          </div>
+        </ModalShell>
 
-              <div className="p-4 border-t border-slate-200 bg-white flex items-center justify-end gap-2.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setDrawerOpen(false)}
-                  className="px-3.5 py-2 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  disabled={selectedCliFull}
-                  className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-45 disabled:cursor-not-allowed text-white cursor-pointer"
-                >
-                  {selectedCliFull
-                    ? '沙箱已满 · 请调大配额'
-                    : listedZoneIds.length > 0
-                      ? `保存并上架 (${listedZoneIds.length} 个社区)`
-                      : '保存自建 Agent'}
-                </button>
-              </div>
-            </form>
-          )}
-        </aside>
-      )}
-
-      {/* Community Invite Expert Slide-in Drawer */}
-      {inviteDrawerOpen && (
-        <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[440px] lg:w-[430px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
-          <div className="px-5 pt-4 pb-3 border-b border-slate-200 bg-slate-50/70 space-y-3 shrink-0">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-sm font-bold text-slate-900">添加 Agent 主理</h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  按来源 Agent 社区筛选并收录至通讯录，标记为「项目合作」或「互关好友」，支持同步派驻当前项目。
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setInviteDrawerOpen(false)}
-                className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer"
-                aria-label="关闭添加主理抽屉"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={inviteZoneFilter}
-                onChange={(e) => setInviteZoneFilter(e.target.value)}
-                aria-label="筛选来源社区"
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-              >
-                <option value="all">全部社区</option>
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    {z.name}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={inviteRelation}
-                onChange={(e) => setInviteRelation(e.target.value as ExpertRelationType)}
-                aria-label="选择关系类型"
-                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-              >
-                <option value="project_collab">关系：项目合作</option>
-                <option value="mutual_friend">关系：互关好友</option>
-              </select>
-            </div>
-
+      {/* Community Invite Agent Principal Modal */}
+      <ModalShell
+        open={inviteDrawerOpen}
+        onClose={() => setInviteDrawerOpen(false)}
+        icon={<UserPlus className="w-4 h-4 text-blue-600" />}
+        title="添加 Agent 主理"
+        subtitle="按来源 Agent 社区筛选并收录至通讯录，支持标记关系并同步派驻当前项目。"
+        maxWidthClass="max-w-lg"
+      >
+        <div className="space-y-3.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <select
-              value={inviteWorkspaceId}
-              onChange={(e) => setInviteWorkspaceId(e.target.value)}
-              aria-label="可选同步派驻项目"
-              className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+              value={inviteZoneFilter}
+              onChange={(e) => setInviteZoneFilter(e.target.value)}
+              aria-label="筛选来源社区"
+              className="h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
             >
-              <option value="">暂不派驻项目</option>
-              {workspaces.map((ws) => (
-                <option key={ws.id} value={ws.id}>
-                  同步派驻项目：{ws.name}
+              <option value="all">全部社区</option>
+              {zones.map((z) => (
+                <option key={z.id} value={z.id}>
+                  {z.name}
                 </option>
               ))}
             </select>
+
+            <select
+              value={inviteRelation}
+              onChange={(e) => setInviteRelation(e.target.value as ExpertRelationType)}
+              aria-label="选择关系类型"
+              className="h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            >
+              <option value="project_collab">关系：项目合作</option>
+              <option value="mutual_friend">关系：互关好友</option>
+            </select>
           </div>
 
-          <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-2.5">
+          <select
+            value={inviteWorkspaceId}
+            onChange={(e) => setInviteWorkspaceId(e.target.value)}
+            aria-label="可选同步派驻项目"
+            className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-700 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+          >
+            <option value="">暂不派驻项目</option>
+            {workspaces.map((ws) => (
+              <option key={ws.id} value={ws.id}>
+                同步派驻项目：{ws.name}
+              </option>
+            ))}
+          </select>
+
+          <div className="space-y-2.5">
             {inviteCandidates.map(({ expert, ownedAgents, membership }) => {
               const zoneNames = expert.zoneIds
                 .map((id) => getZoneName(id))
@@ -3866,8 +3850,8 @@ export function MyTeamView({
               );
             })}
           </div>
-        </aside>
-      )}
+        </div>
+      </ModalShell>
     </div>
   );
 }

@@ -46,6 +46,7 @@ import {
   displayEntityName,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 import { RailBrandBackdrop } from '../shared/ViewToolbar';
 import { WORK_STATUS_META } from '../workcard/WorkCardFlow';
 
@@ -1091,79 +1092,93 @@ export function Sidebar({
               </div>
             )}
 
-          {/* Inline Create Project Group Form */}
-          {showCreateProject && (
-            <form
-              onSubmit={handleCreateProject}
-              className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-700">
-                  新建项目并创建项目群
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setShowCreateProject(false)}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+          {/* Create Project Modal */}
+          <ModalShell
+            open={showCreateProject}
+            onClose={() => setShowCreateProject(false)}
+            icon={<FolderPlus className="w-4 h-4 text-blue-600" />}
+            title="新建项目并创建项目群"
+            subtitle="自动初始化多 Agent 项目协作群与任务看板"
+            maxWidthClass="max-w-md"
+            onSubmit={handleCreateProject}
+            footer={
+              <>
+                <span className="text-[11px] text-slate-500">创建后自动切入该项目群</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateProject(false)}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                  >
+                    创建项目并建群
+                  </button>
+                </div>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">项目名称 *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="输入工作项目名称..."
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
               </div>
-              <input
-                type="text"
-                required
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="输入工作项目名称..."
-                className="w-full bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-              />
-              <input
-                type="text"
-                value={newGoal}
-                onChange={(e) => setNewGoal(e.target.value)}
-                placeholder="项目目标（可选）"
-                className="w-full bg-slate-50 border border-slate-200 rounded-md px-2.5 py-1.5 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-              />
-              <select
-                value={newSourceZoneId}
-                onChange={(e) => setNewSourceZoneId(e.target.value)}
-                aria-label="项目所属 Agent 社区"
-                className="w-full bg-slate-50 border border-slate-200 rounded-md px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:bg-white"
-              >
-                <option value="">归属：个人私有项目</option>
-                {zones.map((z) => (
-                  <option key={z.id} value={z.id}>
-                    归属：{z.name}（{z.typeLabel}）
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                className="w-full py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-              >
-                创建项目并建群
-              </button>
-            </form>
-          )}
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">项目目标（可选）</label>
+                <input
+                  type="text"
+                  value={newGoal}
+                  onChange={(e) => setNewGoal(e.target.value)}
+                  placeholder="一句话说明阶段目标与交付范围"
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">归属社区</label>
+                <select
+                  value={newSourceZoneId}
+                  onChange={(e) => setNewSourceZoneId(e.target.value)}
+                  aria-label="项目所属 Agent 社区"
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-700 focus:outline-none focus:bg-white"
+                >
+                  <option value="">归属：个人私有项目</option>
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      归属：{z.name}（{z.typeLabel}）
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </ModalShell>
 
-          {/* Inline Start 1v1 DM Picker */}
-          {showDmPicker && (
-            <div className="p-2.5 rounded-lg bg-white border border-slate-200 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-700">发起 1v1 单聊</span>
-                <button
-                  type="button"
-                  onClick={() => setShowDmPicker(false)}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-1 p-0.5 bg-slate-100 rounded-md">
+          {/* Start 1v1 DM Modal */}
+          <ModalShell
+            open={showDmPicker}
+            onClose={() => setShowDmPicker(false)}
+            icon={<MessageSquare className="w-4 h-4 text-blue-600" />}
+            title="发起 1v1 单聊"
+            subtitle="选择在线 Agent 主理或专家 Agent 建立直连对话"
+            maxWidthClass="max-w-md"
+          >
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-slate-100 rounded-lg">
                 <button
                   type="button"
                   onClick={() => setDmPickerTab('human')}
-                  className={`py-1 text-[11px] font-semibold rounded transition-colors cursor-pointer ${
+                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                     dmPickerTab === 'human'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600'
@@ -1174,7 +1189,7 @@ export function Sidebar({
                 <button
                   type="button"
                   onClick={() => setDmPickerTab('agent')}
-                  className={`py-1 text-[11px] font-semibold rounded transition-colors cursor-pointer ${
+                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
                     dmPickerTab === 'agent'
                       ? 'bg-white text-slate-900 shadow-2xs'
                       : 'text-slate-600'
@@ -1186,11 +1201,11 @@ export function Sidebar({
 
               {dmPickerTab === 'human' ? (
                 availableDmHumans.length === 0 ? (
-                  <div className="text-[11px] text-slate-500 py-1">
+                  <div className="text-xs text-slate-500 py-6 text-center">
                     所有在线 Agent 主理均已建立单聊。
                   </div>
                 ) : (
-                  <div className="max-h-40 overflow-y-auto clean-scroll space-y-1">
+                  <div className="max-h-64 overflow-y-auto clean-scroll divide-y divide-slate-100 border border-slate-200 rounded-xl">
                     {availableDmHumans.map((h) => (
                       <button
                         key={h.id}
@@ -1200,7 +1215,7 @@ export function Sidebar({
                           setShowDmPicker(false);
                           onCloseMobile();
                         }}
-                        className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-100 flex items-center justify-between gap-2 text-xs cursor-pointer"
+                        className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 text-xs cursor-pointer"
                       >
                         <span className="font-semibold text-slate-800 truncate">{h.name}</span>
                         <span className="text-[11px] text-slate-500 truncate">{h.title}</span>
@@ -1209,11 +1224,11 @@ export function Sidebar({
                   </div>
                 )
               ) : availableDmAgents.length === 0 ? (
-                <div className="text-[11px] text-slate-500 py-1">
+                <div className="text-xs text-slate-500 py-6 text-center">
                   所有在线 Agent 均已建立单聊通道。
                 </div>
               ) : (
-                <div className="max-h-40 overflow-y-auto clean-scroll space-y-1">
+                <div className="max-h-64 overflow-y-auto clean-scroll divide-y divide-slate-100 border border-slate-200 rounded-xl">
                   {availableDmAgents.map((cand) => (
                     <button
                       key={cand.id}
@@ -1223,13 +1238,14 @@ export function Sidebar({
                         setShowDmPicker(false);
                         onCloseMobile();
                       }}
-                      className="w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-100 flex items-center justify-between gap-2 text-xs cursor-pointer"
+                      className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 text-xs cursor-pointer"
                     >
                       <AgentIdentityName
                         name={cand.handle}
                         runtime={cand.runtimeAgent}
                         model={cand.defaultModel}
-                        className="font-medium text-slate-800"
+                        showModel
+                        className="font-semibold text-slate-800"
                       />
                       <span className="text-[11px] text-slate-500 truncate">
                         {cand.ownerHumanName ? `归属 ${cand.ownerHumanName}` : cand.title}
@@ -1239,72 +1255,96 @@ export function Sidebar({
                 </div>
               )}
             </div>
-          )}
+          </ModalShell>
 
-          {/* Inline New Task Session Drawer */}
-          {showNewTaskDrawer && (
-            <form
-              onSubmit={handleQuickCreateTask}
-              className="p-2.5 rounded-lg bg-white border border-slate-300 space-y-1.5"
-            >
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-slate-800">新建任务 Session</span>
-                <button
-                  type="button"
-                  onClick={() => setShowNewTaskDrawer(false)}
-                  className="text-slate-400 hover:text-slate-700 cursor-pointer"
+          {/* New Task Session Modal */}
+          <ModalShell
+            open={showNewTaskDrawer}
+            onClose={() => setShowNewTaskDrawer(false)}
+            icon={<MessageSquareCode className="w-4 h-4 text-blue-600" />}
+            title="新建任务 Session"
+            subtitle="指定所属项目与执行专家 Agent，立即开启任务对话"
+            maxWidthClass="max-w-md"
+            onSubmit={handleQuickCreateTask}
+            footer={
+              <>
+                <span className="text-[11px] text-slate-500">同步生成项目看板卡片</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowNewTaskDrawer(false)}
+                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                  >
+                    创建并进入任务对话
+                  </button>
+                </div>
+              </>
+            }
+          >
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">所属项目</label>
+                <select
+                  value={quickTaskProjectId}
+                  onChange={(e) => setQuickTaskProjectId(e.target.value)}
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                  {workspaces.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-              <select
-                value={quickTaskProjectId}
-                onChange={(e) => setQuickTaskProjectId(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
-              >
-                {workspaces.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    项目：{w.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={quickTaskAgentId}
-                onChange={(e) => setQuickTaskAgentId(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
-              >
-                {agents.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    Agent：{formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={quickTaskType}
-                onChange={(e) => setQuickTaskType(e.target.value as WorkCardType)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-700 focus:outline-none"
-              >
-                <option value="development">类型：功能开发</option>
-                <option value="planning">类型：产品策划</option>
-                <option value="testing">类型：功能测试</option>
-                <option value="review">类型：架构评审</option>
-              </select>
-              <input
-                type="text"
-                required
-                value={quickTaskTitle}
-                onChange={(e) => setQuickTaskTitle(e.target.value)}
-                placeholder="输入任务标题..."
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2 py-1 text-[11px] text-slate-900 focus:outline-none focus:bg-white"
-              />
-              <button
-                type="submit"
-                className="w-full py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer"
-              >
-                创建并进入任务对话
-              </button>
-            </form>
-          )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">执行专家 Agent</label>
+                  <select
+                    value={quickTaskAgentId}
+                    onChange={(e) => setQuickTaskAgentId(e.target.value)}
+                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
+                  >
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {formatAgentDisplayName(a.handle, a.runtimeAgent, a.defaultModel)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">任务类型</label>
+                  <select
+                    value={quickTaskType}
+                    onChange={(e) => setQuickTaskType(e.target.value as WorkCardType)}
+                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white"
+                  >
+                    <option value="development">功能开发</option>
+                    <option value="planning">产品策划</option>
+                    <option value="testing">功能测试</option>
+                    <option value="review">架构评审</option>
+                  </select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-semibold text-slate-700">任务标题 *</label>
+                <input
+                  type="text"
+                  required
+                  autoFocus
+                  value={quickTaskTitle}
+                  onChange={(e) => setQuickTaskTitle(e.target.value)}
+                  placeholder="输入任务标题..."
+                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
+                />
+              </div>
+            </div>
+          </ModalShell>
         </div>
 
         {conversationMode === 'chat' ? (

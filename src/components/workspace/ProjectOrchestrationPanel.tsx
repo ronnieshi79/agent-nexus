@@ -12,7 +12,6 @@ import {
   RotateCcw,
   Server,
   Sparkles,
-  Store,
   Tag,
   Trash2,
   UserMinus,
@@ -48,6 +47,7 @@ import {
   displayEntityName,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 
 type OrchestrationSubTab = 'agents' | 'templates';
 
@@ -487,17 +487,6 @@ export function ProjectOrchestrationPanel({
                 ) : (
                   <span className="text-[11px] text-slate-400">已授权专家均已编排入队</span>
                 )}
-                {onJumpToMarket && !isReadOnly && (
-                  <button
-                    type="button"
-                    onClick={onJumpToMarket}
-                    title="外部市场专家需先通过服务市场签约或租用后方可加入编排"
-                    className="inline-flex items-center gap-1 h-8 px-2.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer whitespace-nowrap"
-                  >
-                    <Store className="w-3.5 h-3.5 text-blue-600" />
-                    <span>招募外部专家</span>
-                  </button>
-                )}
               </>
             ) : (
               <>
@@ -530,19 +519,11 @@ export function ProjectOrchestrationPanel({
                 <button
                   type="button"
                   disabled={isReadOnly}
-                  onClick={() => setShowAddTypeForm((v) => !v)}
-                  className={`inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed ${
-                    showAddTypeForm
-                      ? 'bg-slate-200 text-slate-800'
-                      : 'bg-slate-900 hover:bg-slate-800 text-white'
-                  }`}
+                  onClick={() => setShowAddTypeForm(true)}
+                  className="inline-flex items-center gap-1 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap transition-colors disabled:opacity-45 disabled:cursor-not-allowed"
                 >
-                  {showAddTypeForm ? (
-                    <X className="w-3.5 h-3.5" />
-                  ) : (
-                    <Plus className="w-3.5 h-3.5" />
-                  )}
-                  <span>{showAddTypeForm ? '取消创作' : '创作卡片模板'}</span>
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>创作卡片模板</span>
                 </button>
               </>
             )}
@@ -607,13 +588,6 @@ export function ProjectOrchestrationPanel({
                                     <span className="inline-flex items-center gap-1 text-amber-700">
                                       <AlertTriangle className="w-3 h-3 shrink-0" />
                                       <span>未绑定节点</span>
-                                      <button
-                                        type="button"
-                                        onClick={onJumpToSpaceAgents}
-                                        className="underline font-semibold ml-0.5 cursor-pointer"
-                                      >
-                                        去绑定
-                                      </button>
                                     </span>
                                   )}
                                 </div>
@@ -732,38 +706,55 @@ export function ProjectOrchestrationPanel({
         {/* TAB 2: Task Card Templates + Designated Conversation-Creator Agent(s) */}
         {subTab === 'templates' && (
           <div>
-            {showAddTypeForm && (
-              <form
-                onSubmit={handleAddTypeSubmit}
-                className="px-4 py-3.5 bg-slate-50 border-b border-slate-200 space-y-3"
-              >
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5">
-                  <div className="md:col-span-3 space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">模板名称</label>
+            <ModalShell
+              open={showAddTypeForm}
+              onClose={() => setShowAddTypeForm(false)}
+              icon={<Tag className="w-4 h-4 text-blue-600" />}
+              title="创作任务卡片模板"
+              subtitle={`为项目「${project.name}」配置默认交付骨架与可对话创作专家`}
+              maxWidthClass="max-w-xl"
+              onSubmit={handleAddTypeSubmit}
+              footer={
+                <>
+                  <span className="text-[11px] text-slate-500">
+                    保存后可在看板派发任务时直接选用
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddTypeForm(false)}
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                    >
+                      保存模板
+                    </button>
+                  </div>
+                </>
+              }
+            >
+              <div className="space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">模板名称 *</label>
                     <input
                       type="text"
                       required
+                      autoFocus
                       value={typeName}
                       onChange={(e) => setTypeName(e.target.value)}
                       placeholder="如：选题策划 / 安全审计"
-                      className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                     />
                   </div>
 
-                  <div className="md:col-span-6 space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">场景说明</label>
-                    <input
-                      type="text"
-                      value={typeDesc}
-                      onChange={(e) => setTypeDesc(e.target.value)}
-                      placeholder="简述该卡片适用的业务场景与目标"
-                      className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
-                    />
-                  </div>
-
-                  <div className="md:col-span-3 space-y-1">
-                    <label className="text-[11px] font-semibold text-slate-600">标识色</label>
-                    <div className="flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-slate-200 bg-white">
+                  <div className="space-y-1">
+                    <label className="text-xs font-semibold text-slate-700">标识色</label>
+                    <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-slate-200 bg-slate-50">
                       {TASK_TYPE_ACCENT_OPTIONS.map((opt) => (
                         <button
                           key={opt.id}
@@ -782,23 +773,34 @@ export function ProjectOrchestrationPanel({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold text-slate-600">
-                    默认交付骨架 / 检查清单（对话创作时自动带给专家 Agent）
-                  </label>
+                  <label className="text-xs font-semibold text-slate-700">场景说明</label>
                   <input
                     type="text"
-                    value={typeChecklist}
-                    onChange={(e) => setTypeChecklist(e.target.value)}
-                    placeholder="例如：1. 核心目标与受众；2. 执行要点与关键产出；3. 验收检查项"
-                    className="w-full h-8 rounded-lg border border-slate-200 bg-white px-2.5 text-xs text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+                    value={typeDesc}
+                    onChange={(e) => setTypeDesc(e.target.value)}
+                    placeholder="简述该卡片适用的业务场景与目标"
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
                   />
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-700">
+                    默认交付骨架 / 检查清单（对话创作时自动带给专家 Agent）
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={typeChecklist}
+                    onChange={(e) => setTypeChecklist(e.target.value)}
+                    placeholder="例如：1. 核心目标与受众；2. 执行要点与关键产出；3. 验收检查项"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20 resize-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="text-xs font-semibold text-slate-700">
+                    指定可对话创作 Agent
+                  </div>
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="text-[11px] font-semibold text-slate-600 mr-1">
-                      指定可对话创作 Agent：
-                    </span>
                     {projectAgents.length === 0 ? (
                       <span className="text-[11px] text-slate-400">
                         请先在「专家 Agent 编排」中添加项目专家
@@ -815,7 +817,7 @@ export function ProjectOrchestrationPanel({
                             }
                             className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md border text-[11px] font-semibold cursor-pointer transition-colors ${
                               selected
-                                ? 'bg-blue-600 border-blue-600 text-white'
+                                ? 'bg-slate-900 border-slate-900 text-white'
                                 : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'
                             }`}
                           >
@@ -827,22 +829,15 @@ export function ProjectOrchestrationPanel({
                         );
                       })
                     )}
-                    {typeCreatorIds.length === 0 && projectAgents.length > 0 && (
-                      <span className="text-[11px] text-slate-400 ml-1">
-                        （未指定时默认任意项目专家均可创作）
-                      </span>
-                    )}
                   </div>
-
-                  <button
-                    type="submit"
-                    className="h-8 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
-                  >
-                    保存模板
-                  </button>
+                  {typeCreatorIds.length === 0 && projectAgents.length > 0 && (
+                    <p className="text-[11px] text-slate-400">
+                      未指定时默认任意项目专家均可对话创作
+                    </p>
+                  )}
                 </div>
-              </form>
-            )}
+              </div>
+            </ModalShell>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">

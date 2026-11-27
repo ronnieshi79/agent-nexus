@@ -52,6 +52,7 @@ import type {
   SpaceSharedNode,
 } from '../../types/agentnexus';
 import { AgentIdentityName, EntityAvatar } from '../shared/EntityIdentity';
+import { ModalShell } from '../shared/UiPrimitives';
 
 type ManageTab = 'members' | 'nodes' | 'agents' | 'skills' | 'content';
 type AddNodeSource = 'share_mine' | 'mount_private' | 'rent_cloud';
@@ -635,16 +636,23 @@ export function CollabSpaceManagePanel({
             </div>
             <button
               type="button"
-              onClick={() => setShowInviteBox((v) => !v)}
+              onClick={() => setShowInviteBox(true)}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
             >
               <UserPlus className="w-3.5 h-3.5" />
-              <span>{showInviteBox ? '收起邀请面板' : '邀请成员加入'}</span>
+              <span>邀请成员加入</span>
             </button>
           </div>
 
-          {showInviteBox && (
-            <div className="bg-white rounded-xl border border-slate-200 p-4 space-y-4">
+          <ModalShell
+            open={showInviteBox}
+            onClose={() => setShowInviteBox(false)}
+            title={`邀请成员加入「${zone.name}」`}
+            subtitle="从平台专家快速邀请，或直接录入同事/伙伴信息加入本私有社区"
+            icon={<UserPlus className="w-4 h-4 text-slate-700" />}
+            maxWidthClass="max-w-2xl"
+          >
+            <div className="space-y-4">
               {/* Quick Invite from Platform Experts */}
               <div className="space-y-2">
                 <div className="text-xs font-bold text-slate-900">从平台专家 / 协作者快速邀请</div>
@@ -696,45 +704,54 @@ export function CollabSpaceManagePanel({
               {/* Manual Invite Colleague / External Member */}
               <form
                 onSubmit={handleCustomInviteSubmit}
-                className="pt-3 border-t border-slate-100 space-y-2"
+                className="pt-3 border-t border-slate-100 space-y-2.5"
               >
                 <div className="text-xs font-bold text-slate-900">
                   邀请新成员（企业同事 / OPC 伙伴）
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <input
                     type="text"
                     required
                     value={customMemberName}
                     onChange={(e) => setCustomMemberName(e.target.value)}
                     placeholder="成员姓名 *"
-                    className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                   />
                   <input
                     type="text"
                     value={customMemberTitle}
                     onChange={(e) => setCustomMemberTitle(e.target.value)}
                     placeholder="岗位 / 职责（如：后端工程师）"
-                    className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                   />
                   <select
                     value={customMemberRole}
                     onChange={(e) => setCustomMemberRole(e.target.value as SpaceMemberRole)}
-                    className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
                   >
                     <option value="member">角色：普通成员</option>
                     <option value="admin">角色：社区管理员</option>
                   </select>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowInviteBox(false)}
+                    className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    关闭
+                  </button>
                   <button
                     type="submit"
-                    className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
+                    className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                   >
                     发送邀请并加入
                   </button>
                 </div>
               </form>
             </div>
-          )}
+          </ModalShell>
 
           {/* Member Roster Table */}
           <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
@@ -908,19 +925,46 @@ export function CollabSpaceManagePanel({
             </div>
             <button
               type="button"
-              onClick={() => setShowAddNodeBox((v) => !v)}
+              onClick={() => setShowAddNodeBox(true)}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>{showAddNodeBox ? '收起新建节点' : '接入社区共享节点'}</span>
+              <span>接入社区共享节点</span>
             </button>
           </div>
 
-          {showAddNodeBox && (
-            <form
-              onSubmit={handleAddNodeSubmit}
-              className="bg-white rounded-xl border border-slate-200 p-4 space-y-3.5"
-            >
+          <ModalShell
+            open={showAddNodeBox}
+            onClose={() => setShowAddNodeBox(false)}
+            icon={<Server className="w-4 h-4 text-blue-600" />}
+            title="接入社区共享节点"
+            subtitle={`目标社区：${zone.name} · 支持共享个人节点、挂载私有设备或租用云节点`}
+            maxWidthClass="max-w-xl"
+            onSubmit={handleAddNodeSubmit}
+            footer={
+              <>
+                <span className="text-[11px] text-slate-500">
+                  接入后可在节点列表随时调整并发沙箱配额与成员权限
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddNodeBox(false)}
+                    className="h-8 px-3 rounded-lg border border-slate-300 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
+                  >
+                    确认接入共享节点
+                  </button>
+                </div>
+              </>
+            }
+          >
+            <div className="space-y-3.5">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 {(
                   [
@@ -1094,23 +1138,8 @@ export function CollabSpaceManagePanel({
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowAddNodeBox(false)}
-                  className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
-                >
-                  确认接入共享节点
-                </button>
-              </div>
-            </form>
-          )}
+            </div>
+          </ModalShell>
 
           {spaceNodes.length === 0 ? (
             <div className="py-12 text-center rounded-xl border border-dashed border-slate-300 bg-white space-y-2.5">
@@ -1407,91 +1436,117 @@ export function CollabSpaceManagePanel({
             {onCreateSpaceSkill && (
               <button
                 type="button"
-                onClick={() => setShowNewSkillForm((v) => !v)}
+                onClick={() => setShowNewSkillForm(true)}
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>{showNewSkillForm ? '收起新建表单' : '新建社区自建 Skill / MCP'}</span>
+                <span>新建社区自建 Skill / MCP</span>
               </button>
             )}
           </div>
 
-          {showNewSkillForm && onCreateSpaceSkill && (
-            <form
+          {onCreateSpaceSkill && (
+            <ModalShell
+              open={showNewSkillForm}
+              onClose={() => setShowNewSkillForm(false)}
+              title="新建社区自建 Skill / MCP"
+              subtitle={`创建并上架社区专属能力包到「${zone.name}」`}
+              icon={<Sparkles className="w-4 h-4 text-slate-700" />}
+              maxWidthClass="max-w-xl"
               onSubmit={handleCreateCommunitySkill}
-              className="bg-white rounded-xl border border-slate-200 p-4 space-y-3"
+              footer={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowNewSkillForm(false)}
+                    className="h-8 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                  >
+                    创建并上架社区市场
+                  </button>
+                </>
+              }
             >
-              <div className="text-xs font-bold text-slate-900">
-                创建并上架社区专属自建 Skill / MCP 到「{zone.name}」
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                <input
-                  type="text"
-                  required
-                  value={newSkillName}
-                  onChange={(e) => setNewSkillName(e.target.value)}
-                  placeholder="能力包名称（如：社区合规审计 Skill）*"
-                  className="sm:col-span-2 h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                />
-                <select
-                  value={newSkillKind}
-                  onChange={(e) => setNewSkillKind(e.target.value as SkillKind)}
-                  className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                >
-                  <option value="skill">类型：SKILL 规范包</option>
-                  <option value="mcp">类型：MCP 工具服务</option>
-                  <option value="workflow">类型：工作流模板包</option>
-                </select>
-                <select
-                  value={newSkillCategory}
-                  onChange={(e) => setNewSkillCategory(e.target.value as AgentCategory)}
-                  className="h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                >
-                  <option value="engineering">类目：研发开发</option>
-                  <option value="architecture">类目：架构审查</option>
-                  <option value="qa">类目：测试质量</option>
-                  <option value="product">类目：产品策划</option>
-                  <option value="design">类目：设计体验</option>
-                  <option value="media">类目：自媒体运营</option>
-                </select>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
-                <input
-                  type="text"
-                  required
-                  value={newSkillSummary}
-                  onChange={(e) => setNewSkillSummary(e.target.value)}
-                  placeholder="能力简介与适用场景（供社区成员识别与装配）*"
-                  className="sm:col-span-3 h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-                />
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-slate-500 whitespace-nowrap">买断价 $</span>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    能力包名称 *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newSkillName}
+                    onChange={(e) => setNewSkillName(e.target.value)}
+                    placeholder="如：社区合规审计 Skill"
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      能力类型
+                    </label>
+                    <select
+                      value={newSkillKind}
+                      onChange={(e) => setNewSkillKind(e.target.value as SkillKind)}
+                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    >
+                      <option value="skill">SKILL 规范包</option>
+                      <option value="mcp">MCP 工具服务</option>
+                      <option value="workflow">工作流模板包</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      适用类目
+                    </label>
+                    <select
+                      value={newSkillCategory}
+                      onChange={(e) => setNewSkillCategory(e.target.value as AgentCategory)}
+                      className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                    >
+                      <option value="engineering">研发开发</option>
+                      <option value="architecture">架构审查</option>
+                      <option value="qa">测试质量</option>
+                      <option value="product">产品策划</option>
+                      <option value="design">设计体验</option>
+                      <option value="media">自媒体运营</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    能力简介与适用场景 *
+                  </label>
+                  <textarea
+                    rows={3}
+                    required
+                    value={newSkillSummary}
+                    onChange={(e) => setNewSkillSummary(e.target.value)}
+                    placeholder="供社区成员识别与装配的能力说明..."
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    买断价（USD，0 表示免费）
+                  </label>
                   <input
                     type="number"
                     min={0}
                     max={999}
                     value={newSkillPrice}
                     onChange={(e) => setNewSkillPrice(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs font-mono text-slate-900 focus:bg-white focus:outline-none"
                   />
                 </div>
               </div>
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowNewSkillForm(false)}
-                  className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                >
-                  取消
-                </button>
-                <button
-                  type="submit"
-                  className="h-8 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
-                >
-                  创建并上架社区市场
-                </button>
-              </div>
-            </form>
+            </ModalShell>
           )}
 
           {/* Currently Listed Skills / MCP in This Community */}
@@ -1646,40 +1701,69 @@ export function CollabSpaceManagePanel({
             {onCreatePost && (
               <button
                 type="button"
-                onClick={() => setShowAnnouncementForm((v) => !v)}
+                onClick={() => setShowAnnouncementForm(true)}
                 className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap"
               >
                 <Megaphone className="w-3.5 h-3.5" />
-                <span>{showAnnouncementForm ? '收起公告发布' : '发布社区公告'}</span>
+                <span>发布社区公告</span>
               </button>
             )}
           </div>
 
-          {showAnnouncementForm && onCreatePost && (
-            <form
+          {onCreatePost && (
+            <ModalShell
+              open={showAnnouncementForm}
+              onClose={() => setShowAnnouncementForm(false)}
+              title="发布社区公告"
+              subtitle={`以主理人身份发布公告到「${zone.name}」并同步动态流`}
+              icon={<Megaphone className="w-4 h-4 text-slate-700" />}
+              maxWidthClass="max-w-lg"
               onSubmit={handlePublishAnnouncement}
-              className="bg-white rounded-xl border border-slate-200 p-4 space-y-3"
+              footer={
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowAnnouncementForm(false)}
+                    className="h-8 px-3.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="submit"
+                    className="h-8 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                  >
+                    发布公告
+                  </button>
+                </>
+              }
             >
-              <div className="text-xs font-bold text-slate-900">
-                以主理人身份发布公告到「{zone.name}」
-              </div>
-              <input
-                type="text"
-                required
-                value={annTitle}
-                onChange={(e) => setAnnTitle(e.target.value)}
-                placeholder="公告标题（如：【社区公告】本周新增共享算力配额与项目共创规则）"
-                className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
-              />
-              <textarea
-                rows={3}
-                required
-                value={annContent}
-                onChange={(e) => setAnnContent(e.target.value)}
-                placeholder="输入公告正文内容，发布后将同步出现在该社区的交流动态流..."
-                className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none"
-              />
-              <div className="flex items-center justify-between gap-3">
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    公告标题 *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={annTitle}
+                    onChange={(e) => setAnnTitle(e.target.value)}
+                    placeholder="如：【社区公告】本周新增共享算力配额与项目共创规则"
+                    className="w-full h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-900 focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    公告正文 *
+                  </label>
+                  <textarea
+                    rows={4}
+                    required
+                    value={annContent}
+                    onChange={(e) => setAnnContent(e.target.value)}
+                    placeholder="输入公告正文内容，发布后将同步出现在该社区的交流动态流..."
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-900 leading-relaxed focus:bg-white focus:outline-none"
+                  />
+                </div>
                 <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1689,23 +1773,8 @@ export function CollabSpaceManagePanel({
                   />
                   <span>发布后自动置顶</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowAnnouncementForm(false)}
-                    className="h-8 px-3 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
-                  >
-                    取消
-                  </button>
-                  <button
-                    type="submit"
-                    className="h-8 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-xs font-semibold text-white cursor-pointer"
-                  >
-                    发布公告
-                  </button>
-                </div>
               </div>
-            </form>
+            </ModalShell>
           )}
 
           {zonePosts.length === 0 ? (

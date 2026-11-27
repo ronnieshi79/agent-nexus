@@ -838,14 +838,7 @@ export function AgentMarketView({
                     placeholder="例：需要搭建高并发支付清算模块，7天内完成接口研发与端到端回归测试..."
                     className="w-full bg-slate-50 focus:bg-white border border-slate-200 focus:border-blue-500 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/15 resize-none"
                   />
-                  <div className="flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onJumpToZoneProjects(activeZone.id)}
-                      className="text-[11px] font-medium text-slate-500 hover:text-blue-700 cursor-pointer"
-                    >
-                      逛「{activeZone.name}」社区动态 →
-                    </button>
+                  <div className="flex items-center justify-end gap-2">
                     <button
                       type="submit"
                       disabled={aiMatching || !aiQuery.trim()}
@@ -856,15 +849,6 @@ export function AgentMarketView({
                   </div>
                 </form>
               </ToolbarPopoverWidget>
-
-              <button
-                type="button"
-                onClick={onJumpToMountPrivate}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap shrink-0 cursor-pointer transition-colors"
-              >
-                <UploadCloud className="w-3.5 h-3.5" />
-                <span>发布上架</span>
-              </button>
             </>
           }
           subStrip={
@@ -1492,17 +1476,7 @@ export function AgentMarketView({
                         {/* Human Expert Card Footer: Team Invite + Outsourcing Consultation */}
                         <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
                           {human.isCurrentUser ? (
-                            <>
-                              <span className="text-[11px] text-slate-400">你的公开专家名片</span>
-                              <button
-                                type="button"
-                                onClick={onJumpToMountPrivate}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-800 cursor-pointer whitespace-nowrap"
-                              >
-                                <UploadCloud className="w-3.5 h-3.5" />
-                                <span>管理内建 Agent</span>
-                              </button>
-                            </>
+                            <span className="text-[11px] text-slate-400">你的公开主理人名片</span>
                           ) : (
                             <>
                               {teamMember ? (
