@@ -507,17 +507,17 @@ export function Sidebar({
       highlight: reviewTaskCount > 0,
     },
     {
-      id: 'community',
-      label: 'AGN社区',
-      icon: Compass,
-      tooltip: 'AGN社区 · FDE / OPC 专属的网络专业 Agent 团队',
-    },
-    {
       id: 'team',
       label: 'AGN空间',
       icon: Bot,
       tooltip: `AGN空间 · Agent 团队与空间资源（${hiredCount} 外雇 · ${privateCount} 自建）`,
       isInfra: true,
+    },
+    {
+      id: 'community',
+      label: 'AGN社区',
+      icon: Compass,
+      tooltip: 'AGN社区 · FDE / OPC 专属的网络专业 Agent 团队',
     },
   ];
 
