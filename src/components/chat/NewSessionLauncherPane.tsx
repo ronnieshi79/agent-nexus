@@ -29,6 +29,7 @@ import {
 import { ModalShell, SloganCarousel } from '../shared/UiPrimitives';
 
 const HOMEPAGE_SLOGANS = [
+  '项目协作/任务推进，工作方式自由切换',
   '雇佣专业Agent团队，做高效OPC/FDE',
   '一个App管理Claude/GPT/Gemini所有Agent工作',
   '组建自己的Agent团队，做专业OPC/FDE',
@@ -726,7 +727,7 @@ export function NewSessionLauncherPane({
             className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
           >
             <FolderPlus className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-600 transition-colors shrink-0" />
-            <span className="font-medium">创建新项目</span>
+            <span className="font-medium">新项目协作</span>
             <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
 
@@ -738,7 +739,7 @@ export function NewSessionLauncherPane({
             className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
           >
             <Compass className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-600 transition-colors shrink-0" />
-            <span className="font-medium">招募 Agent 专家</span>
+            <span className="font-medium">招募Agent专家</span>
             <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
 
@@ -750,7 +751,7 @@ export function NewSessionLauncherPane({
             className="group inline-flex items-center gap-1.5 py-1 hover:text-slate-950 transition-colors cursor-pointer"
           >
             <MessageSquare className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-600 transition-colors shrink-0" />
-            <span className="font-medium">去社区交流</span>
+            <span className="font-medium">社区看机会</span>
             <ArrowRight className="w-3 h-3 text-slate-300 group-hover:text-slate-600 group-hover:translate-x-0.5 transition-all shrink-0" />
           </button>
         </div>

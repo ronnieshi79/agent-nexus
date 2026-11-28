@@ -367,20 +367,15 @@ export function PlatformAssistantPane({
           </div>
 
           {rightTab === 'approvals' ? (
-            <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-3">
-              <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-900 inline-flex items-center gap-1.5">
-                    <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>私有社区入驻申请</span>
-                  </span>
-                  <span className="text-[11px] font-mono tabular-nums font-semibold text-indigo-700">
-                    待处理 {pendingApplications.length}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  成员入驻审批通过后将实时写入对应私有社区的成员列表。
-                </p>
+            <div className="flex-1 overflow-y-auto clean-scroll px-3 py-3 space-y-2">
+              <div className="flex items-center justify-between px-1.5 pb-1.5 border-b border-slate-200/80 text-[11px]">
+                <span className="font-semibold text-slate-700 inline-flex items-center gap-1">
+                  <UserCheck className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>私有社区入驻申请</span>
+                </span>
+                <span className="font-mono tabular-nums font-semibold text-indigo-700">
+                  待处理 {pendingApplications.length}
+                </span>
               </div>
 
               {spaceApplications.length === 0 ? (
@@ -388,12 +383,9 @@ export function PlatformAssistantPane({
                   暂无私有社区成员申请
                 </div>
               ) : (
-                <div className="space-y-2.5">
+                <ul className="divide-y divide-slate-200/70">
                   {spaceApplications.map((app) => (
-                    <div
-                      key={app.id}
-                      className="bg-white rounded-lg border border-slate-200 p-3 space-y-2"
-                    >
+                    <li key={app.id} className="py-2.5 px-1.5 space-y-1.5">
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <EntityAvatar
@@ -403,11 +395,12 @@ export function PlatformAssistantPane({
                             size="sm"
                           />
                           <div className="min-w-0">
-                            <div className="text-xs font-bold text-slate-900 truncate">
+                            <div className="text-xs font-semibold text-slate-900 truncate">
                               {app.applicantName}
+                              <span className="font-normal text-slate-400"> · {app.applicantTitle}</span>
                             </div>
-                            <div className="text-[11px] text-slate-500 truncate">
-                              {app.applicantTitle}
+                            <div className="text-[11px] text-indigo-700 truncate">
+                              申请：{app.zoneName}
                             </div>
                           </div>
                         </div>
@@ -416,76 +409,74 @@ export function PlatformAssistantPane({
                         </span>
                       </div>
 
-                      <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-50/70 border border-indigo-100 rounded px-2 py-1 truncate">
-                        申请社区：{app.zoneName}
-                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2 pl-[34px]">
+                        {app.note}
+                      </p>
 
-                      <p className="text-[11px] text-slate-600 leading-relaxed">{app.note}</p>
-
-                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <div className="pl-[34px] flex items-center gap-3 text-[11px]">
                         {app.status === 'pending' ? (
                           <>
                             <button
                               type="button"
-                              onClick={() => onResolveSpaceApplication(app.id, 'rejected')}
-                              className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md border border-slate-200 bg-white hover:bg-slate-50 text-[11px] font-semibold text-slate-600 cursor-pointer"
-                            >
-                              <X className="w-3 h-3" />
-                              <span>拒绝</span>
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => onResolveSpaceApplication(app.id, 'approved')}
-                              className="flex-1 inline-flex items-center justify-center gap-1 py-1.5 rounded-md bg-slate-900 hover:bg-slate-800 text-[11px] font-semibold text-white cursor-pointer"
+                              className="inline-flex items-center gap-0.5 font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
                             >
                               <Check className="w-3 h-3" />
                               <span>同意加入</span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => onResolveSpaceApplication(app.id, 'rejected')}
+                              className="inline-flex items-center gap-0.5 font-medium text-slate-500 hover:text-slate-800 cursor-pointer"
+                            >
+                              <X className="w-3 h-3" />
+                              <span>拒绝</span>
+                            </button>
                           </>
                         ) : (
                           <span
-                            className={`text-[11px] font-semibold ${
+                            className={`font-semibold ${
                               app.status === 'approved' ? 'text-emerald-700' : 'text-slate-400'
                             }`}
                           >
-                            {app.status === 'approved' ? '已同意并加入社区成员' : '已拒绝申请'}
+                            {app.status === 'approved' ? '已同意加入' : '已拒绝'}
                           </span>
                         )}
                       </div>
-                    </div>
+                    </li>
                   ))}
-                </div>
+                </ul>
               )}
             </div>
           ) : rightTab === 'settlement' ? (
-            <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-3.5 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+            <div className="flex-1 overflow-y-auto clean-scroll px-3 py-3 space-y-2.5">
+              <div className="pb-2.5 px-1.5 border-b border-slate-200/80 space-y-2">
+                <div className="flex items-center justify-between gap-3 text-xs">
                   <div>
-                    <div className="text-[11px] text-slate-500">待核销项目款</div>
-                    <div className="text-lg font-bold font-mono tabular-nums text-amber-700 mt-0.5">
+                    <span className="text-[11px] text-slate-500">待核销 </span>
+                    <span className="font-bold font-mono tabular-nums text-amber-700">
                       ${Math.round(unsettledTotal).toLocaleString('en-US')}
-                    </div>
+                    </span>
                   </div>
                   <div>
-                    <div className="text-[11px] text-slate-500">累计已结算</div>
-                    <div className="text-lg font-bold font-mono tabular-nums text-emerald-700 mt-0.5">
+                    <span className="text-[11px] text-slate-500">已结算 </span>
+                    <span className="font-bold font-mono tabular-nums text-emerald-700">
                       ${Math.round(settledTotal).toLocaleString('en-US')}
-                    </div>
+                    </span>
                   </div>
                 </div>
                 {unsettledRecords.length > 0 && (
                   <button
                     type="button"
                     onClick={onSettleAll}
-                    className="w-full py-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
+                    className="w-full py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
                   >
                     一键核销全部 {unsettledRecords.length} 笔待结项目款
                   </button>
                 )}
               </div>
 
-              <div className="space-y-2.5">
+              <ul className="divide-y divide-slate-200/70">
                 {settlements.map((s) => {
                   const matchedAgent = agents.find(
                     (a) =>
@@ -493,10 +484,7 @@ export function PlatformAssistantPane({
                       displayEntityName(a.handle) === displayEntityName(s.agentHandle),
                   );
                   return (
-                    <div
-                      key={s.id}
-                      className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5"
-                    >
+                    <li key={s.id} className="py-2.5 px-1.5 space-y-1">
                       <div className="flex items-center justify-between gap-2 text-xs">
                         <AgentIdentityName
                           name={s.agentHandle}
@@ -508,60 +496,51 @@ export function PlatformAssistantPane({
                           ${Math.round(s.amountUsd).toLocaleString('en-US')}
                         </span>
                       </div>
-                    <div className="text-[11px] text-slate-500 truncate">{s.projectName}</div>
-                    <div className="text-xs text-slate-700 line-clamp-2">{s.milestoneLabel}</div>
-                    <div className="pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]">
-                      <span className="font-mono tabular-nums text-slate-400">
-                        {s.id} · {s.createdAt}
-                      </span>
-                      {s.status === 'settled' ? (
-                        <span className="text-emerald-700 font-semibold">已结算</span>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onSettleRecord(s.id)}
-                          className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
-                        >
-                          <Receipt className="w-3 h-3" />
-                          <span>确认结算</span>
-                        </button>
-                      )}
+                      <div className="text-[11px] text-slate-600 truncate">
+                        {s.projectName} · {s.milestoneLabel}
                       </div>
-                    </div>
+                      <div className="flex items-center justify-between text-[10.5px]">
+                        <span className="font-mono tabular-nums text-slate-400">
+                          {s.id} · {s.createdAt}
+                        </span>
+                        {s.status === 'settled' ? (
+                          <span className="text-emerald-700 font-semibold">已结算</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => onSettleRecord(s.id)}
+                            className="inline-flex items-center gap-1 text-blue-700 hover:text-blue-900 font-semibold cursor-pointer"
+                          >
+                            <Receipt className="w-3 h-3" />
+                            <span>确认结算</span>
+                          </button>
+                        )}
+                      </div>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </div>
           ) : (
-            <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-3.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold text-slate-900">私有节点对外接单状态</span>
-                  <button
-                    type="button"
-                    onClick={onOpenTeam}
-                    className="text-[11px] font-semibold text-blue-700 hover:text-blue-900 cursor-pointer"
-                  >
-                    去 Agents
-                  </button>
-                </div>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  当前共有 <span className="font-mono font-semibold">{privateAgents.length}</span>{' '}
-                  个私有挂载节点，其中{' '}
-                  <span className="font-mono font-semibold text-emerald-700">
-                    {listedPrivateAgents.length}
-                  </span>{' '}
-                  个已上架市场自动接单。
-                </p>
+            <div className="flex-1 overflow-y-auto clean-scroll px-3 py-3 space-y-2">
+              <div className="pb-2 px-1.5 border-b border-slate-200/80 flex items-center justify-between gap-2 text-[11px]">
+                <span className="text-slate-600">
+                  私有节点 <strong className="font-mono text-slate-900">{privateAgents.length}</strong> · 上架{' '}
+                  <strong className="font-mono text-emerald-700">{listedPrivateAgents.length}</strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={onOpenTeam}
+                  className="font-semibold text-blue-700 hover:text-blue-900 cursor-pointer shrink-0"
+                >
+                  管理节点 →
+                </button>
               </div>
 
-              <div className="space-y-2.5">
+              <ul className="divide-y divide-slate-200/70">
                 {auditLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="bg-white rounded-lg border border-slate-200 p-3 space-y-1"
-                  >
-                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                  <li key={log.id} className="py-2 px-1.5 space-y-0.5">
+                    <div className="flex items-center justify-between gap-2 text-[10.5px]">
                       <span
                         className={`font-semibold inline-flex items-center gap-1 ${
                           log.severity === 'warning'
@@ -576,11 +555,15 @@ export function PlatformAssistantPane({
                       </span>
                       <span className="font-mono tabular-nums text-slate-400">{log.timestamp}</span>
                     </div>
-                    <div className="text-xs font-semibold text-slate-900">{log.title}</div>
-                    <p className="text-[11px] text-slate-600 leading-relaxed">{log.detail}</p>
-                  </div>
+                    <div className="text-xs font-medium text-slate-900 leading-snug">
+                      {log.title}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">
+                      {log.detail}
+                    </p>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
         </aside>

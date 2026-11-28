@@ -141,8 +141,8 @@ export function TaskSessionInspectorRail({
       </div>
 
       <div className="flex-1 overflow-y-auto clean-scroll divide-y divide-slate-200/80">
-        {/* Section 1: Artifacts / Deliverables */}
-        <section className="p-4 space-y-3">
+        {/* Section 1: Artifacts / Deliverables (Compact flat list, no card chrome) */}
+        <section className="p-4 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
               <FileCode2 className="w-3.5 h-3.5 text-blue-600" />
@@ -154,29 +154,26 @@ export function TaskSessionInspectorRail({
           </div>
 
           {artifacts.length === 0 ? (
-            <div className="py-5 px-3 rounded-lg border border-dashed border-slate-200 bg-white text-center text-xs text-slate-400">
+            <div className="py-4 text-center text-xs text-slate-400">
               当前任务尚未产出归档文件，专家执行后将自动沉淀至此。
             </div>
           ) : (
-            <div className="space-y-2">
+            <ul className="divide-y divide-slate-200/70">
               {artifacts.map((art) => {
                 const isExpanded = expandedArtifactId === art.id;
                 return (
-                  <div
-                    key={art.id}
-                    className="rounded-lg border border-slate-200/80 bg-white overflow-hidden"
-                  >
-                    <div className="p-3 space-y-1.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            art.snippet && setExpandedArtifactId(isExpanded ? null : art.id)
-                          }
-                          className={`min-w-0 flex-1 flex items-center gap-1.5 text-left ${
-                            art.snippet ? 'cursor-pointer group' : 'cursor-default'
-                          }`}
-                        >
+                  <li key={art.id} className="py-2 first:pt-1 last:pb-0">
+                    <div className="group/art flex items-start justify-between gap-2 px-1 py-0.5 rounded hover:bg-slate-200/45 transition-colors">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          art.snippet && setExpandedArtifactId(isExpanded ? null : art.id)
+                        }
+                        className={`min-w-0 flex-1 text-left ${
+                          art.snippet ? 'cursor-pointer' : 'cursor-default'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0">
                           {art.snippet ? (
                             isExpanded ? (
                               <ChevronDown className="w-3.5 h-3.5 text-slate-400 shrink-0" />
@@ -186,67 +183,65 @@ export function TaskSessionInspectorRail({
                           ) : (
                             <FileCode2 className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                           )}
-                          <span className="text-xs font-mono font-semibold text-blue-700 group-hover:text-blue-900 truncate">
+                          <span className="text-xs font-mono font-semibold text-blue-700 truncate">
                             {art.path}
                           </span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(art.id, art.snippet || art.path)}
-                          title={art.snippet ? '复制产物片段' : '复制产物路径'}
-                          className="text-[10px] text-slate-400 hover:text-slate-700 inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
-                        >
-                          {copiedId === art.id ? (
-                            <>
-                              <Check className="w-3 h-3 text-emerald-600" />
-                              <span className="text-emerald-700">已复制</span>
-                            </>
-                          ) : (
-                            <Copy className="w-3 h-3" />
-                          )}
-                        </button>
-                      </div>
-
-                      {art.summary && (
-                        <p className="text-[11px] text-slate-600 leading-relaxed line-clamp-2">
-                          {art.summary}
-                        </p>
-                      )}
-
-                      <div className="flex items-center justify-between gap-2 text-[10px] text-slate-400 pt-0.5">
-                        <div className="flex items-center gap-1 min-w-0">
-                          {art.isPrimary && (
-                            <span className="text-emerald-700 font-semibold shrink-0">主交付 ·</span>
-                          )}
-                          {art.stageLabel && <span className="shrink-0">{art.stageLabel} ·</span>}
-                          {art.producerAgent && (
-                            <AgentIdentityName
-                              name={art.producerAgent.handle}
-                              runtime={art.producerAgent.runtimeAgent}
-                              model={art.producerAgent.defaultModel}
-                              className="text-slate-600 font-medium"
-                            />
-                          )}
                         </div>
-                        <span className="font-mono tabular-nums shrink-0">{art.timestamp}</span>
-                      </div>
+
+                        <div className="flex items-center gap-1.5 text-[10.5px] text-slate-400 mt-0.5 pl-5 truncate">
+                          {art.isPrimary && (
+                            <span className="text-emerald-700 font-semibold shrink-0">主交付</span>
+                          )}
+                          {art.stageLabel && (
+                            <>
+                              {art.isPrimary && <span aria-hidden="true">·</span>}
+                              <span className="shrink-0">{art.stageLabel}</span>
+                            </>
+                          )}
+                          {art.producerAgent && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <AgentIdentityName
+                                name={art.producerAgent.handle}
+                                runtime={art.producerAgent.runtimeAgent}
+                                model={art.producerAgent.defaultModel}
+                                className="text-slate-600 font-medium"
+                              />
+                            </>
+                          )}
+                          <span aria-hidden="true">·</span>
+                          <span className="font-mono tabular-nums shrink-0">{art.timestamp}</span>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCopy(art.id, art.snippet || art.path)}
+                        title={art.snippet ? '复制产物片段' : '复制产物路径'}
+                        className="p-1 rounded text-slate-400 hover:text-slate-700 inline-flex items-center gap-0.5 shrink-0 cursor-pointer"
+                      >
+                        {copiedId === art.id ? (
+                          <Check className="w-3 h-3 text-emerald-600" />
+                        ) : (
+                          <Copy className="w-3 h-3" />
+                        )}
+                      </button>
                     </div>
 
                     {isExpanded && art.snippet && (
-                      <pre className="px-3 py-2.5 bg-slate-950 text-slate-200 text-[11px] font-mono leading-relaxed overflow-x-auto border-t border-slate-800 max-h-56">
+                      <pre className="mt-1.5 rounded-lg px-3 py-2 bg-slate-950 text-slate-200 text-[11px] font-mono leading-relaxed overflow-x-auto max-h-52">
                         <code>{art.snippet}</code>
                       </pre>
                     )}
-                  </div>
+                  </li>
                 );
               })}
-            </div>
+            </ul>
           )}
         </section>
 
-        {/* Section 2: Participating Specialist Agents (计划 / 执行 / 验收) */}
-        <section className="p-4 space-y-3">
+        {/* Section 2: Participating Specialist Agents (Compact flat list, no card chrome) */}
+        <section className="p-4 space-y-2">
           <div className="flex items-center justify-between gap-2">
             <h3 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
               <Users className="w-3.5 h-3.5 text-slate-700" />
@@ -257,7 +252,7 @@ export function TaskSessionInspectorRail({
             </span>
           </div>
 
-          <div className="space-y-2">
+          <ul className="divide-y divide-slate-200/70">
             {TASK_WORKFLOW_STAGES.map((stage, idx) => {
               const sAgent = stageAgents[stage.id];
               const isDone = idx < currentStageIdx;
@@ -265,55 +260,54 @@ export function TaskSessionInspectorRail({
               const isSelectedTarget = Boolean(sAgent && effectiveTargetAgentId === sAgent.id);
 
               return (
-                <button
-                  key={stage.id}
-                  type="button"
-                  disabled={!sAgent || isReadOnly}
-                  onClick={() => sAgent && onSelectTargetAgent(isCur ? null : sAgent.id)}
-                  className={`w-full text-left rounded-lg border p-3 transition-colors cursor-pointer disabled:cursor-default space-y-2 ${
-                    isSelectedTarget
-                      ? 'bg-white border-slate-900'
-                      : isCur
-                        ? 'bg-white border-slate-300'
-                        : 'bg-white/80 border-slate-200/80 hover:border-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 text-[11px]">
-                    <span
-                      className={`font-semibold ${
-                        isDone
-                          ? 'text-emerald-700'
-                          : isCur
-                            ? 'text-slate-950'
-                            : 'text-slate-500'
-                      }`}
-                    >
-                      0{idx + 1} · {stage.label}阶段
-                    </span>
-                    <span
-                      className={`font-medium ${
-                        isDone
-                          ? 'text-emerald-600'
-                          : isSelectedTarget
-                            ? 'text-blue-700'
+                <li key={stage.id} className="py-1 first:pt-0 last:pb-0">
+                  <button
+                    type="button"
+                    disabled={!sAgent || isReadOnly}
+                    onClick={() => sAgent && onSelectTargetAgent(isCur ? null : sAgent.id)}
+                    className={`w-full text-left rounded-md px-2 py-2 transition-colors cursor-pointer disabled:cursor-default space-y-1.5 ${
+                      isSelectedTarget
+                        ? 'bg-slate-200/80'
+                        : isCur
+                          ? 'bg-slate-200/45 hover:bg-slate-200/65'
+                          : 'hover:bg-slate-200/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 text-[10.5px]">
+                      <span
+                        className={`font-semibold ${
+                          isDone
+                            ? 'text-emerald-700'
                             : isCur
-                              ? 'text-slate-900'
-                              : 'text-slate-400'
-                      }`}
-                    >
-                      {isDone
-                        ? '已完成'
-                        : isSelectedTarget
-                          ? '当前对话指定'
-                          : isCur
-                            ? '当前负责'
-                            : '待接力'}
-                    </span>
-                  </div>
+                              ? 'text-slate-950'
+                              : 'text-slate-500'
+                        }`}
+                      >
+                        0{idx + 1} · {stage.label}
+                      </span>
+                      <span
+                        className={`font-medium ${
+                          isDone
+                            ? 'text-emerald-600'
+                            : isSelectedTarget
+                              ? 'text-blue-700'
+                              : isCur
+                                ? 'text-slate-900'
+                                : 'text-slate-400'
+                        }`}
+                      >
+                        {isDone
+                          ? '已完成'
+                          : isSelectedTarget
+                            ? '当前指定'
+                            : isCur
+                              ? '当前负责'
+                              : '待接力'}
+                      </span>
+                    </div>
 
-                  {sAgent ? (
-                    <>
-                      <div className="flex items-center gap-2.5 min-w-0">
+                    {sAgent ? (
+                      <div className="flex items-center gap-2 min-w-0">
                         <EntityAvatar
                           kind="agent"
                           code={sAgent.avatarCode}
@@ -329,22 +323,22 @@ export function TaskSessionInspectorRail({
                             showModel
                             className="text-xs font-semibold text-slate-900"
                           />
-                          <div className="text-[11px] text-slate-500 truncate">{sAgent.title}</div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {sAgent.title}
+                            {sAgent.mcpTools && sAgent.mcpTools.length > 0
+                              ? ` · MCP: ${sAgent.mcpTools.slice(0, 2).join(', ')}`
+                              : ''}
+                          </div>
                         </div>
                       </div>
-                      {sAgent.mcpTools && sAgent.mcpTools.length > 0 && (
-                        <div className="text-[10px] font-mono text-slate-400 truncate">
-                          MCP: {sAgent.mcpTools.slice(0, 3).join(', ')}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-xs text-slate-400">未指派专家</div>
-                  )}
-                </button>
+                    ) : (
+                      <div className="text-xs text-slate-400">未指派专家</div>
+                    )}
+                  </button>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </section>
       </div>
 

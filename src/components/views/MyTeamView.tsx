@@ -37,6 +37,8 @@ import {
   AgentIdentityName,
   EntityAvatar,
   LEASE_PERIOD_META,
+  PRINCIPAL_ROLE_META,
+  PRINCIPAL_ROLE_OPTIONS,
   displayEntityName,
   getAgentLeasePricing,
   getRuntimePreset,
@@ -70,6 +72,7 @@ import type {
   NodeCliEntry,
   NodeLeaseBillingCycle,
   NodeOsType,
+  PrincipalRoleType,
   PrivateCommunityScope,
   ProjectWorkspace,
   SkillKind,
@@ -407,11 +410,8 @@ export function MyTeamView({
 }: MyTeamViewProps) {
   const [teamSection, setTeamSection] = useState<TeamSectionTab>('agents');
   const [ownershipTab, setOwnershipTab] = useState<TeamOwnershipTab>('all');
-  const [principalRelationFilter, setPrincipalRelationFilter] = useState<
-    'all' | ExpertRelationType
-  >('all');
+  const [principalTypeFilter, setPrincipalTypeFilter] = useState<'all' | PrincipalRoleType>('all');
   const [expertZoneFilter, setExpertZoneFilter] = useState<string>('all');
-  const [expertAssignFilter, setExpertAssignFilter] = useState<'all' | 'assigned' | 'unassigned'>('all');
   const [statusFilter, setStatusFilter] = useState<AgentWorkStatusFilter>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -484,6 +484,9 @@ export function MyTeamView({
   // Space Expert Invite Slide-in Drawer State
   const [inviteDrawerOpen, setInviteDrawerOpen] = useState(false);
   const [inviteZoneFilter, setInviteZoneFilter] = useState<string>('all');
+  const [invitePrincipalTypeFilter, setInvitePrincipalTypeFilter] = useState<
+    'all' | PrincipalRoleType
+  >('all');
   const [inviteRelation, setInviteRelation] = useState<ExpertRelationType>('mutual_friend');
   const [inviteWorkspaceId, setInviteWorkspaceId] = useState<string>('');
 
@@ -626,21 +629,12 @@ export function MyTeamView({
   const normalizedQuery = searchKeyword.trim().toLowerCase();
 
   const displayedTeamExperts = useMemo(() => {
-    const hiredExpertSet = new Set(workspace.hiredExpertIds || []);
     return teamExperts
-      .filter((m) =>
-        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
-      )
       .filter((m) =>
         expertZoneFilter === 'all'
           ? true
           : (m.sourceZoneId || 'zone_public') === expertZoneFilter,
       )
-      .filter((m) => {
-        if (expertAssignFilter === 'all') return true;
-        const isAssigned = hiredExpertSet.has(m.expertId);
-        return expertAssignFilter === 'assigned' ? isAssigned : !isAssigned;
-      })
       .map((membership) => {
         const expert = humanExpertMap.get(membership.expertId);
         const ownedAgents = allAgents.filter(
@@ -657,14 +651,20 @@ export function MyTeamView({
           ownedAgents: ExpertAgent[];
         } => {
           if (!item) return false;
+          if (principalTypeFilter !== 'all' && item.expert.principalType !== principalTypeFilter) {
+            return false;
+          }
           if (categoryFilter !== 'all' && item.expert.category !== categoryFilter) {
             return false;
           }
           if (!normalizedQuery) return true;
           const { expert, membership, ownedAgents } = item;
+          const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
           return (
             expert.name.toLowerCase().includes(normalizedQuery) ||
             expert.title.toLowerCase().includes(normalizedQuery) ||
+            roleMeta.shortLabel.toLowerCase().includes(normalizedQuery) ||
+            roleMeta.label.toLowerCase().includes(normalizedQuery) ||
             (expert.outsourcingDomain || '').toLowerCase().includes(normalizedQuery) ||
             expert.specialties.some((s) => s.toLowerCase().includes(normalizedQuery)) ||
             (membership.outsourcingScope || '').toLowerCase().includes(normalizedQuery) ||
@@ -675,31 +675,42 @@ export function MyTeamView({
   }, [
     allAgents,
     categoryFilter,
-    expertAssignFilter,
     expertZoneFilter,
     humanExpertMap,
     normalizedQuery,
-    principalRelationFilter,
+    principalTypeFilter,
     teamExperts,
-    workspace.hiredExpertIds,
   ]);
 
   const inviteCandidates = useMemo(() => {
     return humanExperts
       .filter((h) => !h.isCurrentUser)
       .filter((h) => (inviteZoneFilter === 'all' ? true : h.zoneIds.includes(inviteZoneFilter)))
+      .filter((h) =>
+        invitePrincipalTypeFilter === 'all' ? true : h.principalType === invitePrincipalTypeFilter,
+      )
       .map((expert) => ({
         expert,
         ownedAgents: allAgents.filter((a) => a.ownerHumanId === expert.id && a.isListedInMarket),
         membership: teamExperts.find((m) => m.expertId === expert.id) || null,
       }));
-  }, [allAgents, humanExperts, inviteZoneFilter, teamExperts]);
+  }, [allAgents, humanExperts, invitePrincipalTypeFilter, inviteZoneFilter, teamExperts]);
 
-  const expertRelationCounts = useMemo(() => {
-    const projectCollab = teamExperts.filter((m) => m.relation === 'project_collab').length;
-    const mutualFriend = teamExperts.filter((m) => m.relation === 'mutual_friend').length;
-    return { projectCollab, mutualFriend };
-  }, [teamExperts]);
+  const principalTypeCounts = useMemo(() => {
+    const counts: Record<'all' | PrincipalRoleType, number> = {
+      all: 0,
+      fde: 0,
+      opc: 0,
+      aibuilder: 0,
+    };
+    teamExperts.forEach((m) => {
+      const exp = humanExpertMap.get(m.expertId);
+      if (!exp) return;
+      counts.all += 1;
+      counts[exp.principalType] += 1;
+    });
+    return counts;
+  }, [humanExpertMap, teamExperts]);
 
   const getProjectNamesForAgent = (agentId: string) =>
     workspaces.filter((w) => w.hiredAgentIds.includes(agentId)).map((w) => w.name);
@@ -793,15 +804,15 @@ export function MyTeamView({
 
     const matchingExperts = teamExperts
       .filter((m) =>
-        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
-      )
-      .filter((m) =>
         expertZoneFilter === 'all'
           ? true
           : (m.sourceZoneId || 'zone_public') === expertZoneFilter,
       )
       .map((m) => humanExpertMap.get(m.expertId))
-      .filter((exp): exp is HumanExpert => Boolean(exp));
+      .filter((exp): exp is HumanExpert => Boolean(exp))
+      .filter((exp) =>
+        principalTypeFilter === 'all' ? true : exp.principalType === principalTypeFilter,
+      );
 
     counts.all = matchingExperts.length;
     matchingExperts.forEach((exp) => {
@@ -813,25 +824,12 @@ export function MyTeamView({
     externalHiredAgents,
     humanExpertMap,
     ownershipTab,
-    principalRelationFilter,
+    principalTypeFilter,
     privateAgents,
     teamExperts,
     teamRoster,
     teamSection,
   ]);
-
-  const currentRelationExperts = useMemo(
-    () =>
-      teamExperts.filter((m) =>
-        principalRelationFilter === 'all' ? true : m.relation === principalRelationFilter,
-      ),
-    [principalRelationFilter, teamExperts],
-  );
-
-  const assignedInCurrentCount = useMemo(() => {
-    const hiredSet = new Set(workspace.hiredExpertIds || []);
-    return currentRelationExperts.filter((m) => hiredSet.has(m.expertId)).length;
-  }, [currentRelationExperts, workspace.hiredExpertIds]);
 
   const displayedAgents = useMemo(() => {
     const source =
@@ -1344,7 +1342,7 @@ export function MyTeamView({
                                   ? '搜索平台官方 Skill / MCP、底座或能力说明...'
                                   : teamSection === 'collab_my' || teamSection === 'collab_discover'
                                     ? '搜索 Agent 社区名称、语言区域、领域或主理人...'
-                                    : '搜索 Agent 主理姓名、专长方向、来源社区或名下 Agent...'
+                                    : '搜索 Agent 主理（FDE/OPC/AI Builder）、专业方向或旗下 Agent...'
                   }
                   widthClass="flex-1 min-w-[160px] max-w-[300px]"
                 />
@@ -1502,32 +1500,24 @@ export function MyTeamView({
               ) : teamSection === 'collab_manage' ? null : (
                 <>
                   <ToolbarDropdown
-                    label="关系"
-                    value={principalRelationFilter}
+                    label="主理类型"
+                    value={principalTypeFilter}
                     defaultValue="all"
-                    onChange={setPrincipalRelationFilter}
-                    options={[
-                      { id: 'all', label: '全部主理', hint: `${teamExperts.length}` },
-                      {
-                        id: 'project_collab',
-                        label: '项目合作',
-                        hint: `${expertRelationCounts.projectCollab}`,
-                      },
-                      {
-                        id: 'mutual_friend',
-                        label: '互关好友',
-                        hint: `${expertRelationCounts.mutualFriend}`,
-                      },
-                    ]}
+                    onChange={setPrincipalTypeFilter}
+                    options={PRINCIPAL_ROLE_OPTIONS.map((role) => ({
+                      id: role.id,
+                      label: role.label,
+                      hint: `${principalTypeCounts[role.id]}`,
+                    }))}
                   />
                   <ToolbarDropdown
-                    label="类目"
+                    label="专业方向"
                     value={categoryFilter}
                     defaultValue="all"
                     onChange={setCategoryFilter}
                     options={AGENT_CATEGORY_OPTIONS.map((cat) => ({
                       id: cat.id,
-                      label: cat.label,
+                      label: cat.id === 'all' ? '全部方向' : cat.label,
                       hint: `${activeCategoryCounts[cat.id]}`,
                     }))}
                   />
@@ -1537,23 +1527,12 @@ export function MyTeamView({
                     defaultValue="all"
                     onChange={setExpertZoneFilter}
                     options={[
-                      { id: 'all', label: '全部社区', hint: `${currentRelationExperts.length}` },
+                      { id: 'all', label: '全部社区', hint: `${teamExperts.length}` },
                       ...zones.map((z) => ({
                         id: z.id,
                         label: z.name,
-                        hint: `${currentRelationExperts.filter((m) => (m.sourceZoneId || 'zone_public') === z.id).length}`,
+                        hint: `${teamExperts.filter((m) => (m.sourceZoneId || 'zone_public') === z.id).length}`,
                       })),
-                    ]}
-                  />
-                  <ToolbarDropdown
-                    label="派驻"
-                    value={expertAssignFilter}
-                    defaultValue="all"
-                    onChange={setExpertAssignFilter}
-                    options={[
-                      { id: 'all', label: '全部状态' },
-                      { id: 'assigned', label: '已派驻当前项目' },
-                      { id: 'unassigned', label: '暂未入当前项目' },
                     ]}
                   />
                 </>
@@ -1707,22 +1686,18 @@ export function MyTeamView({
             ) : (
               <>
                 <span className="hidden @[860px]:inline-flex items-center gap-2 text-xs text-slate-500 font-mono tabular-nums mr-1">
-                  <span>合作 {expertRelationCounts.projectCollab}</span>
+                  <span>FDE {principalTypeCounts.fde}</span>
                   <span className="text-slate-300" aria-hidden="true">·</span>
-                  <span>好友 {expertRelationCounts.mutualFriend}</span>
+                  <span>OPC {principalTypeCounts.opc}</span>
                   <span className="text-slate-300" aria-hidden="true">·</span>
-                  <span className="text-emerald-700">当前项目已派驻 {assignedInCurrentCount}</span>
+                  <span>AI Builder {principalTypeCounts.aibuilder}</span>
                 </span>
 
                 <button
                   type="button"
                   onClick={() => {
                     setDrawerOpen(false);
-                    setInviteRelation(
-                      principalRelationFilter === 'mutual_friend'
-                        ? 'mutual_friend'
-                        : 'project_collab',
-                    );
+                    setInviteRelation('project_collab');
                     setInviteDrawerOpen(true);
                   }}
                   className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
@@ -2710,9 +2685,8 @@ export function MyTeamView({
                 <div className="flex items-center justify-between gap-3">
                   <div className="text-xs text-slate-500">
                     <span>
-                      人类通讯录 · 统一管理<strong className="text-slate-800">外包合作</strong>与
-                      <strong className="text-slate-800">互关好友</strong>两类 Agent 主理（由主理人通过与多个 Agent 对话驱动任务、面向结果交付），可查看旗下专家 Agent 或邀请进入「
-                      <strong className="text-slate-800">{workspace.name}</strong>」
+                      Agent 主理通讯录 · 按 <strong className="text-indigo-700">FDE</strong> / <strong className="text-emerald-700">OPC</strong> / <strong className="text-sky-700">AI Builder</strong> 类型与专业方向管理合作主理，可按需邀请进入「
+                      <strong className="text-slate-800">{workspace.name}</strong>」协同推进项目
                     </span>
                   </div>
                   <div className="text-xs font-mono tabular-nums text-slate-400 shrink-0">
@@ -2724,18 +2698,16 @@ export function MyTeamView({
                   <div className="py-14 text-center border border-dashed border-slate-300 rounded-xl bg-white space-y-3">
                     <p className="text-sm font-medium text-slate-700">当前筛选下暂无 Agent 主理</p>
                     <div className="flex items-center justify-center gap-2">
-                      {(principalRelationFilter !== 'all' ||
+                      {(principalTypeFilter !== 'all' ||
                         categoryFilter !== 'all' ||
                         expertZoneFilter !== 'all' ||
-                        expertAssignFilter !== 'all' ||
                         searchKeyword.trim() !== '') && (
                         <button
                           type="button"
                           onClick={() => {
-                            setPrincipalRelationFilter('all');
+                            setPrincipalTypeFilter('all');
                             setCategoryFilter('all');
                             setExpertZoneFilter('all');
-                            setExpertAssignFilter('all');
                             setSearchKeyword('');
                           }}
                           className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-medium text-slate-700 cursor-pointer"
@@ -2747,11 +2719,7 @@ export function MyTeamView({
                         type="button"
                         onClick={() => {
                           setDrawerOpen(false);
-                          setInviteRelation(
-                            principalRelationFilter === 'mutual_friend'
-                              ? 'mutual_friend'
-                              : 'project_collab',
-                          );
+                          setInviteRelation('project_collab');
                           setInviteDrawerOpen(true);
                         }}
                         className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
@@ -2765,7 +2733,7 @@ export function MyTeamView({
                   <div className="border-t border-b border-slate-200/80 bg-white mb-16">
                     {/* Desktop Column Header */}
                     <div className="hidden @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4 px-2 py-2.5 bg-[#FAFAFA] border-b border-slate-200/80 text-[11px] font-semibold text-slate-500">
-                      <div>Agent 主理与擅长方向</div>
+                      <div>Agent 主理（类型 · 专业方向）</div>
                       <div>关系 / 来源社区</div>
                       <div>合作项目</div>
                       <div>评级 / 履约</div>
@@ -2786,13 +2754,14 @@ export function MyTeamView({
                           displayedTeamExperts.length >= 3 &&
                           rowIndex >= displayedTeamExperts.length - 2;
                         const primaryAgent = ownedAgents[0];
+                        const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
 
                         return (
                           <div
                             key={expert.id}
                             className="px-2 py-4 hover:bg-slate-50/60 transition-colors flex flex-col gap-3.5 @[860px]:grid @[860px]:grid-cols-[minmax(0,1fr)_156px_168px_108px_144px] @[860px]:items-center @[860px]:gap-4"
                           >
-                            {/* Col 1: Principal Identity, Specialty & Built-in Agents */}
+                            {/* Col 1: Principal Identity, Role Type, Domain Direction & Built-in Agents */}
                             <div className="flex items-start gap-3.5 min-w-0">
                               <EntityAvatar
                                 kind="human"
@@ -2805,21 +2774,23 @@ export function MyTeamView({
                                   <span className="text-sm font-bold text-slate-900">
                                     {expert.name}
                                   </span>
-                                  <span className="text-slate-500">
-                                    {AGENT_CATEGORY_LABELS[expert.category]}
+                                  <span className={`font-semibold ${roleMeta.textCls}`}>
+                                    {roleMeta.label}
+                                  </span>
+                                  <span className="text-slate-300" aria-hidden="true">·</span>
+                                  <span className="text-slate-600">
+                                    方向：{AGENT_CATEGORY_LABELS[expert.category]}
                                   </span>
                                   <span className="text-slate-300" aria-hidden="true">·</span>
                                   <span className="font-mono font-semibold text-violet-700">
                                     {expert.ratingTier || 'A+'}级
                                   </span>
-                                  <span className="text-slate-300" aria-hidden="true">·</span>
-                                  <span className="text-slate-500 truncate">{expert.title}</span>
                                 </div>
 
                                 <div className="mt-1 flex items-center gap-1.5 text-xs text-slate-700">
                                   <Briefcase className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                                   <span className="truncate font-medium">
-                                    擅长方向：{membership.outsourcingScope || expert.outsourcingDomain || expert.specialties[0] || ''}
+                                    专注方向：{membership.outsourcingScope || expert.outsourcingDomain || expert.specialties[0] || ''}
                                   </span>
                                 </div>
 
@@ -3740,11 +3711,26 @@ export function MyTeamView({
         onClose={() => setInviteDrawerOpen(false)}
         icon={<UserPlus className="w-4 h-4 text-blue-600" />}
         title="添加 Agent 主理"
-        subtitle="按来源 Agent 社区筛选并收录至通讯录，支持标记关系并同步派驻当前项目。"
+        subtitle="按主理类型（FDE / OPC / AI Builder）与来源社区筛选收录，支持同步邀请进入甲方项目群。"
         maxWidthClass="max-w-lg"
       >
         <div className="space-y-3.5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <select
+              value={invitePrincipalTypeFilter}
+              onChange={(e) =>
+                setInvitePrincipalTypeFilter(e.target.value as 'all' | PrincipalRoleType)
+              }
+              aria-label="筛选主理类型"
+              className="h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-600/20"
+            >
+              {PRINCIPAL_ROLE_OPTIONS.map((role) => (
+                <option key={role.id} value={role.id}>
+                  {role.label}
+                </option>
+              ))}
+            </select>
+
             <select
               value={inviteZoneFilter}
               onChange={(e) => setInviteZoneFilter(e.target.value)}
@@ -3784,18 +3770,19 @@ export function MyTeamView({
             ))}
           </select>
 
-          <div className="space-y-2.5">
+          <div className="divide-y divide-slate-200/75 border-t border-slate-200/75">
             {inviteCandidates.map(({ expert, ownedAgents, membership }) => {
               const zoneNames = expert.zoneIds
                 .map((id) => getZoneName(id))
                 .filter(Boolean)
                 .slice(0, 2)
                 .join(' / ');
+              const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
 
               return (
                 <div
                   key={expert.id}
-                  className="rounded-xl border border-slate-200 p-3.5 bg-white hover:border-slate-300 transition-colors space-y-2"
+                  className="py-3 px-1 hover:bg-slate-50/70 transition-colors space-y-1.5"
                 >
                   <div className="flex items-start justify-between gap-2.5">
                     <div className="flex items-center gap-2.5 min-w-0">
@@ -3806,14 +3793,21 @@ export function MyTeamView({
                         size="sm"
                       />
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
                           <span className="text-xs font-bold text-slate-900">{expert.name}</span>
-                          <span className="px-1 py-0.5 rounded bg-violet-50 border border-violet-200 text-[10px] font-mono font-bold text-violet-700 leading-none">
+                          <span className={`text-[11px] font-semibold ${roleMeta.textCls}`}>
+                            {roleMeta.label}
+                          </span>
+                          <span className="text-slate-300" aria-hidden="true">·</span>
+                          <span className="text-[11px] text-slate-500">
+                            {AGENT_CATEGORY_LABELS[expert.category]}
+                          </span>
+                          <span className="text-[10.5px] font-mono font-bold text-violet-700">
                             {expert.ratingTier || 'A+'}级
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 truncate mt-0.5">
-                          空间：{zoneNames} · 内建 {ownedAgents.length} 个 Agent
+                          社区：{zoneNames} · 旗下 {ownedAgents.length} 个 Agent
                         </div>
                       </div>
                     </div>
@@ -3843,8 +3837,8 @@ export function MyTeamView({
                     )}
                   </div>
 
-                  <div className="text-[11px] text-slate-700 font-medium truncate">
-                    擅长方向：{expert.outsourcingDomain || expert.specialties[0] || ''}
+                  <div className="text-[11px] text-slate-600 truncate pl-9">
+                    专注方向：{expert.outsourcingDomain || expert.specialties[0] || ''}
                   </div>
                 </div>
               );

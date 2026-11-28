@@ -280,7 +280,7 @@ export function DirectNegotiationPane({
               </select>
             </div>
 
-            <div className="rounded-lg bg-white border border-slate-200 p-3 space-y-1.5">
+            <div className="py-2.5 border-y border-slate-200/75 space-y-1">
               <div className="flex items-center justify-between text-[11px]">
                 <span className="font-semibold text-slate-800">
                   {agent.performance.capabilityTier} · 信誉 {agent.performance.reputationScore}
@@ -359,37 +359,38 @@ export function DirectNegotiationPane({
             </label>
 
             {agentTasks.length > 0 && onOpenTaskSession && (
-              <div className="pt-3 border-t border-slate-200 space-y-2">
-                <div className="flex items-center justify-between text-xs">
+              <div className="pt-3 border-t border-slate-200/80 space-y-1.5">
+                <div className="flex items-center justify-between text-xs px-0.5">
                   <span className="font-bold text-slate-800">
                     该 Agent 汇聚任务 ({agentTasks.length})
                   </span>
                   <span className="text-[11px] text-slate-400">跨项目</span>
                 </div>
-                <div className="space-y-1.5">
+                <ul className="divide-y divide-slate-200/70">
                   {agentTasks.map((t) => {
                     const ws = workspaces.find((w) => w.id === t.sessionId);
                     const tSt = WORK_STATUS_META[t.status];
                     return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => onOpenTaskSession(t.id)}
-                        className="w-full text-left bg-white hover:border-blue-300 rounded-lg border border-slate-200 p-2.5 transition-colors cursor-pointer space-y-1"
-                      >
-                        <div className="flex items-center justify-between text-[11px]">
-                          <span className="text-slate-500 truncate">{ws?.name || '项目'}</span>
-                          <span className={`font-semibold shrink-0 ${tSt.textCls}`}>
-                            {tSt.label}
-                          </span>
-                        </div>
-                        <div className="text-xs font-semibold text-slate-900 truncate">
-                          {t.title}
-                        </div>
-                      </button>
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          onClick={() => onOpenTaskSession(t.id)}
+                          className="w-full text-left hover:bg-slate-200/45 rounded-md px-1.5 py-2 transition-colors cursor-pointer space-y-0.5"
+                        >
+                          <div className="flex items-center justify-between gap-2 text-[11px]">
+                            <span className="text-slate-500 truncate">{ws?.name || '项目'}</span>
+                            <span className={`font-semibold shrink-0 ${tSt.textCls}`}>
+                              {tSt.label}
+                            </span>
+                          </div>
+                          <div className="text-xs font-medium text-slate-900 truncate">
+                            {t.title}
+                          </div>
+                        </button>
+                      </li>
                     );
                   })}
-                </div>
+                </ul>
               </div>
             )}
 

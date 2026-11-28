@@ -27,8 +27,12 @@ import { MarketLeaderboardRail } from '../market/MarketLeaderboardRail';
 import {
   AGENT_RUNTIME_PRESETS,
   AgentIdentityName,
+  DOMAIN_CATEGORY_LABELS,
+  DOMAIN_CATEGORY_OPTIONS,
   EntityAvatar,
   LEASE_PERIOD_META,
+  PRINCIPAL_ROLE_META,
+  PRINCIPAL_ROLE_OPTIONS,
   displayEntityName,
   formatAgentDisplayName,
   formatShortRuntime,
@@ -58,6 +62,7 @@ import type {
   HumanExpert,
   LeasePeriod,
   MarketSkill,
+  PrincipalRoleType,
   ProjectWorkspace,
   SkillKind,
   TeamExpertMembership,
@@ -69,24 +74,8 @@ const DEMAND_COLOR: Record<DemandStatus, string> = {
   档期充裕: 'text-emerald-700',
 };
 
-const CATEGORY_TABS: { id: 'all' | AgentCategory; label: string }[] = [
-  { id: 'all', label: '全部类别' },
-  { id: 'engineering', label: '研发开发' },
-  { id: 'design', label: '设计体验' },
-  { id: 'product', label: '产品策划' },
-  { id: 'architecture', label: '架构审查' },
-  { id: 'qa', label: '测试质量' },
-  { id: 'media', label: '自媒体运营' },
-];
-
-const CATEGORY_LABELS: Record<AgentCategory, string> = {
-  engineering: '研发开发',
-  design: '设计体验',
-  product: '产品策划',
-  architecture: '架构审查',
-  qa: '测试质量',
-  media: '自媒体运营',
-};
+const CATEGORY_TABS = DOMAIN_CATEGORY_OPTIONS;
+const CATEGORY_LABELS = DOMAIN_CATEGORY_LABELS;
 
 const SKILL_KIND_LABELS: Record<SkillKind, string> = {
   skill: 'Skill',
@@ -222,6 +211,7 @@ export function AgentMarketView({
     onChangeEntityTab?.(next);
   };
   const [ownerFilterId, setOwnerFilterId] = useState<string | null>(null);
+  const [principalTypeFilter, setPrincipalTypeFilter] = useState<'all' | PrincipalRoleType>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | AgentCategory>('all');
   const [runtimeFilter, setRuntimeFilter] = useState<string>('all');
   const [skillKindFilter, setSkillKindFilter] = useState<'all' | SkillKind>('all');
@@ -336,7 +326,20 @@ export function AgentMarketView({
     [activeZone.id, marketSkills],
   );
 
-  // Per-category counts for the active entity tab in the left rail
+  const principalTypeCounts = useMemo(() => {
+    const counts: Record<'all' | PrincipalRoleType, number> = {
+      all: zoneHumansAll.length,
+      fde: 0,
+      opc: 0,
+      aibuilder: 0,
+    };
+    zoneHumansAll.forEach((h) => {
+      counts[h.principalType] += 1;
+    });
+    return counts;
+  }, [zoneHumansAll]);
+
+  // Per-domain counts for the active entity tab
   const categoryCounts = useMemo(() => {
     const counts: Record<'all' | AgentCategory, number> = {
       all: 0,
@@ -353,8 +356,12 @@ export function AgentMarketView({
         counts[a.category] += 1;
       });
     } else if (entityTab === 'humans') {
-      counts.all = zoneHumansAll.length;
-      zoneHumansAll.forEach((h) => {
+      const scoped =
+        principalTypeFilter === 'all'
+          ? zoneHumansAll
+          : zoneHumansAll.filter((h) => h.principalType === principalTypeFilter);
+      counts.all = scoped.length;
+      scoped.forEach((h) => {
         counts[h.category] += 1;
       });
     } else {
@@ -364,7 +371,7 @@ export function AgentMarketView({
       });
     }
     return counts;
-  }, [agents, entityTab, zoneHumansAll, zoneSkillsAll]);
+  }, [agents, entityTab, principalTypeFilter, zoneHumansAll, zoneSkillsAll]);
 
   const zoneHumans = useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -379,12 +386,19 @@ export function AgentMarketView({
       .filter(({ human, ownedInZone }) => {
         const inZone = human.zoneIds.includes(activeZone.id) || ownedInZone.length > 0;
         if (!inZone) return false;
+        if (principalTypeFilter !== 'all' && human.principalType !== principalTypeFilter) {
+          return false;
+        }
         if (categoryFilter !== 'all' && human.category !== categoryFilter) return false;
         if (!q) return true;
+        const roleMeta = PRINCIPAL_ROLE_META[human.principalType];
         const haystack = [
           human.name,
           human.title,
+          roleMeta.shortLabel,
+          roleMeta.label,
           CATEGORY_LABELS[human.category],
+          human.outsourcingDomain || '',
           human.bio,
           ...human.specialties,
           ...ownedInZone.map((a) => `${displayEntityName(a.handle)} ${a.name} ${a.runtimeAgent}`),
@@ -403,7 +417,16 @@ export function AgentMarketView({
       }
       return 0;
     });
-  }, [activeZone.id, agents, allAgents, categoryFilter, humanExperts, keyword, sortBy]);
+  }, [
+    activeZone.id,
+    agents,
+    allAgents,
+    categoryFilter,
+    humanExperts,
+    keyword,
+    principalTypeFilter,
+    sortBy,
+  ]);
 
   const activeOwnerFilter = useMemo(
     () => (ownerFilterId ? humanExperts.find((h) => h.id === ownerFilterId) || null : null),
@@ -726,15 +749,29 @@ export function AgentMarketView({
                 widthClass="w-full sm:w-56 lg:w-64"
                 placeholder={
                   entityTab === 'humans'
-                    ? '搜索 Agent 主理、结果导向外包领域...'
+                    ? '搜索 Agent 主理（FDE/OPC/AI Builder）、专业方向或擅长领域...'
                     : entityTab === 'skills'
                       ? '搜索 Skill、MCP、适配底座...'
                       : '搜索专家 Agent、底座(CC/Codex/Qoder)...'
                 }
               />
 
+              {entityTab === 'humans' && (
+                <ToolbarDropdown
+                  label="主理类型"
+                  value={principalTypeFilter}
+                  defaultValue="all"
+                  onChange={setPrincipalTypeFilter}
+                  options={PRINCIPAL_ROLE_OPTIONS.map((role) => ({
+                    id: role.id,
+                    label: role.label,
+                    hint: `${principalTypeCounts[role.id]}`,
+                  }))}
+                />
+              )}
+
               <ToolbarDropdown
-                label="分类"
+                label="专业方向"
                 value={categoryFilter}
                 defaultValue="all"
                 onChange={setCategoryFilter}
@@ -966,10 +1003,10 @@ export function AgentMarketView({
                     {entityTab === 'humans' && (
                       <>
                         <span>
-                          认证 Agent 主理提供面向结果的外包服务——由主理人统筹调度旗下多路 Agent 对话与任务驱动，对最终业务结果负责
+                          Agent 主理按类型分为 <strong className="font-semibold text-indigo-700">FDE</strong> / <strong className="font-semibold text-emerald-700">OPC</strong> / <strong className="font-semibold text-sky-700">AI Builder</strong>，按各自专业方向协同驱动多 Agent 完成项目目标
                         </span>
-                        <span className="text-[11px] text-slate-400 font-mono">
-                          共 {zoneHumans.length} 位 Agent 主理
+                        <span className="text-[11px] text-slate-400 font-mono tabular-nums">
+                          共 {zoneHumans.length} 位主理
                         </span>
                       </>
                     )}
@@ -1216,16 +1253,17 @@ export function AgentMarketView({
               </div>
             )}
 
-            {/* TAB 2: HUMAN EXPERTS (Flush Antigravity Directory) */}
+            {/* TAB 2: AGENT PRINCIPALS (FDE / OPC / AI Builder × 专业方向) */}
             {entityTab === 'humans' && (
               <div className="divide-y divide-slate-200/75 border-t border-slate-200/75">
                 {zoneHumans.length === 0 ? (
                   <div className="py-12 text-center">
-                    <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配专家</p>
-                    {(categoryFilter !== 'all' || keyword.trim()) && (
+                    <p className="text-sm font-medium text-slate-700">当前筛选条件下暂无匹配主理</p>
+                    {(principalTypeFilter !== 'all' || categoryFilter !== 'all' || keyword.trim()) && (
                       <button
                         type="button"
                         onClick={() => {
+                          setPrincipalTypeFilter('all');
                           setCategoryFilter('all');
                           setKeyword('');
                         }}
@@ -1243,6 +1281,7 @@ export function AgentMarketView({
                       activeDrawer?.type === 'human' && activeDrawer.humanId === human.id;
                     const teamMember = teamExpertMap.get(human.id);
                     const expertTier = human.ratingTier || 'A+';
+                    const roleMeta = PRINCIPAL_ROLE_META[human.principalType];
 
                     return (
                       <article
@@ -1265,15 +1304,22 @@ export function AgentMarketView({
                                   {human.name}
                                 </h3>
                                 <span
+                                  className={`text-xs font-semibold ${roleMeta.textCls}`}
+                                  title={roleMeta.description}
+                                >
+                                  {roleMeta.label}
+                                </span>
+                                <span className="text-slate-300" aria-hidden="true">·</span>
+                                <span className="text-xs text-slate-600">
+                                  方向：{CATEGORY_LABELS[human.category]}
+                                </span>
+                                <span className="text-slate-300" aria-hidden="true">·</span>
+                                <span
                                   className={`text-[11px] font-mono font-semibold ${
                                     expertTier === 'S' ? 'text-violet-700' : 'text-blue-700'
                                   }`}
                                 >
-                                  {expertTier}级专家
-                                </span>
-                                <span className="text-slate-300" aria-hidden="true">·</span>
-                                <span className="text-xs text-slate-500">
-                                  {CATEGORY_LABELS[human.category]}
+                                  {expertTier}级
                                 </span>
                                 {human.isCurrentUser && (
                                   <>
@@ -1289,7 +1335,8 @@ export function AgentMarketView({
                                 </span>
                               </div>
                               <p className="text-xs text-slate-700">
-                                {human.title} — 擅长：{human.outsourcingDomain || human.specialties[0]}
+                                <span className="text-slate-500">专注方向：</span>
+                                {human.outsourcingDomain || human.specialties[0]}
                               </p>
                               <p className="text-xs text-slate-500 leading-relaxed">
                                 {human.bio}
@@ -1305,7 +1352,7 @@ export function AgentMarketView({
 
                           <div className="flex items-center gap-2 shrink-0">
                             {human.isCurrentUser ? (
-                              <span className="text-[11px] text-slate-400">公开主理人名片</span>
+                              <span className="text-[11px] text-slate-400">公开主理名片</span>
                             ) : (
                               <>
                                 {teamMember ? (
@@ -1590,6 +1637,7 @@ export function AgentMarketView({
                 <MarketLeaderboardRail
                   entityTab={entityTab}
                   activeCategory={categoryFilter}
+                  activePrincipalType={principalTypeFilter}
                   agents={agents}
                   allAgents={allAgents}
                   humanExperts={zoneHumansAll}
@@ -2125,6 +2173,7 @@ export function AgentMarketView({
       {/* RIGHT SLIDE-IN DRAWER B: AGENT PRINCIPAL OUTSOURCING CONSULTATION */}
       {drawerHuman && activeDrawer?.type === 'human' && (() => {
         const drawerTeamMember = teamExpertMap.get(drawerHuman.id);
+        const drawerRoleMeta = PRINCIPAL_ROLE_META[drawerHuman.principalType];
         return (
           <aside className="fixed inset-y-0 right-0 z-40 lg:static lg:z-auto w-full max-w-[430px] lg:w-[420px] shrink-0 border-l border-slate-200 bg-white flex flex-col h-full shadow-2xl lg:shadow-none">
             <div className="px-5 py-4 border-b border-slate-200 bg-slate-50/70 space-y-2.5">
@@ -2137,10 +2186,17 @@ export function AgentMarketView({
                     size="md"
                   />
                   <div className="min-w-0">
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <h2 className="text-sm font-bold text-slate-900">{drawerHuman.name}</h2>
+                      <span className={`text-[11px] font-semibold ${drawerRoleMeta.textCls}`}>
+                        {drawerRoleMeta.label}
+                      </span>
+                      <span className="text-slate-300" aria-hidden="true">·</span>
+                      <span className="text-[11px] text-slate-500">
+                        {CATEGORY_LABELS[drawerHuman.category]}
+                      </span>
                       <span className="text-[11px] font-mono font-bold text-violet-700">
-                        {drawerHuman.ratingTier || 'A+'}级主理
+                        {drawerHuman.ratingTier || 'A+'}级
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5 truncate">
@@ -2152,7 +2208,7 @@ export function AgentMarketView({
                   type="button"
                   onClick={() => setActiveDrawer(null)}
                   className="p-1.5 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-200/60 cursor-pointer shrink-0"
-                  aria-label="关闭主理外包咨询"
+                  aria-label="关闭主理沟通"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -2161,13 +2217,13 @@ export function AgentMarketView({
               {!drawerHuman.isCurrentUser && (
                 <div className="flex items-center justify-between gap-2 pt-1">
                   <span className="text-[11px] text-slate-500 truncate">
-                    可加入 Agent 主理通讯录或直接委托项目外包交付
+                    可加入 Agent 主理通讯录或邀请进入项目群协同
                   </span>
                   {drawerTeamMember ? (
                     <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 shrink-0">
                       <UserCheck className="w-3.5 h-3.5" />
                       <span>
-                        Agent 主理({drawerTeamMember.relation === 'mutual_friend' ? '互关好友' : '外包合作'})
+                        已合作({drawerTeamMember.relation === 'mutual_friend' ? '互关好友' : '项目合作'})
                       </span>
                     </span>
                   ) : (
@@ -2185,7 +2241,7 @@ export function AgentMarketView({
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-[11px] font-semibold text-white cursor-pointer whitespace-nowrap shrink-0"
                     >
                       <UserPlus className="w-3 h-3" />
-                      <span>委托外包合作</span>
+                      <span>加入项目合作</span>
                     </button>
                   )}
                 </div>
@@ -2195,10 +2251,10 @@ export function AgentMarketView({
             <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-3.5 bg-slate-50/40">
               <div className="flex flex-col items-start">
                 <span className="text-[11px] text-slate-500 mb-1">
-                  {drawerHuman.name} · Agent 主理外包咨询
+                  {drawerHuman.name} · {drawerRoleMeta.label} · 方向：{CATEGORY_LABELS[drawerHuman.category]}
                 </span>
                 <div className="rounded-xl bg-white border border-slate-200 px-3.5 py-2.5 text-xs text-slate-800 leading-relaxed max-w-[92%]">
-                  你好！我是 Agent 主理 {drawerHuman.name}，专注「{drawerHuman.outsourcingDomain || drawerHuman.title}」（信誉 {drawerHuman.reputationScore}）。不同于单独租赁单个专家 Agent，我提供面向结果的外包服务——由我统筹调度旗下多路专家 Agent 对话与任务驱动，帮你把业务目标端到端交付落地。欢迎直接说明目标与验收标准！
+                  你好！我是 {drawerRoleMeta.label} {drawerHuman.name}，专业方向为「{CATEGORY_LABELS[drawerHuman.category]}」，专注「{drawerHuman.outsourcingDomain || drawerHuman.title}」（信誉 {drawerHuman.reputationScore}）。我可以进入你的项目群，协同旗下多路异构 Agent 一起推进目标落地，欢迎直接说明场景与预期！
                 </div>
               </div>
 

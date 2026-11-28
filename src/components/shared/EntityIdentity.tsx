@@ -1,4 +1,60 @@
 import { Bot, Cpu, FolderKanban, Terminal, User, Users } from 'lucide-react';
+import type { AgentCategory, PrincipalRoleType } from '../../types/agentnexus';
+
+export const PRINCIPAL_ROLE_META: Record<
+  PrincipalRoleType,
+  {
+    shortLabel: string;
+    label: string;
+    description: string;
+    textCls: string;
+  }
+> = {
+  fde: {
+    shortLabel: 'FDE',
+    label: 'FDE 前线工程师',
+    description: '面向一线业务场景，对话驱动方案拆解、系统落地与项目协同',
+    textCls: 'text-indigo-700',
+  },
+  opc: {
+    shortLabel: 'OPC',
+    label: 'OPC 一人公司',
+    description: '一人统筹多路异构 Agent 矩阵，独立推进产品交付与业务运营',
+    textCls: 'text-emerald-700',
+  },
+  aibuilder: {
+    shortLabel: 'AI Builder',
+    label: 'AI Builder 创客',
+    description: '围绕 AI 原生应用、机器人与智能体工具开展快速构建与运营探索',
+    textCls: 'text-sky-700',
+  },
+};
+
+export const PRINCIPAL_ROLE_OPTIONS: { id: 'all' | PrincipalRoleType; label: string }[] = [
+  { id: 'all', label: '全部类型' },
+  { id: 'fde', label: 'FDE 前线工程师' },
+  { id: 'opc', label: 'OPC 一人公司' },
+  { id: 'aibuilder', label: 'AI Builder 创客' },
+];
+
+export const DOMAIN_CATEGORY_LABELS: Record<AgentCategory, string> = {
+  engineering: '研发开发',
+  design: '设计体验',
+  product: '产品策划',
+  architecture: '架构审查',
+  qa: '测试质量',
+  media: '自媒体运营',
+};
+
+export const DOMAIN_CATEGORY_OPTIONS: { id: 'all' | AgentCategory; label: string }[] = [
+  { id: 'all', label: '全部方向' },
+  { id: 'engineering', label: '研发开发' },
+  { id: 'design', label: '设计体验' },
+  { id: 'product', label: '产品策划' },
+  { id: 'architecture', label: '架构审查' },
+  { id: 'qa', label: '测试质量' },
+  { id: 'media', label: '自媒体运营' },
+];
 
 export interface AgentRuntimePreset {
   id: string;

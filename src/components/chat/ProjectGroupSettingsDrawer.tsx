@@ -39,7 +39,9 @@ import {
 } from '../../utils/pipelineSync';
 import {
   AgentIdentityName,
+  DOMAIN_CATEGORY_LABELS,
   EntityAvatar,
+  PRINCIPAL_ROLE_META,
   displayEntityName,
 } from '../shared/EntityIdentity';
 import { ModalShell } from '../shared/UiPrimitives';
@@ -344,39 +346,44 @@ export function ProjectGroupSettingsDrawer({
                 </div>
               ))}
 
-              {/* Project Human Experts */}
-              {assignedHumans.map((expert) => (
-                <div
-                  key={expert.id}
-                  className="relative flex flex-col items-center gap-1 min-w-0"
-                >
-                  <div className="relative">
-                    <EntityAvatar
-                      kind="human"
-                      code={expert.avatarInitials}
-                      accent={expert.avatarAccent}
-                      size="md"
-                    />
-                    {removeMode && !isReadOnly && (
-                      <button
-                        type="button"
-                        onClick={() => onRemoveExpertFromWorkspace(expert.id, workspace.id)}
-                        title={`将 ${expert.name} 移出本项目群`}
-                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center shadow-xs hover:bg-red-700 cursor-pointer"
-                      >
-                        <Minus className="w-2.5 h-2.5" />
-                      </button>
-                    )}
-                  </div>
-                  <span
-                    className="text-[11px] font-medium text-slate-700 truncate w-full text-center"
-                    title={expert.name}
+              {/* Project Agent Principals */}
+              {assignedHumans.map((expert) => {
+                const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
+                return (
+                  <div
+                    key={expert.id}
+                    className="relative flex flex-col items-center gap-1 min-w-0"
                   >
-                    {expert.name}
-                  </span>
-                  <span className="text-[9.5px] text-slate-400 leading-none">协作专家</span>
-                </div>
-              ))}
+                    <div className="relative">
+                      <EntityAvatar
+                        kind="human"
+                        code={expert.avatarInitials}
+                        accent={expert.avatarAccent}
+                        size="md"
+                      />
+                      {removeMode && !isReadOnly && (
+                        <button
+                          type="button"
+                          onClick={() => onRemoveExpertFromWorkspace(expert.id, workspace.id)}
+                          title={`将 ${expert.name} 移出本项目群`}
+                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center shadow-xs hover:bg-red-700 cursor-pointer"
+                        >
+                          <Minus className="w-2.5 h-2.5" />
+                        </button>
+                      )}
+                    </div>
+                    <span
+                      className="text-[11px] font-medium text-slate-700 truncate w-full text-center"
+                      title={`${expert.name} · ${roleMeta.label}`}
+                    >
+                      {expert.name}
+                    </span>
+                    <span className={`text-[9.5px] font-medium leading-none truncate ${roleMeta.textCls}`}>
+                      {roleMeta.shortLabel}
+                    </span>
+                  </div>
+                );
+              })}
 
               {/* WeChat-style '+' Add Member Tile */}
               {!isReadOnly && (
@@ -591,8 +598,8 @@ export function ProjectGroupSettingsDrawer({
         open={addMemberOpen}
         onClose={() => setAddMemberOpen(false)}
         icon={<UserPlus className="w-4 h-4 text-blue-600" />}
-        title="添加群成员 / Agent 专家"
-        subtitle={`将专家拉入「${workspace.name}」项目群并参与工作流协作`}
+        title="添加 Agent 专家 / Agent 主理"
+        subtitle={`将专家 Agent 或主理（FDE / OPC / AI Builder）拉入「${workspace.name}」项目群协同交付`}
         maxWidthClass="max-w-lg"
         onSubmit={addTab === 'agent' ? handleConfirmAddAgent : undefined}
         footer={
@@ -661,7 +668,7 @@ export function ProjectGroupSettingsDrawer({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              协作人类专家 ({availableHumansToAdd.length})
+              Agent 主理 ({availableHumansToAdd.length})
             </button>
           </div>
 
@@ -739,38 +746,52 @@ export function ProjectGroupSettingsDrawer({
             )
           ) : availableHumansToAdd.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-500">
-              合作专家均已加入本项目群，可在 AGN空间 邀请新的合作专家。
+              合作主理均已加入本项目群，可在 AGN空间 添加更多 FDE / OPC / AI Builder 主理。
             </div>
           ) : (
-            <div className="max-h-64 overflow-y-auto clean-scroll space-y-2">
-              {availableHumansToAdd.map((expert) => (
-                <div
-                  key={expert.id}
-                  className="p-2.5 rounded-xl border border-slate-200 bg-white flex items-center justify-between gap-3"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <EntityAvatar
-                      kind="human"
-                      code={expert.avatarInitials}
-                      accent={expert.avatarAccent}
-                      size="sm"
-                    />
-                    <div className="min-w-0">
-                      <div className="text-xs font-semibold text-slate-900 truncate">
-                        {expert.name}
-                      </div>
-                      <div className="text-[11px] text-slate-500 truncate">{expert.title}</div>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onAssignExpertToWorkspace(expert.id, workspace.id)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
+            <div className="max-h-64 overflow-y-auto clean-scroll divide-y divide-slate-200/75 border-t border-slate-200/75">
+              {availableHumansToAdd.map((expert) => {
+                const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
+                return (
+                  <div
+                    key={expert.id}
+                    className="py-2.5 px-1 flex items-center justify-between gap-3"
                   >
-                    拉入群聊
-                  </button>
-                </div>
-              ))}
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <EntityAvatar
+                        kind="human"
+                        code={expert.avatarInitials}
+                        accent={expert.avatarAccent}
+                        size="sm"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="font-semibold text-slate-900 truncate">
+                            {expert.name}
+                          </span>
+                          <span className={`text-[11px] font-semibold shrink-0 ${roleMeta.textCls}`}>
+                            {roleMeta.shortLabel}
+                          </span>
+                          <span className="text-slate-300" aria-hidden="true">·</span>
+                          <span className="text-[11px] text-slate-500 shrink-0">
+                            {DOMAIN_CATEGORY_LABELS[expert.category]}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 truncate mt-0.5">
+                          {expert.outsourcingDomain || expert.title}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onAssignExpertToWorkspace(expert.id, workspace.id)}
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
+                    >
+                      拉入群聊
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

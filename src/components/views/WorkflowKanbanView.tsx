@@ -2049,7 +2049,7 @@ export function WorkflowKanbanView({
                           open={showProjectTeamPanel}
                           onClose={() => setShowProjectTeamPanel(false)}
                           title={`管理项目协作阵容 · ${focusedProject.name}`}
-                          subtitle="管理参与本项目的 Agent 主理人、专家 Agent 租期以及绑定的算力与存储资源"
+                          subtitle="管理参与本项目的 Agent 主理、专家 Agent 租期以及绑定的算力与存储资源"
                           icon={<Users className="w-4 h-4 text-slate-700" />}
                           maxWidthClass="max-w-3xl"
                           footer={

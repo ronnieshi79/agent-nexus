@@ -42,7 +42,9 @@ import type {
 import { AccountFooter } from '../account/AccountPanel';
 import {
   AgentIdentityName,
+  DOMAIN_CATEGORY_LABELS,
   EntityAvatar,
+  PRINCIPAL_ROLE_META,
   displayEntityName,
   formatAgentDisplayName,
 } from '../shared/EntityIdentity';
@@ -1015,7 +1017,7 @@ export function Sidebar({
                 <div className="min-w-0">
                   <div className="font-medium text-slate-800">发起 Agent 主理单聊</div>
                   <div className="text-[10.5px] text-slate-400 truncate">
-                    1v1 对接结果导向外包与验收
+                    1v1 对接项目目标与多 Agent 协作
                   </div>
                 </div>
               </button>
@@ -1160,7 +1162,7 @@ export function Sidebar({
             onClose={() => setShowDmPicker(false)}
             icon={<MessageSquare className="w-4 h-4 text-blue-600" />}
             title="发起 1v1 单聊"
-            subtitle="选择在线 Agent 主理或专家 Agent 建立直连对话"
+            subtitle="选择在线 Agent 主理（FDE / OPC / AI Builder）或专家 Agent 建立直连对话"
             maxWidthClass="max-w-md"
           >
             <div className="space-y-3">
@@ -1196,21 +1198,31 @@ export function Sidebar({
                   </div>
                 ) : (
                   <div className="max-h-64 overflow-y-auto clean-scroll divide-y divide-slate-100 border border-slate-200 rounded-xl">
-                    {availableDmHumans.map((h) => (
-                      <button
-                        key={h.id}
-                        type="button"
-                        onClick={() => {
-                          onSelectHumanDm(h.id);
-                          setShowDmPicker(false);
-                          onCloseMobile();
-                        }}
-                        className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 text-xs cursor-pointer"
-                      >
-                        <span className="font-semibold text-slate-800 truncate">{h.name}</span>
-                        <span className="text-[11px] text-slate-500 truncate">{h.title}</span>
-                      </button>
-                    ))}
+                    {availableDmHumans.map((h) => {
+                      const roleMeta = PRINCIPAL_ROLE_META[h.principalType];
+                      return (
+                        <button
+                          key={h.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectHumanDm(h.id);
+                            setShowDmPicker(false);
+                            onCloseMobile();
+                          }}
+                          className="w-full text-left px-3 py-2.5 hover:bg-slate-50 flex items-center justify-between gap-2 text-xs cursor-pointer"
+                        >
+                          <span className="inline-flex items-center gap-1.5 min-w-0">
+                            <span className="font-semibold text-slate-800 truncate">{h.name}</span>
+                            <span className={`text-[11px] font-semibold shrink-0 ${roleMeta.textCls}`}>
+                              {roleMeta.shortLabel}
+                            </span>
+                          </span>
+                          <span className="text-[11px] text-slate-500 truncate">
+                            {DOMAIN_CATEGORY_LABELS[h.category]}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )
               ) : availableDmAgents.length === 0 ? (
@@ -1445,6 +1457,7 @@ export function Sidebar({
 
               if (item.kind === 'human_dm') {
                 const { expert, thread } = item;
+                const roleMeta = PRINCIPAL_ROLE_META[expert.principalType];
                 const isSelected =
                   isChatView &&
                   activeChatChannel.type === 'human_dm' &&
@@ -1468,7 +1481,7 @@ export function Sidebar({
                           kind="human"
                           code={expert.avatarInitials}
                           accent={expert.avatarAccent}
-                          title={`Agent 主理 · ${expert.name}`}
+                          title={`${roleMeta.label} · ${expert.name}`}
                         />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -1481,8 +1494,12 @@ export function Sidebar({
                           </span>
                         </div>
                         <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px]">
-                          <span className="text-slate-500 truncate">{expert.title}</span>
-                          <span className="text-emerald-700 font-medium shrink-0">主理</span>
+                          <span className="text-slate-500 truncate">
+                            {DOMAIN_CATEGORY_LABELS[expert.category]} · {expert.title}
+                          </span>
+                          <span className={`font-semibold shrink-0 ${roleMeta.textCls}`}>
+                            {roleMeta.shortLabel}
+                          </span>
                         </div>
                         <p className="mt-1 text-[11px] text-slate-500 truncate">
                           {lastMsg?.content || '点击开始 1v1 沟通协作'}

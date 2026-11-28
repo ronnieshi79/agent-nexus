@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Flame, Star, Trophy } from 'lucide-react';
 import {
+  DOMAIN_CATEGORY_LABELS,
+  DOMAIN_CATEGORY_OPTIONS,
   EntityAvatar,
+  PRINCIPAL_ROLE_META,
+  PRINCIPAL_ROLE_OPTIONS,
   displayEntityName,
   getAgentLeasePricing,
   getSkillPurchasePricing,
@@ -12,21 +16,12 @@ import type {
   ExpertAgent,
   HumanExpert,
   MarketSkill,
+  PrincipalRoleType,
   SkillKind,
 } from '../../types/agentnexus';
 
 export type MarketEntityTab = 'agents' | 'humans' | 'skills';
 export type RankingDimension = 'popular' | 'top_rated';
-
-const CATEGORY_OPTIONS: { id: 'all' | AgentCategory; label: string }[] = [
-  { id: 'all', label: '全部分类' },
-  { id: 'engineering', label: '研发开发' },
-  { id: 'design', label: '设计体验' },
-  { id: 'product', label: '产品策划' },
-  { id: 'architecture', label: '架构审查' },
-  { id: 'qa', label: '测试质量' },
-  { id: 'media', label: '自媒体运营' },
-];
 
 const SKILL_KIND_LABELS: Record<SkillKind, string> = {
   skill: 'Skill',
@@ -49,6 +44,7 @@ function rankBadgeStyle(index: number): string {
 interface MarketLeaderboardRailProps {
   entityTab: MarketEntityTab;
   activeCategory: 'all' | AgentCategory;
+  activePrincipalType?: 'all' | PrincipalRoleType;
   agents: ExpertAgent[];
   allAgents: ExpertAgent[];
   humanExperts: HumanExpert[];
@@ -63,6 +59,7 @@ interface MarketLeaderboardRailProps {
 export function MarketLeaderboardRail({
   entityTab,
   activeCategory,
+  activePrincipalType = 'all',
   agents,
   allAgents,
   humanExperts,
@@ -75,11 +72,18 @@ export function MarketLeaderboardRail({
 }: MarketLeaderboardRailProps) {
   const [dimension, setDimension] = useState<RankingDimension>('popular');
   const [boardCategory, setBoardCategory] = useState<'all' | AgentCategory>(activeCategory);
+  const [boardPrincipalType, setBoardPrincipalType] = useState<'all' | PrincipalRoleType>(
+    activePrincipalType,
+  );
 
-  // Sync ranking category when the user switches the main category filter
+  // Sync ranking filters when the user switches main toolbar filters
   useEffect(() => {
     setBoardCategory(activeCategory);
   }, [activeCategory]);
+
+  useEffect(() => {
+    setBoardPrincipalType(activePrincipalType);
+  }, [activePrincipalType]);
 
   const rankedAgents = useMemo(() => {
     const pool =
@@ -101,10 +105,11 @@ export function MarketLeaderboardRail({
   }, [agents, boardCategory, dimension]);
 
   const rankedHumans = useMemo(() => {
-    const pool =
-      boardCategory === 'all'
-        ? humanExperts
-        : humanExperts.filter((h) => h.category === boardCategory);
+    const pool = humanExperts.filter((h) => {
+      if (boardPrincipalType !== 'all' && h.principalType !== boardPrincipalType) return false;
+      if (boardCategory !== 'all' && h.category !== boardCategory) return false;
+      return true;
+    });
 
     return [...pool]
       .map((human) => {
@@ -131,7 +136,7 @@ export function MarketLeaderboardRail({
         return b.avgAgentRating - a.avgAgentRating;
       })
       .slice(0, 6);
-  }, [allAgents, boardCategory, dimension, humanExperts]);
+  }, [allAgents, boardCategory, boardPrincipalType, dimension, humanExperts]);
 
   const rankedSkills = useMemo(() => {
     const pool =
@@ -169,18 +174,35 @@ export function MarketLeaderboardRail({
               <h2 className="text-xs font-semibold text-slate-900 truncate">{boardTitle}</h2>
             </div>
 
-            <select
-              value={boardCategory}
-              onChange={(e) => setBoardCategory(e.target.value as 'all' | AgentCategory)}
-              aria-label="排行榜分类筛选"
-              className="h-6 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-medium text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600/30 cursor-pointer"
-            >
-              {CATEGORY_OPTIONS.map((opt) => (
-                <option key={opt.id} value={opt.id}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
+            {entityTab === 'humans' ? (
+              <select
+                value={boardPrincipalType}
+                onChange={(e) =>
+                  setBoardPrincipalType(e.target.value as 'all' | PrincipalRoleType)
+                }
+                aria-label="排行榜主理类型筛选"
+                className="h-6 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-medium text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600/30 cursor-pointer"
+              >
+                {PRINCIPAL_ROLE_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.id === 'all' ? '全部类型' : PRINCIPAL_ROLE_META[opt.id].shortLabel}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                value={boardCategory}
+                onChange={(e) => setBoardCategory(e.target.value as 'all' | AgentCategory)}
+                aria-label="排行榜专业方向筛选"
+                className="h-6 rounded-md border border-slate-200 bg-slate-50 px-1.5 text-[11px] font-medium text-slate-700 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-600/30 cursor-pointer"
+              >
+                {DOMAIN_CATEGORY_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* 2-Way Objective Auto-Ranking Switcher: Popular vs Top Rated */}
@@ -290,45 +312,55 @@ export function MarketLeaderboardRail({
           {entityTab === 'humans' &&
             (rankedHumans.length === 0 ? (
               <div className="px-4 py-8 text-center text-xs text-slate-400">
-                该分类暂无上榜专家
+                该筛选下暂无上榜主理
               </div>
             ) : (
-              rankedHumans.map(({ human, ownedCount, avgAgentRating }, idx) => (
-                <button
-                  key={human.id}
-                  type="button"
-                  onClick={() => onSelectHuman(human.id)}
-                  className="w-full px-3.5 py-2.5 flex items-center gap-2.5 hover:bg-slate-50 transition-colors text-left cursor-pointer group"
-                >
-                  <span
-                    className={`w-5 h-5 rounded-md text-[11px] font-mono font-bold inline-flex items-center justify-center shrink-0 ${rankBadgeStyle(idx)}`}
+              rankedHumans.map(({ human, ownedCount, avgAgentRating }, idx) => {
+                const roleMeta = PRINCIPAL_ROLE_META[human.principalType];
+                return (
+                  <button
+                    key={human.id}
+                    type="button"
+                    onClick={() => onSelectHuman(human.id)}
+                    className="w-full px-3.5 py-2.5 flex items-center gap-2.5 hover:bg-slate-50 transition-colors text-left cursor-pointer group"
                   >
-                    {idx + 1}
-                  </span>
-                  <EntityAvatar
-                    kind="human"
-                    code={human.avatarInitials}
-                    accent={human.avatarAccent}
-                    size="sm"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-xs font-bold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
-                        {human.name}
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-violet-700 shrink-0">
-                        {human.ratingTier || 'A+'}级
-                      </span>
+                    <span
+                      className={`w-5 h-5 rounded-md text-[11px] font-mono font-bold inline-flex items-center justify-center shrink-0 ${rankBadgeStyle(idx)}`}
+                    >
+                      {idx + 1}
+                    </span>
+                    <EntityAvatar
+                      kind="human"
+                      code={human.avatarInitials}
+                      accent={human.avatarAccent}
+                      size="sm"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="text-xs font-bold text-slate-900 truncate group-hover:text-blue-700 transition-colors">
+                          {human.name}
+                        </span>
+                        <span className={`text-[10px] font-semibold shrink-0 ${roleMeta.textCls}`}>
+                          {roleMeta.shortLabel}
+                        </span>
+                        <span className="text-[10px] font-mono font-bold text-violet-700 shrink-0">
+                          {human.ratingTier || 'A+'}级
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
+                        <span className="font-sans text-slate-500">
+                          {DOMAIN_CATEGORY_LABELS[human.category]}
+                        </span>
+                        <span> · </span>
+                        {dimension === 'top_rated'
+                          ? `信誉 ${human.reputationScore} · ★ ${avgAgentRating.toFixed(2)}`
+                          : `${human.completedProjects} 交付 · ${ownedCount} Agent`}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 font-mono tabular-nums truncate mt-0.5">
-                      {dimension === 'top_rated'
-                        ? `信誉 ${human.reputationScore} · ★ ${avgAgentRating.toFixed(2)}`
-                        : `${human.completedProjects} 交付 · ${ownedCount} 内建 Agent`}
-                    </div>
-                  </div>
-                  <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-600 shrink-0" />
-                </button>
-              ))
+                    <ChevronRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-600 shrink-0" />
+                  </button>
+                );
+              })
             ))}
 
           {entityTab === 'skills' &&

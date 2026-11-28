@@ -86,10 +86,15 @@ export interface TeamExpertMembership {
   joinedAt: string;
 }
 
+export type PrincipalRoleType = 'fde' | 'opc' | 'aibuilder';
+
 export interface HumanExpert {
   id: string;
   name: string;
   title: string;
+  /** Agent 主理人角色类型：FDE 前线部署工程师 / OPC 一人公司主理 / AI Builder 超级创客 */
+  principalType: PrincipalRoleType;
+  /** 专业方向（研发开发 / 设计体验 / 产品策划 / 架构审查 / 测试质量 / 自媒体运营） */
   category: AgentCategory;
   bio: string;
   /** Dedicated outsourcing direction offered by this human expert & their built-in Agents */
@@ -454,6 +459,7 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   linkedTaskIds?: string[];
+  linkedArtifactIds?: string[];
   mentions?: string[];
 }
 

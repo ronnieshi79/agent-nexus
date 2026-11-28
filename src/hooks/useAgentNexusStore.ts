@@ -135,6 +135,10 @@ export interface CreateArtifactInput {
   tags: string[];
   slides?: { heading: string; bullets: string[] }[];
   designSpec?: { palette: string[]; typography: string; components: string[] };
+  /** When true, also posts a chat message carrying this Artifact as an inline card */
+  postToGroupChat?: boolean;
+  /** Optional custom chat message text accompanying the posted Artifact card */
+  chatMessageContent?: string;
 }
 
 function nowTimeStr(): string {
@@ -656,8 +660,32 @@ export function useAgentNexusStore() {
         tags: input.tags.length > 0 ? input.tags : ['Artifact'],
       };
       setArtifacts((prev) => [newArtifact, ...prev]);
+
+      if (input.postToGroupChat) {
+        const isUserUpload = input.sourceType === 'manual';
+        const messageText =
+          input.chatMessageContent?.trim() ||
+          (isUserUpload
+            ? `上传了参考文件「${cleanTitle}」，请各位专家结合该资料推进协作。`
+            : `已基于群聊内容自动整理并沉淀 Artifact「${cleanTitle}」，可点击卡片查看完整内容。`);
+        setAllMessages((prev) => [
+          ...prev,
+          {
+            id: `msg_art_${Date.now()}`,
+            sessionId: input.projectId,
+            senderType: isUserUpload ? 'employer' : 'butler',
+            senderId: isUserUpload ? 'employer' : 'butler',
+            senderName: isUserUpload ? creatorName : 'Nexa · 协同沉淀',
+            senderHandle: isUserUpload ? `@${creatorName}` : '@Nexa',
+            content: messageText,
+            timestamp: ts,
+            linkedArtifactIds: [newArtifact.id],
+          },
+        ]);
+      }
+
       const projName = workspaces.find((w) => w.id === input.projectId)?.name || '当前项目';
-      const actionVerb = input.sourceType === 'manual' ? '已上传文件' : '已沉淀 Artifact';
+      const actionVerb = input.sourceType === 'manual' ? '对话上传文件' : 'AI 沉淀 Artifact';
       setAuditLogs((prev) => [
         {
           id: `aud_art_${Date.now()}`,
@@ -739,10 +767,9 @@ export function useAgentNexusStore() {
           senderId: 'employer',
           senderName,
           senderHandle: `@${senderName}`,
-          content: `📎 分享了 Artifact「${resolvedArt.title}」（${resolvedArt.version}）：${
-            note?.trim() || resolvedArt.summary
-          }`,
+          content: note?.trim() || `分享了 Artifact「${resolvedArt.title}」，请各位查看并协同评审。`,
           timestamp: ts,
+          linkedArtifactIds: [resolvedArt.id],
         },
       ]);
       setAuditLogs((prev) => [

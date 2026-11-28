@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import {
   Check,
   Code2,
@@ -6,12 +6,12 @@ import {
   ExternalLink,
   FileCode2,
   FileText,
-  FileUp,
   FolderOpen,
   LayoutGrid,
   List,
   MessageSquare,
   Palette,
+  Paperclip,
   Presentation,
   Send,
   Share2,
@@ -19,7 +19,6 @@ import {
   Sparkles,
   Star,
   Trash2,
-  Upload,
   Users,
   X,
 } from 'lucide-react';
@@ -33,7 +32,6 @@ import type {
   ProjectWorkspace,
   WorkflowTask,
 } from '../../types/agentnexus';
-import { ModalShell } from '../shared/UiPrimitives';
 import {
   RailNavButton,
   RailSectionLabel,
@@ -114,40 +112,15 @@ const KIND_META: Record<
 };
 
 const SOURCE_META: Record<ArtifactSourceType, { label: string; cls: string }> = {
-  task_session: { label: '任务 AI 生成', cls: 'text-indigo-700 bg-indigo-50 border-indigo-200/70' },
-  project_group: { label: '群聊 AI 沉淀', cls: 'text-sky-700 bg-sky-50 border-sky-200/70' },
-  manual: { label: '本地上传', cls: 'text-slate-600 bg-slate-100 border-slate-200/80' },
+  task_session: { label: '任务 AI 产出', cls: 'text-indigo-700 bg-indigo-50 border-indigo-200/70' },
+  project_group: { label: '群聊 AI 产出', cls: 'text-sky-700 bg-sky-50 border-sky-200/70' },
+  manual: { label: '我对话上传', cls: 'text-slate-600 bg-slate-100 border-slate-200/80' },
 };
-
-function inferKindFromFilename(filename: string): ArtifactKind {
-  const lower = filename.toLowerCase();
-  if (/\.(ppt|pptx|key)$/.test(lower) || /演示|汇报|slide|ppt/.test(lower)) return 'ppt';
-  if (/\.(fig|sketch|xd|psd|ai|png|jpg|jpeg|webp|svg)$/.test(lower) || /原型|视觉|设计|ui/.test(lower))
-    return 'design';
-  if (/\.(ts|tsx|js|jsx|py|go|java|rs|sql|sh|yaml|yml|json|toml)$/.test(lower)) return 'code_test';
-  if (/架构|arch|topology|rfc/.test(lower)) return 'architecture';
-  if (/prd|需求|spec/.test(lower)) return 'prd';
-  return 'solution';
-}
-
-function isReadableTextFile(file: File): boolean {
-  if (file.type.startsWith('text/') || file.type === 'application/json') return true;
-  return /\.(md|markdown|txt|json|ts|tsx|js|jsx|py|go|java|rs|sql|csv|yaml|yml|xml|html|css|sh|log|env)$/i.test(
-    file.name,
-  );
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
 
 export function ArtifactsView({
   artifacts,
   workspaces,
   allTasks,
-  onCreateArtifact,
   onShareArtifactToChat,
   onToggleStarArtifact,
   onDeleteArtifact,
@@ -187,21 +160,6 @@ export function ArtifactsView({
   const [shareProjectId, setShareProjectId] = useState<string>(workspaces[0]?.id || '');
   const [shareNote, setShareNote] = useState('');
   const [shareSuccessProjectId, setShareSuccessProjectId] = useState<string | null>(null);
-
-  // Local File Upload Modal ("我上传的")
-  const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadKind, setUploadKind] = useState<ArtifactKind>('prd');
-  const [uploadProjectId, setUploadProjectId] = useState<string>(workspaces[0]?.id || '');
-  const [uploadTitle, setUploadTitle] = useState('');
-  const [uploadSummary, setUploadSummary] = useState('');
-  const [uploadContent, setUploadContent] = useState('');
-  const [uploadFileMeta, setUploadFileMeta] = useState<{
-    name: string;
-    size: number;
-    ext: string;
-  } | null>(null);
-  const [isDraggingFile, setIsDraggingFile] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     onBreadcrumbContextChange?.({ scope: scopeTab, category: categoryGroup });
@@ -308,65 +266,6 @@ export function ArtifactsView({
     }
   }, [previewArtifact?.id, previewArtifact?.projectId, workspaces]);
 
-  const openUploadModal = () => {
-    setUploadProjectId(projectFilter !== 'all' ? projectFilter : workspaces[0]?.id || '');
-    setUploadKind('prd');
-    setUploadTitle('');
-    setUploadSummary('');
-    setUploadContent('');
-    setUploadFileMeta(null);
-    setIsDraggingFile(false);
-    setUploadOpen(true);
-  };
-
-  const processSelectedFile = (file: File) => {
-    const extMatch = file.name.match(/\.([^.]+)$/);
-    const ext = extMatch ? extMatch[1].toLowerCase() : '';
-    const baseName = ext ? file.name.slice(0, -(ext.length + 1)) : file.name;
-    const inferredKind = inferKindFromFilename(file.name);
-
-    setUploadFileMeta({ name: file.name, size: file.size, ext });
-    setUploadKind(inferredKind);
-    setUploadTitle(baseName);
-    setUploadSummary(`本地上传文件：${file.name}（${formatFileSize(file.size)}）`);
-
-    if (isReadableTextFile(file)) {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const text = typeof reader.result === 'string' ? reader.result : '';
-        setUploadContent(
-          text.length > 12000
-            ? `${text.slice(0, 12000)}\n\n...（文件较大，已截取前 12,000 字符预览）`
-            : text || `已上传文本文件：${file.name}`,
-        );
-      };
-      reader.readAsText(file);
-    } else {
-      setUploadContent(
-        `文件名：${file.name}\n文件类型：${file.type || (ext ? `.${ext}` : '二进制文件')}\n文件大小：${formatFileSize(
-          file.size,
-        )}\n上传方式：本地文件直传，可在项目群聊中引用或分享给专家 Agent。`,
-      );
-    }
-  };
-
-  const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      processSelectedFile(file);
-    }
-    e.target.value = '';
-  };
-
-  const handleFileDrop = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDraggingFile(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) {
-      processSelectedFile(file);
-    }
-  };
-
   const handleCopyContent = (art: ProjectArtifact) => {
     const text =
       art.slides && art.slides.length > 0
@@ -381,51 +280,6 @@ export function ArtifactsView({
     window.setTimeout(() => {
       setCopiedId((prev) => (prev === art.id ? null : prev));
     }, 1800);
-  };
-
-  const handleUploadSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    if (!uploadFileMeta || !uploadTitle.trim()) return;
-
-    const cleanTitle = uploadTitle.trim();
-    const cleanSummary =
-      uploadSummary.trim() || `本地上传文件：${uploadFileMeta.name}（${formatFileSize(uploadFileMeta.size)}）`;
-    const tags = ['本地上传', uploadFileMeta.ext ? uploadFileMeta.ext.toUpperCase() : '文件'];
-
-    const slides =
-      uploadKind === 'ppt'
-        ? [
-            {
-              heading: `01 · ${cleanTitle}`,
-              bullets: [
-                `本地演示文稿：${uploadFileMeta.name}（${formatFileSize(uploadFileMeta.size)}）`,
-                cleanSummary,
-              ],
-            },
-          ]
-        : undefined;
-    const designSpec =
-      uploadKind === 'design'
-        ? {
-            palette: ['#0f172a', '#2563eb', '#7c3aed', '#10b981', '#f8fafc'],
-            typography: 'Inter + Noto Sans SC',
-            components: [uploadFileMeta.name, '本地设计源件'],
-          }
-        : undefined;
-
-    onCreateArtifact({
-      projectId: uploadProjectId || workspaces[0]?.id || 'ses_settlement_mvp',
-      title: cleanTitle,
-      kind: uploadKind,
-      summary: cleanSummary,
-      content: uploadContent || cleanSummary,
-      sourceType: 'manual',
-      authorType: 'human',
-      tags,
-      slides,
-      designSpec,
-    });
-    setUploadOpen(false);
   };
 
   const activeWorkspacesForShare = useMemo(
@@ -553,7 +407,7 @@ export function ArtifactsView({
             <RailSectionLabel>产物视图</RailSectionLabel>
             {[
               { id: 'all' as const, label: '全部产物', icon: Shapes, count: scopeCounts.all },
-              { id: 'yours' as const, label: '我上传的', icon: Upload, count: scopeCounts.yours },
+              { id: 'yours' as const, label: '我上传的', icon: Paperclip, count: scopeCounts.yours },
               { id: 'shared' as const, label: '分享给我的', icon: Users, count: scopeCounts.shared },
               { id: 'starred' as const, label: '标星收藏', icon: Star, count: scopeCounts.starred },
             ].map((item) => {
@@ -664,9 +518,9 @@ export function ArtifactsView({
                 onChange={setSourceFilter}
                 options={[
                   { id: 'all', label: '全部来源' },
-                  { id: 'task_session', label: '任务 AI 生成' },
-                  { id: 'project_group', label: '群聊 AI 沉淀' },
-                  { id: 'manual', label: '本地上传' },
+                  { id: 'task_session', label: '任务 AI 产出' },
+                  { id: 'project_group', label: '群聊 AI 产出' },
+                  { id: 'manual', label: '我对话上传' },
                 ]}
               />
               <ToolbarDropdown
@@ -682,42 +536,32 @@ export function ArtifactsView({
             </>
           }
           right={
-            <>
-              <div className="inline-flex items-center p-0.5 rounded-lg border border-slate-200 bg-slate-50">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('grid')}
-                  title="卡片画廊视图"
-                  className={`p-1.5 rounded-md cursor-pointer transition-colors ${
-                    viewMode === 'grid'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-400 hover:text-slate-700'
-                  }`}
-                >
-                  <LayoutGrid className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setViewMode('list')}
-                  title="紧凑列表视图"
-                  className={`p-1.5 rounded-md cursor-pointer transition-colors ${
-                    viewMode === 'list'
-                      ? 'bg-white text-slate-900 shadow-2xs'
-                      : 'text-slate-400 hover:text-slate-700'
-                  }`}
-                >
-                  <List className="w-3.5 h-3.5" />
-                </button>
-              </div>
+            <div className="inline-flex items-center p-0.5 rounded-lg border border-slate-200 bg-slate-50">
               <button
                 type="button"
-                onClick={openUploadModal}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white whitespace-nowrap cursor-pointer shrink-0"
+                onClick={() => setViewMode('grid')}
+                title="卡片画廊视图"
+                className={`p-1.5 rounded-md cursor-pointer transition-colors ${
+                  viewMode === 'grid'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
               >
-                <Upload className="w-3.5 h-3.5" />
-                <span>上传文件</span>
+                <LayoutGrid className="w-3.5 h-3.5" />
               </button>
-            </>
+              <button
+                type="button"
+                onClick={() => setViewMode('list')}
+                title="紧凑列表视图"
+                className={`p-1.5 rounded-md cursor-pointer transition-colors ${
+                  viewMode === 'list'
+                    ? 'bg-white text-slate-900 shadow-2xs'
+                    : 'text-slate-400 hover:text-slate-700'
+                }`}
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+            </div>
           }
         />
 
@@ -773,8 +617,8 @@ export function ArtifactsView({
                   <span className="hidden sm:inline text-slate-300">·</span>
                   <span className="hidden sm:inline text-[11px] text-slate-400">
                     {scopeTab === 'yours'
-                      ? '仅展示你手动上传归档的本地文件与参考资料'
-                      : '自动汇聚项目群聊与任务会话中 AI 生成的产出物，以及本地上传文件'}
+                      ? '自动汇聚你在项目群聊与任务对话中输入上传的文件与参考资料'
+                      : '自动汇聚对话中 AI 生成的 PPT、分析报告、图片与代码，以及你对话上传的文件'}
                   </span>
                 </div>
                 {(categoryGroup !== 'all' || projectFilter !== 'all' || sourceFilter !== 'all' || searchKeyword.trim()) && (
@@ -797,14 +641,14 @@ export function ArtifactsView({
                 <div className="border-y border-slate-200/75 py-14 px-6 text-center space-y-2.5">
                   <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-500 inline-flex items-center justify-center mx-auto">
                     {scopeTab === 'yours' ? (
-                      <Upload className="w-5 h-5" />
+                      <Paperclip className="w-5 h-5" />
                     ) : (
                       <Shapes className="w-5 h-5" />
                     )}
                   </div>
                   <p className="text-sm font-semibold text-slate-800">
                     {scopeTab === 'yours'
-                      ? '暂无你上传的文件'
+                      ? '暂无你在对话中上传的文件'
                       : scopeTab === 'shared'
                         ? '暂无分享给你的 Artifact'
                         : scopeTab === 'starred'
@@ -813,23 +657,11 @@ export function ArtifactsView({
                   </p>
                   <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
                     {scopeTab === 'yours'
-                      ? '你可以上传本地文档、PPT、设计源文件或代码片段至项目产物库，方便在对话中随时分享给专家 Agent。'
+                      ? '当你在项目群聊或任务会话输入框中发送文件或参考资料时，会自动归档至「我上传的」。'
                       : scopeTab === 'shared'
                         ? '当协作者或社区专家在项目群或任务会话中分享文档、PPT 或设计素材时，会自动汇聚到这里。'
-                        : 'Artifacts 会在项目群聊与任务会话中由 AI 自动生成沉淀；也可以点击右上角「上传文件」归档本地资料。'}
+                        : '所有 Artifacts 均产生于对话过程：包括你对话上传的参考资料，以及 AI 产出的 PPT、分析报告、设计与代码。'}
                   </p>
-                  {scopeTab === 'yours' && (
-                    <div className="pt-1">
-                      <button
-                        type="button"
-                        onClick={openUploadModal}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        <span>上传本地文件</span>
-                      </button>
-                    </div>
-                  )}
                 </div>
               ) : viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 @[560px]:grid-cols-2 @[980px]:grid-cols-3 gap-4">
@@ -1312,170 +1144,6 @@ export function ArtifactsView({
           </aside>
         </div>
       )}
-
-      {/* UPLOAD LOCAL FILE MODAL ("我上传的") */}
-      <ModalShell
-        open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
-        icon={<FileUp className="w-4 h-4 text-blue-600" />}
-        title="上传本地文件至 Artifacts"
-        subtitle="上传后归入「我上传的」，并可一键分享至任意项目群供专家 Agent 引用"
-        maxWidthClass="max-w-lg"
-        onSubmit={handleUploadSubmit}
-        footer={
-          <>
-            <span className="text-[11px] text-slate-500">
-              支持 Markdown、代码、文档、PPT、设计源文件等本地文件
-            </span>
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={() => setUploadOpen(false)}
-                className="px-3.5 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-xs font-semibold text-slate-700 cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                type="submit"
-                disabled={!uploadFileMeta || !uploadTitle.trim()}
-                className="px-4 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-xs font-semibold text-white cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
-              >
-                确认上传
-              </button>
-            </div>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={handleFileInputChange}
-            accept=".md,.markdown,.txt,.json,.ts,.tsx,.js,.jsx,.py,.go,.sql,.csv,.yaml,.yml,.pdf,.doc,.docx,.ppt,.pptx,.fig,.sketch,.png,.jpg,.jpeg,.svg,.zip"
-            className="hidden"
-          />
-
-          {/* Dropzone */}
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDraggingFile(true);
-            }}
-            onDragLeave={() => setIsDraggingFile(false)}
-            onDrop={handleFileDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`rounded-xl border border-dashed p-5 text-center transition-colors cursor-pointer ${
-              isDraggingFile
-                ? 'border-blue-500 bg-blue-50/70'
-                : uploadFileMeta
-                  ? 'border-emerald-300 bg-emerald-50/40'
-                  : 'border-slate-300 bg-slate-50/60 hover:border-slate-400 hover:bg-slate-50'
-            }`}
-          >
-            {uploadFileMeta ? (
-              <div className="flex items-center justify-between gap-3 text-left">
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-9 h-9 rounded-lg bg-white border border-emerald-200 text-emerald-700 inline-flex items-center justify-center shrink-0">
-                    <FileUp className="w-4 h-4" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold text-slate-900 truncate">
-                      {uploadFileMeta.name}
-                    </div>
-                    <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
-                      {formatFileSize(uploadFileMeta.size)} · 点击可重新选择文件
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setUploadFileMeta(null);
-                    setUploadTitle('');
-                    setUploadSummary('');
-                    setUploadContent('');
-                  }}
-                  className="p-1.5 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white cursor-pointer shrink-0"
-                  aria-label="移除已选文件"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-1.5 py-2">
-                <div className="w-9 h-9 rounded-xl bg-white border border-slate-200 text-slate-600 inline-flex items-center justify-center mx-auto">
-                  <Upload className="w-4 h-4" />
-                </div>
-                <div className="text-xs font-semibold text-slate-800">
-                  点击选择本地文件，或直接拖拽到此处
-                </div>
-                <div className="text-[11px] text-slate-400">
-                  自动识别文档、演示稿、设计源文件与代码类型，文本类文件将实时解析预览
-                </div>
-              </div>
-            )}
-          </div>
-
-          {uploadFileMeta && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">归属项目</label>
-                  <select
-                    value={uploadProjectId}
-                    onChange={(e) => setUploadProjectId(e.target.value)}
-                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    {workspaces.map((w) => (
-                      <option key={w.id} value={w.id}>
-                        {w.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-700">自动识别分类</label>
-                  <select
-                    value={uploadKind}
-                    onChange={(e) => setUploadKind(e.target.value as ArtifactKind)}
-                    className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-2.5 text-xs text-slate-800 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                  >
-                    {(Object.keys(KIND_META) as ArtifactKind[]).map((k) => (
-                      <option key={k} value={k}>
-                        {KIND_META[k].label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">显示标题 *</label>
-                <input
-                  type="text"
-                  required
-                  value={uploadTitle}
-                  onChange={(e) => setUploadTitle(e.target.value)}
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700">备注说明（可选）</label>
-                <input
-                  type="text"
-                  value={uploadSummary}
-                  onChange={(e) => setUploadSummary(e.target.value)}
-                  placeholder="补充文件用途或版本说明..."
-                  className="w-full h-9 bg-slate-50 border border-slate-200 rounded-lg px-3 text-xs text-slate-900 focus:outline-none focus:bg-white focus:ring-2 focus:ring-blue-600/20"
-                />
-              </div>
-            </>
-          )}
-        </div>
-      </ModalShell>
     </div>
   );
 }

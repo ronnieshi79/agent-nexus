@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
 import {
   AtSign,
   FileCode2,
@@ -6,6 +14,7 @@ import {
   Lock,
   MessageSquareCode,
   MoreHorizontal,
+  Paperclip,
   RotateCcw,
   Send,
   Shapes,
@@ -17,6 +26,7 @@ import type {
   ActiveWorkflowStage,
   AgentLeaseRecord,
   AgentNexusAccount,
+  ArtifactKind,
   ChatMessage,
   CommunityZone,
   ComputeNode,
@@ -40,6 +50,7 @@ import type {
 import type { TaskTemplatePackId } from '../../utils/pipelineSync';
 import { STAGE_LABEL_MAP, resolveTaskWorkflowTeam } from '../../utils/taskWorkflow';
 import { ChatChannelHeader } from '../chat/ChatChannelHeader';
+import { ArtifactPreviewModal, GroupArtifactCard } from '../chat/GroupArtifactCard';
 import { GroupTaskCard } from '../chat/GroupTaskCard';
 import { MessageToArtifactModal } from '../chat/MessageToArtifactModal';
 import { MessageToTaskModal } from '../chat/MessageToTaskModal';
@@ -136,6 +147,23 @@ const WORK_TYPE_LABELS: Record<WorkCardType, string> = {
   review: '架构评审',
 };
 
+function inferChatFileKind(filename: string): ArtifactKind {
+  const lower = filename.toLowerCase();
+  if (/\.(ppt|pptx|key)$/.test(lower) || /演示|汇报|slide|ppt/.test(lower)) return 'ppt';
+  if (/\.(fig|sketch|xd|psd|ai|png|jpg|jpeg|webp|svg)$/.test(lower) || /原型|视觉|设计|ui/.test(lower))
+    return 'design';
+  if (/\.(ts|tsx|js|jsx|py|go|java|rs|sql|sh|yaml|yml|json|toml)$/.test(lower)) return 'code_test';
+  if (/架构|arch|topology|rfc/.test(lower)) return 'architecture';
+  if (/prd|需求|spec/.test(lower)) return 'prd';
+  return 'solution';
+}
+
+function formatBytesShort(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 export function GroupChatView({
   workspace,
   linkedZone,
@@ -203,9 +231,19 @@ export function GroupChatView({
   // AI task / artifact extraction triggered directly from a chat message
   const [taskExtractSourceMsg, setTaskExtractSourceMsg] = useState<ChatMessage | null>(null);
   const [artifactExtractSourceMsg, setArtifactExtractSourceMsg] = useState<ChatMessage | null>(null);
+  const [previewArtifact, setPreviewArtifact] = useState<ProjectArtifact | null>(null);
+  // Pending file attached directly in the chat composer ("我上传的")
+  const [pendingAttachment, setPendingAttachment] = useState<{
+    name: string;
+    size: number;
+    ext: string;
+    kind: ArtifactKind;
+    content: string;
+  } | null>(null);
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const chatFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setComposerTool('none');
@@ -213,6 +251,8 @@ export function GroupChatView({
     setKanbanExpanded(false);
     setTaskExtractSourceMsg(null);
     setArtifactExtractSourceMsg(null);
+    setPreviewArtifact(null);
+    setPendingAttachment(null);
   }, [workspace.id, workspace.name]);
 
   const lastKanbanSignalRef = useRef(groupKanbanOpenSignal);
@@ -243,6 +283,12 @@ export function GroupChatView({
     return map;
   }, [tasks]);
 
+  const artifactById = useMemo(() => {
+    const map = new Map<string, ProjectArtifact>();
+    projectArtifacts.forEach((a) => map.set(a.id, a));
+    return map;
+  }, [projectArtifacts]);
+
   const inProgressTasks = useMemo(
     () => tasks.filter((t) => t.status === 'in_progress' || executingTaskId === t.id),
     [executingTaskId, tasks],
@@ -267,9 +313,94 @@ export function GroupChatView({
     return projectArtifacts.length + derived;
   }, [projectArtifacts, tasks]);
 
+  const handleChatFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const extMatch = file.name.match(/\.([^.]+)$/);
+    const ext = extMatch ? extMatch[1].toLowerCase() : '';
+    const kind = inferChatFileKind(file.name);
+    const isText =
+      file.type.startsWith('text/') ||
+      file.type === 'application/json' ||
+      /\.(md|markdown|txt|json|ts|tsx|js|jsx|py|go|sql|csv|yaml|yml|xml|html|css|sh)$/i.test(
+        file.name,
+      );
+
+    if (isText) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = typeof reader.result === 'string' ? reader.result : '';
+        setPendingAttachment({
+          name: file.name,
+          size: file.size,
+          ext,
+          kind,
+          content:
+            text.length > 12000
+              ? `${text.slice(0, 12000)}\n\n...（已截取前 12,000 字符）`
+              : text || `对话上传文件：${file.name}`,
+        });
+      };
+      reader.readAsText(file);
+    } else {
+      setPendingAttachment({
+        name: file.name,
+        size: file.size,
+        ext,
+        kind,
+        content: `文件名：${file.name}\n类型：${file.type || (ext ? `.${ext}` : '文件')}\n大小：${formatBytesShort(
+          file.size,
+        )}\n来源：在「${workspace.name}」项目群对话中直接上传输入。`,
+      });
+    }
+    textareaRef.current?.focus();
+  };
+
   const submitMessage = async () => {
     const cleaned = draft.trim();
-    if (!cleaned || isBusy || isReadOnly) return;
+    if ((!cleaned && !pendingAttachment) || isBusy || isReadOnly) return;
+
+    if (pendingAttachment && onCreateArtifact) {
+      const att = pendingAttachment;
+      setPendingAttachment(null);
+      setDraft('');
+      setComposerTool('none');
+      onCreateArtifact({
+        projectId: workspace.id,
+        title: att.name,
+        kind: att.kind,
+        summary: cleaned || `在项目群对话中上传的文件（${formatBytesShort(att.size)}）`,
+        content: att.content,
+        sourceType: 'manual',
+        authorType: 'human',
+        tags: ['我对话上传', att.ext ? att.ext.toUpperCase() : '附件'],
+        slides:
+          att.kind === 'ppt'
+            ? [
+                {
+                  heading: `01 · ${att.name}`,
+                  bullets: [
+                    `对话上传演示稿（${formatBytesShort(att.size)}）`,
+                    cleaned || '已在项目群中同步给协作专家参考',
+                  ],
+                },
+              ]
+            : undefined,
+        designSpec:
+          att.kind === 'design'
+            ? {
+                palette: ['#0f172a', '#2563eb', '#7c3aed', '#10b981', '#f8fafc'],
+                typography: 'Inter + Noto Sans SC',
+                components: [att.name, '对话输入设计稿'],
+              }
+            : undefined,
+        postToGroupChat: true,
+        chatMessageContent: cleaned || `上传了文件「${att.name}」，请各位结合该输入推进协作。`,
+      });
+      return;
+    }
+
     setDraft('');
     setComposerTool('none');
     await onSendMessage(cleaned);
@@ -390,6 +521,9 @@ export function GroupChatView({
               const linkedTasks = (msg.linkedTaskIds || [])
                 .map((id) => taskById.get(id))
                 .filter((t): t is WorkflowTask => Boolean(t));
+              const linkedArtifacts = (msg.linkedArtifactIds || [])
+                .map((id) => artifactById.get(id))
+                .filter((a): a is ProjectArtifact => Boolean(a));
 
               return (
                 <div
@@ -476,26 +610,39 @@ export function GroupChatView({
                       }`}
                     >
                       <p className="whitespace-pre-wrap">{msg.content}</p>
-
-                      {/* Embedded Project Task Cards: compact card-mode summary, click to enter multi-agent Task Session */}
-                      {linkedTasks.length > 0 && (
-                        <div className="mt-3 space-y-3">
-                          {linkedTasks.map((task) => (
-                            <GroupTaskCard
-                              key={task.id}
-                              task={task}
-                              workspace={workspace}
-                              agents={resolvedAgents}
-                              assignments={assignments}
-                              pipelineSlots={pipelineSlots}
-                              sessionMessages={taskSessions[task.id] || []}
-                              isExecuting={executingTaskId === task.id}
-                              onOpenTaskSession={onOpenTaskSession}
-                            />
-                          ))}
-                        </div>
-                      )}
                     </div>
+
+                    {/* Embedded Artifact Cards inside chat message stream */}
+                    {linkedArtifacts.length > 0 && (
+                      <div className="mt-2.5 space-y-2 w-full max-w-xl">
+                        {linkedArtifacts.map((art) => (
+                          <GroupArtifactCard
+                            key={art.id}
+                            artifact={art}
+                            onPreview={setPreviewArtifact}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Embedded Project Task Cards inside chat message stream */}
+                    {linkedTasks.length > 0 && (
+                      <div className="mt-2.5 space-y-3 w-full">
+                        {linkedTasks.map((task) => (
+                          <GroupTaskCard
+                            key={task.id}
+                            task={task}
+                            workspace={workspace}
+                            agents={resolvedAgents}
+                            assignments={assignments}
+                            pipelineSlots={pipelineSlots}
+                            sessionMessages={taskSessions[task.id] || []}
+                            isExecuting={executingTaskId === task.id}
+                            onOpenTaskSession={onOpenTaskSession}
+                          />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -600,13 +747,20 @@ export function GroupChatView({
                 workspace={workspace}
                 onClose={() => setArtifactExtractSourceMsg(null)}
                 onConfirmCreate={(input) => {
-                  onCreateArtifact(input);
+                  onCreateArtifact({ ...input, postToGroupChat: true });
                   setSettingsOpen(false);
                   setRightOpen(true);
                   setRightTab('artifacts');
                 }}
               />
             )}
+
+            {/* Shared Artifact Preview Modal (for both message Artifact cards and right-rail list rows) */}
+            <ArtifactPreviewModal
+              artifact={previewArtifact}
+              onClose={() => setPreviewArtifact(null)}
+              onOpenTaskSession={onOpenTaskSession}
+            />
 
             {/* Attached Popover Shelf 3: Quick Prompt Presets */}
             {composerTool === 'presets' && (
@@ -649,6 +803,34 @@ export function GroupChatView({
                   : 'focus-within:bg-white focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-600/15'
               }`}
             >
+              <input
+                ref={chatFileInputRef}
+                type="file"
+                onChange={handleChatFileSelect}
+                accept=".md,.markdown,.txt,.json,.ts,.tsx,.js,.jsx,.py,.go,.sql,.csv,.yaml,.yml,.pdf,.doc,.docx,.ppt,.pptx,.fig,.sketch,.png,.jpg,.jpeg,.svg,.zip"
+                className="hidden"
+              />
+
+              {pendingAttachment && (
+                <div className="px-3.5 pt-2.5">
+                  <div className="inline-flex items-center gap-2 max-w-full px-2.5 py-1.5 rounded-lg bg-white border border-slate-200 text-xs text-slate-700">
+                    <Paperclip className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="font-medium truncate">{pendingAttachment.name}</span>
+                    <span className="text-[11px] font-mono text-slate-400 shrink-0">
+                      {formatBytesShort(pendingAttachment.size)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPendingAttachment(null)}
+                      className="text-slate-400 hover:text-slate-700 cursor-pointer shrink-0"
+                      aria-label="移除待发送文件"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <textarea
                 ref={textareaRef}
                 rows={2}
@@ -659,12 +841,14 @@ export function GroupChatView({
                 placeholder={
                   isReadOnly
                     ? '项目已结项/归档，只读查看历史记录。重新激活项目后可继续派单。'
-                    : '输入新任务需求让专家按工作流自动接力，或 @ 专家驱动流程往下移 / 继续补充要求...（Enter 发送）'
+                    : pendingAttachment
+                      ? '可补充说明后发送，文件将作为 Artifact 卡片发出并归入「我上传的」...（Enter 发送）'
+                      : '输入新任务需求让专家按工作流自动接力，或上传文件 / @ 专家驱动流程...（Enter 发送）'
                 }
                 className="w-full bg-transparent px-3.5 pt-3 pb-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none resize-none leading-relaxed disabled:cursor-not-allowed"
               />
 
-              {/* Composer Bottom Action Bar: @ Expert, + New Work Card, Quick Directives, Send */}
+              {/* Composer Bottom Action Bar: @ Expert, Attach File, Quick Directives, Send */}
               <div className="px-2.5 pb-2.5 pt-1 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1 overflow-x-auto">
                   <button
@@ -682,6 +866,19 @@ export function GroupChatView({
                     <AtSign className="w-3.5 h-3.5" />
                     <span>@ 专家 ({hiredAgents.length})</span>
                   </button>
+
+                  {onCreateArtifact && (
+                    <button
+                      type="button"
+                      disabled={isReadOnly}
+                      onClick={() => chatFileInputRef.current?.click()}
+                      title="在对话中上传文件，发送后自动归入 Artifacts「我上传的」"
+                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-200/70 transition-colors whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                    >
+                      <Paperclip className="w-3.5 h-3.5" />
+                      <span>上传文件</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -702,7 +899,7 @@ export function GroupChatView({
 
                 <button
                   type="submit"
-                  disabled={isBusy || isReadOnly || !draft.trim()}
+                  disabled={isBusy || isReadOnly || (!draft.trim() && !pendingAttachment)}
                   className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white whitespace-nowrap shrink-0 cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <Send className="w-3.5 h-3.5" />
@@ -811,7 +1008,7 @@ export function GroupChatView({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto clean-scroll p-4 space-y-4">
+          <div className="flex-1 overflow-y-auto clean-scroll px-3 py-3 space-y-3">
             {rightTab === 'tasks' ? (
               <>
                 {groupedInProgressCards.length === 0 ? (
@@ -836,121 +1033,112 @@ export function GroupChatView({
                 ) : (
                   <>
                     {groupedInProgressCards.map(([moduleName, moduleTasks]) => (
-                      <div key={moduleName} className="space-y-3">
-                        <div className="flex items-center justify-between px-1">
-                          <span className="text-xs font-bold text-slate-800">{moduleName}</span>
-                          <span className="text-[11px] font-mono tabular-nums text-blue-700">
+                      <div key={moduleName} className="space-y-1">
+                        <div className="flex items-center justify-between px-1.5 pb-1">
+                          <span className="text-[11px] font-semibold text-slate-500">
+                            {moduleName}
+                          </span>
+                          <span className="text-[10.5px] font-mono tabular-nums text-blue-700">
                             {moduleTasks.length} 执行中
                           </span>
                         </div>
 
-                        {moduleTasks.map((task) => {
-                          const isExec = executingTaskId === task.id;
-                          const sessionMsgs = taskSessions[task.id] || [];
-                          const lastMsg = sessionMsgs[sessionMsgs.length - 1];
-                          const needsConfirm = Boolean(lastMsg?.awaitingConfirmation);
-                          const workflow = resolveTaskWorkflowTeam(
-                            task,
-                            workspace,
-                            resolvedAgents,
-                            assignments,
-                            pipelineSlots,
-                          );
-                          const activeSpecialist = workflow.activeAgent;
+                        <ul className="divide-y divide-slate-200/70">
+                          {moduleTasks.map((task) => {
+                            const isExec = executingTaskId === task.id;
+                            const sessionMsgs = taskSessions[task.id] || [];
+                            const lastMsg = sessionMsgs[sessionMsgs.length - 1];
+                            const needsConfirm = Boolean(lastMsg?.awaitingConfirmation);
+                            const workflow = resolveTaskWorkflowTeam(
+                              task,
+                              workspace,
+                              resolvedAgents,
+                              assignments,
+                              pipelineSlots,
+                            );
+                            const activeSpecialist = workflow.activeAgent;
 
-                          return (
-                            <div
-                              key={task.id}
-                              className="bg-white rounded-xl p-4 border border-slate-200/85 hover:border-slate-300 transition-colors space-y-3"
-                            >
-                              <div className="flex items-center justify-between text-[11px]">
-                                <span className="text-slate-500 font-medium">
-                                  {WORK_TYPE_LABELS[task.workType]} ·{' '}
-                                  <span className="font-mono">{task.id}</span>
-                                </span>
-                                <WorkStatusBadge status={task.status} executing={isExec} />
-                              </div>
-
-                              <button
-                                type="button"
-                                onClick={() => onOpenTaskSession(task.id)}
-                                className="block w-full text-left text-[13px] font-semibold text-slate-900 hover:text-blue-700 leading-snug cursor-pointer"
+                            return (
+                              <li
+                                key={task.id}
+                                className="group/trow py-2.5 px-1.5 hover:bg-slate-200/45 rounded-md transition-colors space-y-1.5"
                               >
-                                {task.title}
-                              </button>
-
-                              <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                                <span className="inline-flex items-center gap-1.5 min-w-0">
-                                  <span className="flex -space-x-1 shrink-0">
-                                    {workflow.participants.map((p) => (
-                                      <span
-                                        key={p.id}
-                                        title={p.handle}
-                                        className="w-4 h-4 rounded-full ring-1 ring-white text-[8px] font-bold text-white inline-flex items-center justify-center"
-                                        style={{ backgroundColor: p.avatarAccent }}
-                                      >
-                                        {p.avatarCode.slice(0, 1)}
-                                      </span>
-                                    ))}
-                                  </span>
-                                  <AgentIdentityName
-                                    name={activeSpecialist?.handle || task.assigneeHandle}
-                                    runtime={activeSpecialist?.runtimeAgent}
-                                    model={activeSpecialist?.defaultModel}
-                                    className="font-medium text-slate-700"
-                                  />
-                                </span>
-                                <span className="font-mono tabular-nums shrink-0 text-[10.5px]">
-                                  {STAGE_LABEL_MAP[workflow.currentStage]} · {task.updatedAt}
-                                </span>
-                              </div>
-
-                              {task.deliverableArtifact && (
-                                <div className="flex items-center gap-1.5 text-[11px] font-mono text-blue-700 truncate">
-                                  <FileCode2 className="w-3.5 h-3.5 shrink-0" />
-                                  <span className="truncate">{task.deliverableArtifact}</span>
-                                </div>
-                              )}
-
-                              <div className="flex items-center gap-2 pt-1">
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenTaskSession(task.id)}
-                                  className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap cursor-pointer ${
-                                    needsConfirm
-                                      ? 'bg-amber-50 border-amber-300 text-amber-800 hover:bg-amber-100/70'
-                                      : 'bg-[#FAFAFA] border-slate-200 text-slate-800 hover:bg-slate-900 hover:text-white hover:border-slate-900'
-                                  }`}
-                                >
-                                  <MessageSquareCode className="w-3.5 h-3.5 shrink-0" />
-                                  <span>
-                                    {needsConfirm
-                                      ? '待确认 · 进入会话'
-                                      : sessionMsgs.length > 0
-                                        ? `任务会话 (${sessionMsgs.length})`
-                                        : '进入任务会话'}
-                                  </span>
-                                </button>
-
-                                {onUpdateTaskStatus && (
+                                <div className="flex items-start justify-between gap-2">
                                   <button
                                     type="button"
-                                    disabled={isReadOnly}
-                                    onClick={() => onUpdateTaskStatus(task.id, 'review')}
-                                    className="inline-flex items-center justify-center gap-1 py-2 px-3 rounded-lg text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white whitespace-nowrap cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
+                                    onClick={() => onOpenTaskSession(task.id)}
+                                    className="text-left text-[12.5px] font-semibold text-slate-900 hover:text-blue-700 leading-snug line-clamp-2 cursor-pointer flex-1 min-w-0"
                                   >
-                                    <span>提交验收</span>
+                                    {task.title}
                                   </button>
+                                  <WorkStatusBadge status={task.status} executing={isExec} />
+                                </div>
+
+                                <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                                  <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
+                                    <AgentIdentityName
+                                      name={activeSpecialist?.handle || task.assigneeHandle}
+                                      runtime={activeSpecialist?.runtimeAgent}
+                                      model={activeSpecialist?.defaultModel}
+                                      className="font-medium text-slate-700"
+                                    />
+                                    <span className="text-slate-300">·</span>
+                                    <span className="truncate">
+                                      {WORK_TYPE_LABELS[task.workType]}
+                                    </span>
+                                  </span>
+                                  <span className="font-mono tabular-nums shrink-0 text-[10.5px] text-slate-400">
+                                    {STAGE_LABEL_MAP[workflow.currentStage]} · {task.updatedAt}
+                                  </span>
+                                </div>
+
+                                {task.deliverableArtifact && (
+                                  <div className="flex items-center gap-1 text-[10.5px] font-mono text-blue-700 truncate">
+                                    <FileCode2 className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">{task.deliverableArtifact}</span>
+                                  </div>
                                 )}
-                              </div>
-                            </div>
-                          );
-                        })}
+
+                                <div className="flex items-center justify-between gap-2 pt-0.5 text-[11px]">
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTaskSession(task.id)}
+                                    className={`inline-flex items-center gap-1 font-semibold cursor-pointer whitespace-nowrap ${
+                                      needsConfirm
+                                        ? 'text-amber-700 hover:text-amber-900'
+                                        : 'text-slate-600 hover:text-slate-950'
+                                    }`}
+                                  >
+                                    <MessageSquareCode className="w-3 h-3 shrink-0" />
+                                    <span>
+                                      {needsConfirm
+                                        ? '待确认 · 进入会话'
+                                        : sessionMsgs.length > 0
+                                          ? `任务会话 (${sessionMsgs.length})`
+                                          : '进入任务会话'}
+                                    </span>
+                                  </button>
+
+                                  {onUpdateTaskStatus && (
+                                    <button
+                                      type="button"
+                                      disabled={isReadOnly}
+                                      onClick={() => onUpdateTaskStatus(task.id, 'review')}
+                                      className="font-semibold text-blue-700 hover:text-blue-900 cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
+                                    >
+                                      提交验收 →
+                                    </button>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
                       </div>
                     ))}
 
                     {tasks.length > inProgressTasks.length && (
-                      <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between text-[11px] text-slate-500 px-1">
+                      <div className="pt-2 border-t border-slate-200/70 flex items-center justify-between text-[11px] text-slate-500 px-1.5">
                         <span>
                           另有{' '}
                           <strong className="font-mono tabular-nums text-slate-700">
@@ -978,78 +1166,75 @@ export function GroupChatView({
                 projectId={workspace.id}
                 artifacts={projectArtifacts}
                 tasks={tasks}
-                onOpenTaskSession={onOpenTaskSession}
+                onPreviewArtifact={setPreviewArtifact}
                 onOpenProjectArtifacts={onOpenProjectArtifacts}
               />
             ) : (
-              <>
-                {hiredAgents.map((agent) => (
-                  <div
-                    key={agent.id}
-                    className="bg-white rounded-xl p-3.5 border border-slate-200/90 space-y-2"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <EntityAvatar
-                        kind="agent"
-                        code={agent.avatarCode}
-                        accent={agent.avatarAccent}
-                        size="md"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 min-w-0">
-                          <AgentIdentityName
-                            name={agent.handle}
-                            runtime={agent.runtimeAgent}
-                            model={agent.defaultModel}
-                            showModel
-                            className="text-xs font-bold text-slate-900"
-                          />
-                        </div>
-                        <div className="text-[11px] text-slate-500 truncate">
-                          {agent.ownerHumanName
-                            ? `归属专家：${agent.ownerHumanName} · ${agent.title}`
-                            : agent.title}
+              <ul className="divide-y divide-slate-200/70">
+                {hiredAgents.map((agent) => {
+                  const agentProjTask = tasks.find((t) => t.assigneeId === agent.id);
+                  return (
+                    <li
+                      key={agent.id}
+                      className="group/arow py-2.5 px-1.5 hover:bg-slate-200/45 rounded-md transition-colors space-y-1"
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <EntityAvatar
+                          kind="agent"
+                          code={agent.avatarCode}
+                          accent={agent.avatarAccent}
+                          size="sm"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <AgentIdentityName
+                              name={agent.handle}
+                              runtime={agent.runtimeAgent}
+                              model={agent.defaultModel}
+                              showModel
+                              className="text-xs font-semibold text-slate-900"
+                            />
+                            <span className="text-[10.5px] font-mono tabular-nums text-slate-400 shrink-0">
+                              {agent.ownership === 'private'
+                                ? '私有'
+                                : `$${agent.projectPriceUsd.toLocaleString('en-US')}`}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 truncate">
+                            {agent.ownerHumanName
+                              ? `${agent.ownerHumanName} · ${agent.title}`
+                              : agent.title}
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    <p className="text-[11px] text-slate-600 leading-relaxed">
-                      {agent.skills.slice(0, 4).join(' · ')}
-                    </p>
-
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
-                      <span className="font-mono tabular-nums text-slate-600 truncate">
-                        {agent.ownership === 'private'
-                          ? '私有自用'
-                          : `$${agent.projectPriceUsd.toLocaleString('en-US')}/项目`}
-                      </span>
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        {(() => {
-                          const agentProjTask = tasks.find((t) => t.assigneeId === agent.id);
-                          if (!agentProjTask) return null;
-                          return (
+                      <div className="pl-[34px] flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-slate-400 truncate">
+                          {agent.skills.slice(0, 3).join(' · ')}
+                        </span>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          {agentProjTask && (
                             <button
                               type="button"
                               onClick={() => onOpenTaskSession(agentProjTask.id)}
-                              className="inline-flex items-center gap-1 text-slate-700 hover:text-slate-900 font-semibold cursor-pointer whitespace-nowrap"
+                              className="text-slate-600 hover:text-slate-950 font-medium cursor-pointer whitespace-nowrap"
                             >
-                              <MessageSquareCode className="w-3 h-3" />
-                              <span>任务对话</span>
+                              会话
                             </button>
-                          );
-                        })()}
-                        <button
-                          type="button"
-                          onClick={() => insertMention(agent.handle)}
-                          className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer whitespace-nowrap"
-                        >
-                          @ 他派单
-                        </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => insertMention(agent.handle)}
+                            className="text-blue-600 hover:text-blue-800 font-semibold cursor-pointer whitespace-nowrap"
+                          >
+                            @ 派单
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  </div>
-                ))}
-              </>
+                    </li>
+                  );
+                })}
+              </ul>
             )}
           </div>
         </aside>
